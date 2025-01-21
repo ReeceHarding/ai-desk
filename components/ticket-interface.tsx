@@ -124,7 +124,7 @@ export function TicketInterface({
                     variant="ghost"
                     size="icon"
                     onClick={onStarToggle}
-                    className={isStarred ? 'text-yellow-400' : 'text-slate-400 hover:text-yellow-400'}
+                    className={isStarred ? 'text-yellow-400 hover:text-yellow-300 hover:bg-yellow-400/10' : 'text-slate-400 hover:text-yellow-400 hover:bg-yellow-400/10'}
                   >
                     <Star className="h-4 w-4" />
                   </Button>
@@ -137,7 +137,7 @@ export function TicketInterface({
                     variant="ghost"
                     size="icon"
                     onClick={onSubscribeToggle}
-                    className="text-slate-400 hover:text-white"
+                    className="text-slate-400 hover:text-white hover:bg-slate-700/50"
                   >
                     {isSubscribed ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
                   </Button>
@@ -151,7 +151,7 @@ export function TicketInterface({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-slate-400 hover:text-white"
+                    className="text-slate-400 hover:text-white hover:bg-slate-700/50"
                   >
                     <Share2 className="h-4 w-4" />
                   </Button>
@@ -163,7 +163,7 @@ export function TicketInterface({
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="text-slate-400 hover:text-white"
+                    className="text-slate-400 hover:text-white hover:bg-slate-700/50"
                   >
                     <MoreHorizontal className="h-4 w-4" />
                   </Button>

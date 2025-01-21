@@ -85,17 +85,18 @@ export function TicketDetailsPanel({
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
-              className={`w-full justify-start ${statusColors[ticket.status]}`}
+              className={`w-full justify-start hover:bg-slate-700/50 transition-colors ${statusColors[ticket.status]}`}
             >
               <StatusIcon status={ticket.status} />
               <span className="ml-2 capitalize">{ticket.status}</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent>
+          <DropdownMenuContent className="bg-slate-800 border-slate-700">
             {Object.keys(statusColors).map((status) => (
               <DropdownMenuItem
                 key={status}
                 onClick={() => onStatusChange(status as Ticket['status'])}
+                className={`${statusColors[status]} hover:bg-slate-700/50`}
               >
                 <StatusIcon status={status} />
                 <span className="ml-2 capitalize">{status}</span>
@@ -111,17 +112,18 @@ export function TicketDetailsPanel({
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
-              className={`w-full justify-start ${priorityColors[ticket.priority]}`}
+              className={`w-full justify-start hover:bg-slate-700/50 transition-colors ${priorityColors[ticket.priority]}`}
             >
               <AlertCircle className="h-4 w-4" />
               <span className="ml-2 uppercase">{ticket.priority}</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent>
+          <DropdownMenuContent className="bg-slate-800 border-slate-700">
             {Object.keys(priorityColors).map((priority) => (
               <DropdownMenuItem
                 key={priority}
                 onClick={() => onPriorityChange(priority as Ticket['priority'])}
+                className={`${priorityColors[priority]} hover:bg-slate-700/50`}
               >
                 <AlertCircle className="h-4 w-4" />
                 <span className="ml-2 uppercase">{priority}</span>

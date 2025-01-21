@@ -24,8 +24,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ConversationPanel } from "./components/conversation-panel"
-import { DetailsPanel } from "./components/details-panel"
+import { ConversationPanel } from "./conversation-panel"
+import { DetailsPanel } from "./details-panel"
 
 export default function InboxInterface() {
   const [isLoading, setIsLoading] = useState(false)
@@ -124,23 +124,31 @@ export default function InboxInterface() {
                 </Badge>
               </div>
               <div className="flex items-center gap-2">
-                <Input
-                  placeholder="Search conversations..."
-                  className="w-64 bg-slate-800 border-slate-700 text-slate-200 placeholder:text-slate-400"
-                  leftIcon={<Search className="h-4 w-4 text-slate-400" />}
-                />
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Input
+                    placeholder="Search conversations..."
+                    className="w-64 bg-slate-800 border-slate-700 text-slate-200 placeholder:text-slate-400 pl-10"
+                  />
+                </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="border-slate-700 text-slate-200 hover:bg-slate-800">
+                    <Button variant="outline" className="border-slate-700 bg-slate-800/50 text-slate-200 hover:bg-slate-700 hover:text-white hover:border-slate-600">
                       <Filter className="h-4 w-4 mr-2" />
                       Filters
                       <ChevronDown className="h-4 w-4 ml-2" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem>Unassigned</DropdownMenuItem>
-                    <DropdownMenuItem>Priority</DropdownMenuItem>
-                    <DropdownMenuItem>Recent</DropdownMenuItem>
+                  <DropdownMenuContent className="bg-slate-800 border-slate-700">
+                    <DropdownMenuItem className="text-slate-200 hover:bg-slate-700/50 focus:bg-slate-700/50">
+                      Unassigned
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-slate-200 hover:bg-slate-700/50 focus:bg-slate-700/50">
+                      Priority
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-slate-200 hover:bg-slate-700/50 focus:bg-slate-700/50">
+                      Recent
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -152,68 +160,68 @@ export default function InboxInterface() {
             <table className="w-full text-sm text-slate-300">
               <thead className="bg-slate-900/50 backdrop-blur-sm sticky top-0">
                 <tr className="border-b border-slate-800">
-                  <th className="text-left py-3 px-4 font-medium">User</th>
-                  <th className="text-left py-3 px-4 font-medium">Company</th>
-                  <th className="text-left py-3 px-4 font-medium">Subject / Title</th>
-                  <th className="text-left py-3 px-4 font-medium">Activity</th>
-                  <th className="text-left py-3 px-4 font-medium">Description</th>
-                  <th className="text-left py-3 px-4 font-medium">Priority</th>
-                  <th className="text-left py-3 px-4 font-medium">Waiting since</th>
-                  <th className="text-left py-3 px-4 font-medium text-amber-500">
+                  <th className="text-left py-3 px-4 font-medium text-slate-300 hover:text-slate-200 transition-colors">User</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-300 hover:text-slate-200 transition-colors">Company</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-300 hover:text-slate-200 transition-colors">Subject / Title</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-300 hover:text-slate-200 transition-colors">Activity</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-300 hover:text-slate-200 transition-colors">Description</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-300 hover:text-slate-200 transition-colors">Priority</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-300 hover:text-slate-200 transition-colors">Waiting since</th>
+                  <th className="text-left py-3 px-4 font-medium text-amber-500 hover:text-amber-400 transition-colors cursor-pointer group">
                     Last updated
-                    <ChevronDown className="inline h-4 w-4 ml-1" />
+                    <ChevronDown className="inline h-4 w-4 ml-1 group-hover:text-amber-400" />
                   </th>
-                  <th className="text-left py-3 px-4 font-medium">SLA</th>
-                  <th className="text-left py-3 px-4 font-medium">Status</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-300 hover:text-slate-200 transition-colors">SLA</th>
+                  <th className="text-left py-3 px-4 font-medium text-slate-300 hover:text-slate-200 transition-colors">Status</th>
                 </tr>
               </thead>
               <tbody>
                 <motion.tr
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="border-b border-slate-800 hover:bg-slate-800/50 transition-colors group cursor-pointer"
+                  className="border-b border-slate-800 hover:bg-slate-800/50 transition-all duration-200 group cursor-pointer"
                   onClick={() => handleRowClick("1")}
                 >
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-slate-300">
+                      <div className="w-8 h-8 rounded-full bg-slate-700/50 flex items-center justify-center text-slate-300 group-hover:bg-slate-700 transition-colors">
                         <Phone className="h-4 w-4" />
                       </div>
-                      <span>Phone & SMS</span>
+                      <span className="group-hover:text-white transition-colors">Phone & SMS</span>
                     </div>
                   </td>
                   <td className="py-3 px-4">
-                    <Badge variant="outline" className="border-slate-700 text-slate-300">
+                    <Badge variant="outline" className="border-slate-700 text-slate-300 group-hover:border-slate-600 group-hover:text-white transition-colors">
                       [Demo]
                     </Badge>
                   </td>
                   <td className="py-3 px-4">
-                    <span className="text-slate-200 hover:text-white cursor-pointer">how's it going?</span>
+                    <span className="text-slate-200 group-hover:text-white transition-colors">how's it going?</span>
                   </td>
-                  <td className="py-3 px-4 text-slate-500">—</td>
-                  <td className="py-3 px-4 text-slate-500">—</td>
+                  <td className="py-3 px-4 text-slate-500 group-hover:text-slate-400 transition-colors">—</td>
+                  <td className="py-3 px-4 text-slate-500 group-hover:text-slate-400 transition-colors">—</td>
                   <td className="py-3 px-4">
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-amber-400">
+                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-amber-400 transition-colors">
                       <Star className="h-4 w-4" />
                     </Button>
                   </td>
-                  <td className="py-3 px-4 text-slate-500">—</td>
+                  <td className="py-3 px-4 text-slate-500 group-hover:text-slate-400 transition-colors">—</td>
                   <td className="py-3 px-4">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-slate-400" />
+                    <div className="flex items-center gap-2 text-slate-400 group-hover:text-slate-300 transition-colors">
+                      <Clock className="h-4 w-4" />
                       <span>7m</span>
                     </div>
                   </td>
-                  <td className="py-3 px-4 text-slate-500">—</td>
+                  <td className="py-3 px-4 text-slate-500 group-hover:text-slate-400 transition-colors">—</td>
                   <td className="py-3 px-4">
                     <div className="flex items-center gap-2">
-                      <Button size="sm" className="bg-slate-700 text-white hover:bg-slate-600 transition-colors">
+                      <Button size="sm" className="bg-slate-700/50 text-white hover:bg-slate-600 transition-all duration-200">
                         Open
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="text-slate-400 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="text-slate-400 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-all duration-200"
                       >
                         <MoreHorizontal className="h-4 w-4" />
                       </Button>

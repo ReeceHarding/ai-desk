@@ -50,14 +50,16 @@ BEGIN
         email,
         org_id,
         role,
-        display_name
+        display_name,
+        avatar_url
       )
       VALUES (
         NEW.id,
         NEW.email,
         default_org_id,
         'customer'::public.user_role,
-        split_part(NEW.email, '@', 1)
+        split_part(NEW.email, '@', 1),
+        'https://ucbtpddvvbsrqroqhvev.supabase.co/storage/v1/object/public/avatars/profile-circle-icon-256x256-cm91gqm2.png'
       );
       
       RAISE LOG '[PROFILE_CREATION] Successfully created profile for user_id: % with org_id: %', NEW.id, default_org_id;
