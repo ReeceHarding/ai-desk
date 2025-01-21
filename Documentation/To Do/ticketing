@@ -1,0 +1,222 @@
+Below is a **detailed** step-by-step implementation guide for **Ticket Management** in FlowSupport, focusing on **Ticket List**, **New Ticket**, and **Ticket Detail**. Everything is designed to integrate into the existing Supabase migrations (specifically the `public.tickets` and `public.comments` tables) so that tickets are properly stored, retrieved, and updated. 
+
+---
+
+## **1. Ticket Schema Recap**
+
+Each ticket row in `public.tickets` contains:
+
+- **id**: Primary key, UUID  
+- **subject**: Text  
+- **description**: Text  
+- **status**: Enum, e.g. `open`, `pending`, `solved`  
+- **priority**: Enum, e.g. `low`, `medium`, `high`, `urgent`  
+- **customer_id**: References the user in `profiles`  
+- **assigned_agent_id**: Agent in `profiles` (nullable)  
+- **org_id**: The organization this ticket belongs to  
+- **created_at**, **updated_at**  
+
+Comments are stored in `public.comments` with:
+
+- **ticket_id**  
+- **author_id**  
+- **body**  
+- **is_private** (for agent-only visibility)  
+- **org_id**  
+
+---
+
+## **2. Ticket Listing**
+
+A page (or route) named `pages/tickets/index.tsx` is created to display all tickets relevant to the current user. The user sees:
+
+1. **Subject**  
+2. **Status**  
+3. **Priority**  
+4. **Actions** (link to detail page)
+
+### **Data Fetching**
+
+1. Query `public.tickets` via Supabase:  
+   ```ts
+   const { data, error } = await supabase
+     .from('tickets')
+     .select('*');
+   ```
+2. Filter the tickets in code so that a **customer** sees only their own (`customer_id = user.id`), while **agents** or **admins** see all in their `org_id`.  
+
+### **UI Rendering**
+
+Create a table or list:
+
+```tsx
+{filteredTickets.map(ticket => (
+  <tr key={ticket.id}>
+    <td>{ticket.subject}</td>
+    <td>{ticket.status}</td>
+    <td>{ticket.priority}</td>
+    <td>
+      <button onClick={() => router.push(`/tickets/${ticket.id}`)}>
+        View Detail
+      </button>
+    </td>
+  </tr>
+))}
+```
+
+There is also a “Create New Ticket” button or link that goes to `pages/tickets/new.tsx`.
+
+---
+
+## **3. New Ticket Page**
+
+This is in `pages/tickets/new.tsx`, allowing the user to create a ticket. 
+
+### **Form Fields**
+
+- **Subject** (required)  
+- **Description** (required)  
+- **Priority** (default `low`)  
+
+### **Submission**
+
+1. The user’s `id` is set as `customer_id`.  
+2. `org_id` is the user’s organization if applicable.  
+
+Example insertion:
+
+```ts
+const { data, error } = await supabase
+  .from('tickets')
+  .insert([{
+    subject,
+    description,
+    status: 'open',
+    priority: priority || 'low',
+    customer_id: user.id,
+    org_id: user.org_id
+  }]);
+```
+
+Upon success, redirect to either the ticket list or the new ticket’s detail page.
+
+---
+
+## **4. Ticket Detail**
+
+This is typically in `pages/tickets/[id].tsx` (a dynamic route). It shows the **ticket’s**:
+
+1. **subject**  
+2. **status**  
+3. **priority**  
+4. **description**  
+5. **assigned_agent_id** (if any)  
+
+It also displays a **comment thread**. 
+
+### **4.1 Fetching the Ticket**
+
+```ts
+const { data: ticket } = await supabase
+  .from('tickets')
+  .select('*')
+  .eq('id', ticketId)
+  .single();
+```
+
+### **4.2 Displaying Comments**
+
+```ts
+const { data: comments } = await supabase
+  .from('comments')
+  .select('*')
+  .eq('ticket_id', ticketId)
+  .order('created_at', { ascending: true });
+```
+
+Render each comment’s body. If `comment.is_private === true`, show it only if the viewer is an agent/admin.
+
+### **4.3 Add a New Comment**
+
+A text input or textarea is used to create a new comment:
+
+```ts
+await supabase
+  .from('comments')
+  .insert([{
+    ticket_id: ticketId,
+    author_id: user.id,
+    body: commentBody,
+    is_private: false, // or set based on user choice
+    org_id: user.org_id
+  }]);
+```
+
+Refresh the comment list after insertion.
+
+### **4.4 Updating Ticket Fields**
+
+If the user is an agent or admin, the UI includes controls to change:
+
+1. **status**  
+2. **priority**  
+3. **assigned_agent_id**  
+
+For example:
+
+```ts
+await supabase
+  .from('tickets')
+  .update({
+    status: newStatus,
+    priority: newPriority,
+    assigned_agent_id: agentId
+  })
+  .eq('id', ticketId);
+```
+
+Refresh the ticket data after the update.
+
+---
+
+## **5. Implementation Steps**
+
+1. **Create** a `pages/tickets/index.tsx`:
+   - Query Supabase for tickets. Filter results so a customer sees only their own tickets, while an agent/admin sees all within their `org_id`.
+   - Render a table with columns for subject, status, priority, and a “View” button that links to the detail page.
+   - Add a link or button to “Create New Ticket” → leads to `pages/tickets/new.tsx`.
+
+2. **Create** a `pages/tickets/new.tsx`:
+   - Provide form fields: subject, description, priority.
+   - On submit, do an `insert` into `tickets` with `customer_id = user.id`, `org_id = user.org_id`.
+   - After successful insert, redirect to the ticket detail page.
+
+3. **Create** a `pages/tickets/[id].tsx`:
+   - Fetch the ticket by its ID from the URL. 
+   - Display subject, description, status, priority, assigned agent.
+   - Allow editing if `user.role` is an agent or admin.
+   - Display comments in chronological order. 
+   - Provide a text area for new comments. Insert them into `comments`. 
+   - Refresh data as needed after updates or comment submissions.
+
+4. **Integrate** these pages into the navigation (e.g., in `AppLayout` or a sidebar) so users can easily reach the ticket list.
+
+---
+
+## **6. Validation and Testing**
+
+- **Customer** logs in, sees only tickets they created, can create new ones, can post comments, but cannot reassign or change status.  
+- **Agent** or **Admin** sees all tickets in the org, can edit status, priority, or assignment, and can post comments, including private ones.  
+- Confirm that each new ticket row is inserted properly in `public.tickets` with correct fields. Confirm that new comments appear in `public.comments`.
+
+---
+
+## **7. Conclusion**
+
+This process integrates seamlessly with the existing Supabase migrations for `tickets` and `comments`. It includes:
+
+1. **Ticket List**: Summaries of each ticket the user can see.  
+2. **New Ticket**: A form to create new tickets with the user as `customer_id`.  
+3. **Ticket Detail**: Displays full data, allows commenting, and allows status/priority changes if the user is an agent or admin.
+
+Everything ensures inbound issues are tracked, updated, and responded to effectively, providing the core functionality for your CRM.

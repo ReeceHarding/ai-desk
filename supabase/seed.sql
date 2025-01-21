@@ -1,20 +1,35 @@
--- Insert initial auth.users
+-- Insert organizations
+INSERT INTO public.organizations (id, name, sla_tier)
+VALUES ('123e4567-e89b-12d3-a456-426614174000', 'Acme Corp', 'premium');
+
+-- Insert initial auth.users (profiles will be created by trigger)
 INSERT INTO auth.users (id, email)
 VALUES 
   ('d0d8c19c-3b73-4c20-8a30-136b8888c042', 'admin@acme.com'),
   ('8a37a557-4c7c-4e5c-a4a4-8f0e8d4d4a9a', 'agent@acme.com'),
   ('f8b4c46b-9c2d-4d21-8c2d-b5c8e3f3d2a1', 'customer@acme.com');
 
--- Insert organizations
-INSERT INTO public.organizations (id, name, sla_tier)
-VALUES ('123e4567-e89b-12d3-a456-426614174000', 'Acme Corp', 'premium');
+-- Update profiles with additional info
+UPDATE public.profiles 
+SET 
+  role = 'admin',
+  display_name = 'Admin User',
+  org_id = '123e4567-e89b-12d3-a456-426614174000'
+WHERE id = 'd0d8c19c-3b73-4c20-8a30-136b8888c042';
 
--- Insert profiles
-INSERT INTO public.profiles (id, role, display_name, email, org_id)
-VALUES
-  ('d0d8c19c-3b73-4c20-8a30-136b8888c042', 'admin', 'Admin User', 'admin@acme.com', '123e4567-e89b-12d3-a456-426614174000'),
-  ('8a37a557-4c7c-4e5c-a4a4-8f0e8d4d4a9a', 'agent', 'Agent User', 'agent@acme.com', '123e4567-e89b-12d3-a456-426614174000'),
-  ('f8b4c46b-9c2d-4d21-8c2d-b5c8e3f3d2a1', 'customer', 'Customer User', 'customer@acme.com', '123e4567-e89b-12d3-a456-426614174000');
+UPDATE public.profiles 
+SET 
+  role = 'agent',
+  display_name = 'Agent User',
+  org_id = '123e4567-e89b-12d3-a456-426614174000'
+WHERE id = '8a37a557-4c7c-4e5c-a4a4-8f0e8d4d4a9a';
+
+UPDATE public.profiles 
+SET 
+  role = 'customer',
+  display_name = 'Customer User',
+  org_id = '123e4567-e89b-12d3-a456-426614174000'
+WHERE id = 'f8b4c46b-9c2d-4d21-8c2d-b5c8e3f3d2a1';
 
 -- Insert teams
 INSERT INTO public.teams (id, name, description, org_id)
