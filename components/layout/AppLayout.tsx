@@ -59,12 +59,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
               >
                 Profile
               </Link>
-              <button
-                onClick={handleSignOut}
-                className="bg-white text-gray-700 hover:bg-gray-50 px-4 py-2 rounded-md text-sm font-medium border"
-              >
-                Sign out
-              </button>
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { Database } from '@/types/supabase';
@@ -34,6 +34,12 @@ export default function NewTicket() {
   const supabase = useSupabaseClient<Database>();
   const user = useUser();
   const router = useRouter();
+
+  useEffect(() => {
+    if (!user) {
+      router.push('/auth/login');
+    }
+  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +77,6 @@ export default function NewTicket() {
   };
 
   if (!user) {
-    router.push('/auth/login');
     return null;
   }
 

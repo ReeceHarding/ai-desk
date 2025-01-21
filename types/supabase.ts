@@ -370,6 +370,8 @@ export interface Database {
           name: string
           sla_tier: 'basic' | 'premium'
           updated_at: string
+          gmail_refresh_token: string | null
+          gmail_access_token: string | null
         }
         Insert: {
           config?: Json
@@ -378,6 +380,8 @@ export interface Database {
           name: string
           sla_tier?: 'basic' | 'premium'
           updated_at?: string
+          gmail_refresh_token?: string | null
+          gmail_access_token?: string | null
         }
         Update: {
           config?: Json
@@ -386,6 +390,8 @@ export interface Database {
           name?: string
           sla_tier?: 'basic' | 'premium'
           updated_at?: string
+          gmail_refresh_token?: string | null
+          gmail_access_token?: string | null
         }
         Relationships: []
       }
@@ -403,6 +409,8 @@ export interface Database {
           org_id: string
           created_at: string
           updated_at: string
+          gmail_refresh_token: string | null
+          gmail_access_token: string | null
         }
         Insert: {
           id: string
@@ -417,6 +425,8 @@ export interface Database {
           org_id: string
           created_at?: string
           updated_at?: string
+          gmail_refresh_token?: string | null
+          gmail_access_token?: string | null
         }
         Update: {
           id?: string
@@ -431,6 +441,8 @@ export interface Database {
           org_id?: string
           created_at?: string
           updated_at?: string
+          gmail_refresh_token?: string | null
+          gmail_access_token?: string | null
         }
         Relationships: [
           {

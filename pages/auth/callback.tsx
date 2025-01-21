@@ -8,18 +8,48 @@ export default function AuthCallback() {
 
   useEffect(() => {
     const handleAuthCallback = async () => {
-      const { searchParams } = new URL(window.location.href);
-      const code = searchParams.get('code');
-      const next = searchParams.get('next') ?? '/dashboard';
+      try {
+        console.log('[AUTH-CALLBACK] Starting auth callback handler');
+        console.log('[AUTH-CALLBACK] Query params:', router.query);
+        
+        // Check if we have a session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        console.log('[AUTH-CALLBACK] Session check result:', {
+          hasSession: !!session,
+          error: sessionError?.message,
+          userId: session?.user?.id
+        });
 
-      if (code) {
-        try {
-          await supabase.auth.exchangeCodeForSession(code);
-          router.push(next);
-        } catch (error) {
-          console.error('Error exchanging code for session:', error);
-          router.push('/auth/signin?error=Unable to verify your email');
+        if (sessionError) {
+          throw sessionError;
         }
+
+        if (session) {
+          console.log('[AUTH-CALLBACK] Session found, checking profile...');
+          
+          // Check if profile exists
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+            
+          console.log('[AUTH-CALLBACK] Profile check result:', {
+            hasProfile: !!profile,
+            error: profileError?.message
+          });
+
+          // Successful sign in - redirect to dashboard
+          console.log('[AUTH-CALLBACK] Redirecting to dashboard');
+          router.replace('/dashboard');
+        } else {
+          console.log('[AUTH-CALLBACK] No session found, redirecting to signin');
+          router.replace('/auth/signin?error=No session found');
+        }
+      } catch (error) {
+        console.error('[AUTH-CALLBACK] Error in auth callback:', error);
+        router.replace('/auth/signin?error=Authentication failed');
       }
     };
 

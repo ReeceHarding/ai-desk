@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import AppLayout from '../../components/layout/AppLayout';
 import Image from 'next/image';
+import { Button } from '../../components/ui/button';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -296,13 +297,25 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-          >
-            {isLoading ? 'Saving...' : 'Save Changes'}
-          </button>
+          <div className="mt-6">
+            <Button
+              type="submit"
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+              disabled={isLoading}
+            >
+              {isLoading ? 'Saving...' : 'Save Changes'}
+            </Button>
+
+            <Button
+              onClick={async () => {
+                await supabase.auth.signOut();
+                router.push('/auth/signin');
+              }}
+              className="ml-4 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700"
+            >
+              Sign Out
+            </Button>
+          </div>
         </form>
       </div>
     </AppLayout>

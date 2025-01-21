@@ -2,10 +2,8 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/profile": "pages/profile.js",
-  "/auth/signin": "pages/auth/signin.js",
   "/dashboard": "pages/dashboard.js",
-  "/auth/signup": "pages/auth/signup.js",
-  "/profile/settings": "pages/profile/settings.js",
-  "/api/integrations/gmail/callback": "pages/api/integrations/gmail/callback.js"
+  "/tickets/[id]": "pages/tickets/[id].js",
+  "/tickets/new": "pages/tickets/new.js",
+  "/tickets": "pages/tickets.js"
 }

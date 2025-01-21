@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
+import AppLayout from '@/components/layout/AppLayout';
+import { getGmailProfile } from '@/utils/gmail';
 
 export default function ProfileSettings() {
   const supabase = useSupabaseClient();
@@ -12,6 +14,7 @@ export default function ProfileSettings() {
   const router = useRouter();
   const { toast } = useToast();
   const [profile, setProfile] = useState<any>(null);
+  const [gmailAddress, setGmailAddress] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -39,6 +42,31 @@ export default function ProfileSettings() {
       router.replace('/profile/settings', undefined, { shallow: true });
     }
   }, [router.query, toast]);
+
+  useEffect(() => {
+    // Fetch Gmail profile when tokens are available
+    if (profile?.gmail_refresh_token && profile?.gmail_access_token) {
+      fetchGmailProfile();
+    } else {
+      setGmailAddress(null);
+    }
+  }, [profile?.gmail_refresh_token, profile?.gmail_access_token]);
+
+  const fetchGmailProfile = async () => {
+    try {
+      const gmailProfile = await getGmailProfile({
+        refresh_token: profile.gmail_refresh_token,
+        access_token: profile.gmail_access_token,
+        token_type: 'Bearer',
+        scope: 'https://www.googleapis.com/auth/gmail.modify',
+        expiry_date: 0
+      });
+      setGmailAddress(gmailProfile.emailAddress);
+    } catch (error) {
+      console.error('Error fetching Gmail profile:', error);
+      setGmailAddress(null);
+    }
+  };
 
   const fetchProfile = async () => {
     const { data, error } = await supabase
@@ -86,6 +114,7 @@ export default function ProfileSettings() {
       if (error) throw error;
 
       await fetchProfile();
+      setGmailAddress(null);
       
       toast({
         title: "Gmail Disconnected",
@@ -107,54 +136,56 @@ export default function ProfileSettings() {
   }
 
   return (
-    <div className="container mx-auto py-8">
-      <h1 className="text-2xl font-bold mb-6">Profile Settings</h1>
-      
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Personal Gmail Integration</CardTitle>
-          <CardDescription>
-            Connect your personal Gmail account to handle email communications
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label>Gmail Connection Status</Label>
-                <p className="text-sm text-gray-500">
-                  {profile.gmail_refresh_token 
-                    ? 'Connected to Gmail'
-                    : 'Not connected to Gmail'}
-                </p>
-              </div>
-              {profile.gmail_refresh_token ? (
-                <div className="space-x-2">
+    <AppLayout>
+      <div className="container mx-auto py-8">
+        <h1 className="text-2xl font-bold mb-6">Profile Settings</h1>
+        
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Personal Gmail Integration</CardTitle>
+            <CardDescription>
+              Connect your personal Gmail account to handle email communications
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Gmail Connection Status</Label>
+                  <p className="text-sm text-gray-500">
+                    {profile.gmail_refresh_token 
+                      ? `Connected to Gmail${gmailAddress ? ` (${gmailAddress})` : ''}`
+                      : 'Not connected to Gmail'}
+                  </p>
+                </div>
+                {profile.gmail_refresh_token ? (
+                  <div className="space-x-2">
+                    <Button
+                      onClick={handleConnectGmail}
+                      variant="outline"
+                    >
+                      Reconnect Gmail
+                    </Button>
+                    <Button
+                      onClick={handleDisconnectGmail}
+                      variant="destructive"
+                    >
+                      Disconnect Gmail
+                    </Button>
+                  </div>
+                ) : (
                   <Button
                     onClick={handleConnectGmail}
-                    variant="outline"
+                    variant="default"
                   >
-                    Reconnect Gmail
+                    Connect Gmail
                   </Button>
-                  <Button
-                    onClick={handleDisconnectGmail}
-                    variant="destructive"
-                  >
-                    Disconnect Gmail
-                  </Button>
-                </div>
-              ) : (
-                <Button
-                  onClick={handleConnectGmail}
-                  variant="default"
-                >
-                  Connect Gmail
-                </Button>
-              )}
+                )}
+              </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+          </CardContent>
+        </Card>
+      </div>
+    </AppLayout>
   );
 } 

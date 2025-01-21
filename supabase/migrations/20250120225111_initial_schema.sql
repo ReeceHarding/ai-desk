@@ -250,6 +250,35 @@ CREATE TABLE public.audit_logs (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE public.email_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  ticket_id UUID REFERENCES tickets(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  direction TEXT CHECK (direction IN ('inbound', 'outbound')),
+  timestamp TIMESTAMPTZ DEFAULT NOW(),
+  snippet TEXT,
+  subject TEXT,
+  from_address TEXT,
+  to_address TEXT,
+  author_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  org_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
+  raw_content JSONB,
+  labels TEXT[],
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TRIGGER tr_email_logs_update_timestamp
+BEFORE UPDATE ON public.email_logs
+FOR EACH ROW
+EXECUTE PROCEDURE public.fn_auto_update_timestamp();
+
+CREATE INDEX email_logs_ticket_idx ON public.email_logs (ticket_id);
+CREATE INDEX email_logs_message_id_idx ON public.email_logs (message_id);
+CREATE INDEX email_logs_thread_id_idx ON public.email_logs (thread_id);
+CREATE INDEX email_logs_org_idx ON public.email_logs (org_id);
+
 CREATE TABLE public.ticket_embeddings (
   ticket_id uuid PRIMARY KEY
     REFERENCES public.tickets (id) ON DELETE CASCADE,
@@ -388,6 +417,7 @@ ALTER TABLE public.attachments DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ticket_watchers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.article_watchers DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.email_logs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ticket_embeddings DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.comment_embeddings DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.reports DISABLE ROW LEVEL SECURITY;

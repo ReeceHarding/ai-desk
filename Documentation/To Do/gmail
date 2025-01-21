@@ -1,4 +1,4 @@
-**1. Add Columns for Gmail Token Storage**  
+**1. Add Columns for Gmail Token Storage** ✅  
 Create two columns in the existing Supabase schema:  
 - In `public.organizations`:  
   ```sql
@@ -14,67 +14,47 @@ Create two columns in the existing Supabase schema:
   ```  
 These columns store OAuth tokens for organizational mailboxes (`gmail_refresh_token` / `gmail_access_token` on `organizations`) or individual user mailboxes (`profiles`). The application looks up which mailbox is active (shared vs. personal) when processing messages.  
 
-**Checkpoint:** Open Supabase Studio or psql to verify that `gmail_refresh_token` and `gmail_access_token` are present in both tables before continuing.  
+**Checkpoint:** ✅ Verified in Supabase that `gmail_refresh_token` and `gmail_access_token` are present in both tables.  
 
-**2. Create a Google Cloud Project and OAuth Credentials**  
-Create a Google Cloud project dedicated to the CRM’s Gmail integration. Enable the Gmail API in the Google Cloud Console. Create OAuth credentials (Client ID and Client Secret). Configure the allowed redirect URI to point to a new callback endpoint in the CRM, for example:  
+**2. Create a Google Cloud Project and OAuth Credentials** ✅  
+Create a Google Cloud project dedicated to the CRM's Gmail integration. Enable the Gmail API in the Google Cloud Console. Create OAuth credentials (Client ID and Client Secret). Configure the allowed redirect URI to point to a new callback endpoint in the CRM, for example:  
 ```
 https://<your-domain>/api/integrations/gmail/callback
 ```  
-Use these credentials in the CRM’s environment variables (e.g., `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`).  
+Use these credentials in the CRM's environment variables (e.g., `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`).  
 
-**Checkpoint:** In a small test script, confirm that the OAuth flow from Google can be initiated and that the tokens can be exchanged successfully.  
+**Checkpoint:** ✅ OAuth flow from Google is confirmed working with token exchange.  
 
-**3. Build a “Connect Gmail” Section in the Settings UI**  
+**3. Build a "Connect Gmail" Section in the Settings UI** ✅  
 In the React/Next.js code, add a Settings page for both organizations and personal profiles:  
 
 - **Organization Setting (`/pages/organizations/[id]/settings.tsx`)**  
-  - Show a “Connect Gmail” button if `gmail_refresh_token` is empty.  
+  - Show a "Connect Gmail" button if `gmail_refresh_token` is empty.  
   - When clicked, it redirects the user to the OAuth flow using the Google Client ID.  
 - **User Setting (`/pages/profile/index.tsx`)**  
-  - Show a similar “Connect Gmail” button under personal mailbox settings.  
+  - Show a similar "Connect Gmail" button under personal mailbox settings.  
 
-Capture the returned OAuth tokens in the callback route, then store them in `organizations.gmail_refresh_token / .gmail_access_token` or `profiles.gmail_refresh_token / .gmail_access_token` depending on the context.  
+**Checkpoint:** ✅ Connect Gmail button and OAuth flow working in UI.  
 
-**Checkpoint:** Write a simple test verifying that clicking the “Connect Gmail” button leads to the Google OAuth screen, then check that tokens are stored in the correct column after successful authentication.  
-
-**4. Implement the OAuth Callback Endpoint**  
+**4. Implement the OAuth Callback Endpoint** ✅  
 Create an API endpoint (e.g., `pages/api/integrations/gmail/callback.ts`) that:  
 1. Receives the authorization code from Google.  
 2. Exchanges it for an access token and refresh token using the Google OAuth endpoint.  
 3. Detects if this is an org-level or user-level mailbox (using a query parameter or session context).  
 4. Saves the tokens to the appropriate record in `organizations` or `profiles`.  
 
-**Example Exchange Logic (TypeScript)**  
-```ts
-import axios from 'axios';
+**Checkpoint:** ✅ Token exchange and storage working correctly.  
 
-async function exchangeCodeForTokens(code: string) {
-  const url = 'https://oauth2.googleapis.com/token';
-  const data = {
-    code,
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    client_secret: process.env.GOOGLE_CLIENT_SECRET,
-    redirect_uri: 'https://<your-domain>/api/integrations/gmail/callback',
-    grant_type: 'authorization_code'
-  };
-  const response = await axios.post(url, data);
-  return response.data; // includes { access_token, refresh_token, expiry_date, ... }
-}
-```  
-
-**Checkpoint:** Test with a dummy code from Google’s OAuth Playground to confirm the token exchange is successful.  
-
-**5. Configure Gmail Watch Endpoint & Pub/Sub**  
+**5. Configure Gmail Watch Endpoint & Pub/Sub** ❌  
 Enable push notifications so inbound emails arrive in near-real-time:  
 1. In the Google Cloud Console, enable the Pub/Sub API and create a Pub/Sub topic (e.g., `projects/<project-id>/topics/gmail-updates`).  
 2. In the CRM, create an API endpoint (e.g., `pages/api/integrations/gmail/notify.ts`) to receive push notifications from Google. This endpoint checks the X-Goog-Resource-State and message data.  
 3. Register the watch on the mailbox using the Gmail API `watch` method. This watch is refreshed periodically to avoid expiration.  
 4. In the watch configuration, set the topic to `gmail-updates` and the label IDs to monitor (empty label list for all non-spam messages).  
 
-**Checkpoint:** Write a test that verifies a test notification from Pub/Sub is received by the `notify.ts` endpoint.  
+**Checkpoint:** ❌ Pub/Sub integration pending.  
 
-**6. Implement Fallback Polling**  
+**6. Implement Fallback Polling** ✅  
 Add a cron job or scheduled job that:  
 - Iterates over all connected mailboxes (org- or user-level).  
 - Calls the Gmail API `messages.list` to retrieve recent messages that might not have triggered a push notification (e.g., if Pub/Sub was delayed).  
@@ -82,68 +62,70 @@ Add a cron job or scheduled job that:
 
 Use the saved refresh tokens to request new access tokens if needed.  
 
-**Checkpoint:** Run the job locally and verify new inbound messages appear in the database.  
+**Checkpoint:** ✅ Polling mechanism implemented and working.  
 
-**7. Add an Inbound Email Parsing Function**  
+**7. Add an Inbound Email Parsing Function** ✅  
 Create a server-side function (e.g., `parseInboundGmailMessage`) that:  
 1. Fetches the full message from Gmail (`messages.get`).  
 2. Extracts the subject, from-address, in-reply-to ID, and snippet or body.  
 3. Reads existing Gmail labels like spam or promotions to decide if the email is valid for ticket creation.  
 4. Searches for an existing ticket by matching a unique Thread ID or a partial subject match in the `tickets.subject` or `tickets.description`.  
-5. If found, links the message to the existing ticket. If not found, creates a new ticket in status `pending` with the subject set to the email’s subject.  
+5. If found, links the message to the existing ticket. If not found, creates a new ticket in status `pending` with the subject set to the email's subject.  
 6. Inserts the email body as a new comment in `public.comments` referencing the correct `ticket_id`.  
-7. Applies a custom Gmail label, e.g., “AutoCRM Ticket #<ticketId>” to the message so the user knows it is captured.  
+7. Applies a custom Gmail label, e.g., "AutoCRM Ticket #<ticketId>" to the message so the user knows it is captured.  
 
-**Checkpoint:** Write a test that feeds a sample Gmail message JSON to `parseInboundGmailMessage`. Confirm that a new ticket is created if no match is found or that a comment is appended if a match is found.  
+**Checkpoint:** ✅ Email parsing and ticket creation working.  
 
-**8. Implement Outbound Replies from Ticket**  
-Add a “Reply via Gmail” option in the ticket details interface. This triggers a backend function (e.g., `replyToGmailMessage`):  
+**8. Implement Outbound Replies from Ticket** ❌  
+Add a "Reply via Gmail" option in the ticket details interface. This triggers a backend function (e.g., `replyToGmailMessage`):  
 1. Finds the mailbox tokens from `organizations.gmail_refresh_token` / `profiles.gmail_refresh_token`.  
 2. Constructs a MIME email with references to the original Gmail thread ID so the message is appended in the same thread.  
-3. Calls the Gmail API `messages.send` or `messages.send` with “threadId” to maintain threading.  
+3. Calls the Gmail API `messages.send` or `messages.send` with "threadId" to maintain threading.  
 4. Applies the disclaimers, footers, or organization branding to the outgoing message body.  
 
-**Checkpoint:** Insert a test that verifies a newly created comment triggers an outbound email to Gmail. Confirm the comment appears in the Gmail thread using the correct “In-Reply-To” headers.  
+**Checkpoint:** ❌ Reply functionality not implemented.  
 
-**9. Store Emails and Logging**  
+**9. Store Emails and Logging** ❌  
 Insert each inbound/outbound email into an `audit_logs` record or a new table (e.g., `public.email_logs`) for long-term compliance. Include columns:  
 - `id, ticket_id, message_id, direction, timestamp, snippet, author_id`  
 This ensures the entire conversation is archived, even if the ticket merges or closes.  
 
-**Checkpoint:** Query `public.email_logs` to confirm that each inbound and outbound email event is stored with the correct metadata.  
+**Checkpoint:** ❌ Email logging system not implemented.  
 
-**10. Grace Period for Closed Tickets**  
+**10. Grace Period for Closed Tickets** ❌  
 When a ticket is marked `closed`, maintain the watch on the associated Gmail thread for 30 days. If a new inbound email arrives, automatically set the ticket status to `open` again, reassigning the same agent or queue. If the period is exceeded, create a brand-new ticket referencing the old conversation.  
 
-**Checkpoint:** Close a test ticket, send an email to the same thread, and verify that the ticket re-opens if within 30 days.  
+**Checkpoint:** ❌ Grace period functionality not implemented.  
 
-**11. Notification & AI Response**  
+**11. Notification & AI Response** ❌  
 For AI-based auto-replies:  
 - Integrate the existing RAG or GPT approach to generate a draft reply.  
 - Insert a comment with `is_private = true` containing the AI draft.  
-- Show an “AI Draft” label to the agent, who can click “Send” or “Edit.”  
+- Show an "AI Draft" label to the agent, who can click "Send" or "Edit."  
 
 For user notifications:  
 - Each user configures if they want an immediate email notification, push, or daily summary.  
-- Use the tokens only for sending from the user’s Gmail if it is a personal mailbox, or from the org mailbox if it is a shared address.  
+- Use the tokens only for sending from the user's Gmail if it is a personal mailbox, or from the org mailbox if it is a shared address.  
 
-**Checkpoint:** Write a short test verifying that a new inbound message triggers the AI draft creation, and confirm the user sees it in the conversation with “AI Draft.”  
+**Checkpoint:** ❌ AI response and notification system not implemented.  
 
-**12. Testing and Edge Cases**  
+**12. Testing and Edge Cases** ❌  
 1. **High Volume**: Rapidly send many emails to the connected Gmail account and observe if the system throttles or queues them.  
-2. **Missing Subject**: If an email has no subject, auto-create a new ticket with “(No Subject)” as the default.  
+2. **Missing Subject**: If an email has no subject, auto-create a new ticket with "(No Subject)" as the default.  
 3. **Invalid Token**: If the refresh token is expired or revoked, prompt re-auth.  
-4. **Label Conflicts**: Verify that the system’s label is added even if the email already has other labels.  
+4. **Label Conflicts**: Verify that the system's label is added even if the email already has other labels.  
 5. **Archival**: If the org sets a 12-month archival policy, confirm older tickets and their email logs are moved or purged as expected.  
 
-**Checkpoint:** Confirm all test scenarios pass before deploying.  
+**Checkpoint:** ❌ Comprehensive testing not completed.  
 
-**13. Deployment**  
-Push the changes to production. Instruct each organization’s admin to “Connect Gmail” in their settings. For existing organizations or users, the new button is visible. Periodically verify that inbound email flows into tickets, outbound replies appear in Gmail, and logs are recorded properly.  
+**13. Deployment** ❌  
+Push the changes to production. Instruct each organization's admin to "Connect Gmail" in their settings. For existing organizations or users, the new button is visible. Periodically verify that inbound email flows into tickets, outbound replies appear in Gmail, and logs are recorded properly.  
 
-**Checkpoint:** Observe the logs in production for a final verification that inbound messages create or update tickets, outbound replies are delivered, and no errors occur.  
+**Checkpoint:** ❌ Production deployment pending.  
 
-**14. Ongoing Maintenance**  
+**14. Ongoing Maintenance** ❌  
 Refresh the Google `watch` subscription every 24 hours. Handle token re-auth automatically. Provide a clear UI alert for re-authorization if the token has become invalid. Periodically run load tests to ensure the system scales.  
+
+**Checkpoint:** ❌ Maintenance procedures not implemented.  
 
 No further steps are needed after verifying that the entire pipeline—OAuth connection, inbound message parsing, ticket linking, outbound email replies, notifications, and AI drafting—operates without errors.  
