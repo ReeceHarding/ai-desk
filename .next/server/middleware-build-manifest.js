@@ -20,20 +20,30 @@ self.__BUILD_MANIFEST = {
       "static/chunks/main.js",
       "static/chunks/pages/_error.js"
     ],
-    "/tickets": [
+    "/auth/signin": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
-      "static/chunks/pages/tickets.js"
+      "static/chunks/pages/auth/signin.js"
     ],
-    "/tickets/[id]": [
+    "/auth/signup": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
-      "static/chunks/pages/tickets/[id].js"
+      "static/chunks/pages/auth/signup.js"
     ],
-    "/tickets/new": [
+    "/dashboard": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
-      "static/chunks/pages/tickets/new.js"
+      "static/chunks/pages/dashboard.js"
+    ],
+    "/profile": [
+      "static/chunks/webpack.js",
+      "static/chunks/main.js",
+      "static/chunks/pages/profile.js"
+    ],
+    "/profile/settings": [
+      "static/chunks/webpack.js",
+      "static/chunks/main.js",
+      "static/chunks/pages/profile/settings.js"
     ]
   },
   "ampFirstPages": []

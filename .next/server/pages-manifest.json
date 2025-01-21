@@ -1,8 +1,11 @@
 {
   "/_app": "pages/_app.js",
-  "/_document": "pages/_document.js",
   "/_error": "pages/_error.js",
-  "/tickets": "pages/tickets.js",
-  "/tickets/new": "pages/tickets/new.js",
-  "/tickets/[id]": "pages/tickets/[id].js"
+  "/_document": "pages/_document.js",
+  "/profile": "pages/profile.js",
+  "/auth/signin": "pages/auth/signin.js",
+  "/dashboard": "pages/dashboard.js",
+  "/auth/signup": "pages/auth/signup.js",
+  "/profile/settings": "pages/profile/settings.js",
+  "/api/integrations/gmail/callback": "pages/api/integrations/gmail/callback.js"
 }

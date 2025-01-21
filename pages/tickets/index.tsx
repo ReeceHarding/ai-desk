@@ -235,26 +235,29 @@ export default function TicketList() {
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="secondary" className="gap-2 bg-white text-slate-900 hover:bg-white/90">
+                <Button variant="secondary" className="gap-2 bg-slate-800/90 text-slate-100 hover:bg-slate-700/90 border border-slate-700 shadow-lg transition-all duration-200">
                   <Filter className="h-4 w-4" />
                   Filters
                   {(statusFilter.length > 0 || priorityFilter.length > 0) && (
                     <div className="flex items-center gap-1">
-                      <span className="text-sm font-medium">
+                      <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium bg-indigo-500/20 text-indigo-300 rounded-full">
                         {statusFilter.length + priorityFilter.length}
                       </span>
-                      <ChevronDown className="h-4 w-4" />
+                      <ChevronDown className="h-4 w-4 opacity-70" />
                     </div>
                   )}
                   {(statusFilter.length === 0 && priorityFilter.length === 0) && (
-                    <ChevronDown className="h-4 w-4" />
+                    <ChevronDown className="h-4 w-4 opacity-70" />
                   )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-72 bg-slate-800/95 backdrop-blur-sm border border-slate-700 p-4 shadow-xl">
-                <div className="space-y-6">
+              <DropdownMenuContent className="w-72 bg-slate-800/95 backdrop-blur-lg border border-slate-700/50 rounded-lg shadow-xl animate-in fade-in-0 zoom-in-95">
+                <div className="space-y-6 p-4">
                   <div>
-                    <h4 className="text-sm font-medium text-slate-300 mb-3">Status</h4>
+                    <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
+                      <div className="h-1 w-1 rounded-full bg-slate-500"></div>
+                      Status
+                    </h4>
                     <div className="space-y-2.5">
                       {Object.keys(statusColors).map((status) => (
                         <label key={status} className="flex items-center gap-2.5 cursor-pointer group">
@@ -269,12 +272,12 @@ export default function TicketList() {
                                   setStatusFilter(statusFilter.filter(s => s !== status));
                                 }
                               }}
-                              className="peer h-4 w-4 rounded border-slate-600 bg-slate-700/50 text-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:ring-offset-0"
+                              className="peer h-4 w-4 rounded-sm border-slate-600 bg-slate-700/50 text-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:ring-offset-0 transition-all duration-200"
                             />
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-1">
                             <StatusIcon status={status} className="h-3.5 w-3.5" />
-                            <span className={`capitalize text-sm ${statusColors[status]} group-hover:opacity-80`}>
+                            <span className={`capitalize text-sm ${statusColors[status]} group-hover:opacity-80 transition-opacity duration-200`}>
                               {status}
                             </span>
                           </div>
@@ -284,7 +287,10 @@ export default function TicketList() {
                   </div>
 
                   <div className="border-t border-slate-700/50 pt-6">
-                    <h4 className="text-sm font-medium text-slate-300 mb-3">Priority</h4>
+                    <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
+                      <div className="h-1 w-1 rounded-full bg-slate-500"></div>
+                      Priority
+                    </h4>
                     <div className="space-y-2.5">
                       {Object.keys(priorityColors).map((priority) => (
                         <label key={priority} className="flex items-center gap-2.5 cursor-pointer group">
@@ -299,12 +305,12 @@ export default function TicketList() {
                                   setPriorityFilter(priorityFilter.filter(p => p !== priority));
                                 }
                               }}
-                              className="peer h-4 w-4 rounded border-slate-600 bg-slate-700/50 text-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:ring-offset-0"
+                              className="peer h-4 w-4 rounded-sm border-slate-600 bg-slate-700/50 text-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:ring-offset-0 transition-all duration-200"
                             />
                           </div>
-                          <div className="flex items-center gap-2">
-                            <AlertCircle className="h-3.5 w-3.5" />
-                            <span className={`uppercase text-sm ${priorityColors[priority]} group-hover:opacity-80`}>
+                          <div className="flex items-center gap-2 flex-1">
+                            <AlertCircle className={`h-3.5 w-3.5 ${priorityColors[priority].replace('bg-', 'text-')}`} />
+                            <span className={`uppercase text-sm ${priorityColors[priority]} group-hover:opacity-80 transition-opacity duration-200`}>
                               {priority}
                             </span>
                           </div>
@@ -317,7 +323,7 @@ export default function TicketList() {
                     <div className="border-t border-slate-700/50 pt-4">
                       <Button
                         variant="ghost"
-                        className="w-full text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                        className="w-full text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all duration-200 rounded-md"
                         onClick={() => {
                           setStatusFilter([]);
                           setPriorityFilter([]);
