@@ -16,6 +16,8 @@ export default function ProfilePage() {
   const [phone, setPhone] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
   const [email, setEmail] = useState('');
+  const [role, setRole] = useState<string>('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const checkUser = async () => {
@@ -44,7 +46,7 @@ export default function ProfilePage() {
       console.log('Fetching profile for user:', userId);
       const { data, error } = await supabase
         .from('profiles')
-        .select('display_name, phone, avatar_url, email')
+        .select('display_name, phone, avatar_url, email, role')
         .eq('id', userId)
         .single();
 
@@ -59,6 +61,8 @@ export default function ProfilePage() {
         setPhone(data.phone || '');
         setAvatarUrl(data.avatar_url || '');
         setEmail(data.email || '');
+        setRole(data.role || 'customer');
+        setIsAdmin(data.role === 'admin' || data.role === 'super_admin');
       }
     } catch (err) {
       console.error('Profile fetch error:', err);
@@ -140,6 +144,7 @@ export default function ProfilePage() {
           display_name: displayName,
           phone,
           avatar_url: avatarUrl,
+          role: role,
         })
         .eq('id', session.user.id);
 
@@ -226,6 +231,26 @@ export default function ProfilePage() {
               onChange={(e) => setPhone(e.target.value)}
               className="mt-1 w-full border rounded-md px-3 py-2"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium" htmlFor="role">
+              Role
+            </label>
+            <select
+              id="role"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="mt-1 w-full border rounded-md px-3 py-2"
+            >
+              <option value="customer">Customer</option>
+              <option value="agent">Agent</option>
+              <option value="admin">Admin</option>
+              <option value="super_admin">Super Admin</option>
+            </select>
+            <p className="mt-1 text-xs text-yellow-600">
+              Role selection enabled for testing purposes
+            </p>
           </div>
 
           <div>
