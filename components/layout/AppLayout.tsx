@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import React, { ReactNode, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
@@ -13,7 +13,26 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
   const supabase = createClientComponentClient();
   const { role } = useUserRole();
+  const [orgId, setOrgId] = useState<string | null>(null);
   const isAdmin = role === 'admin' || role === 'super_admin';
+
+  useEffect(() => {
+    async function fetchUserOrg() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('org_id')
+          .eq('id', user.id)
+          .single();
+        
+        if (profile?.org_id) {
+          setOrgId(profile.org_id);
+        }
+      }
+    }
+    fetchUserOrg();
+  }, []);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -36,9 +55,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
                 >
                   Tickets
                 </Link>
-                {isAdmin && (
+                {isAdmin && orgId && (
                   <Link
-                    href={`/organizations/${router.query.org_id}/settings`}
+                    href={`/organizations/${orgId}/settings`}
                     className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
                   >
                     Organization Settings
@@ -59,6 +78,12 @@ export default function AppLayout({ children }: AppLayoutProps) {
               >
                 Profile
               </Link>
+              <button
+                onClick={handleSignOut}
+                className="bg-red-600 text-white hover:bg-red-700 px-4 py-2 rounded-md text-sm font-medium"
+              >
+                Sign Out
+              </button>
             </div>
           </div>
         </div>

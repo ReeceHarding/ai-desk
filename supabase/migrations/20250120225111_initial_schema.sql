@@ -40,7 +40,47 @@ CREATE TYPE public.sla_tier AS ENUM (
   'premium'
 );
 
--- Step 3: Create base tables
+-- Step 3: Create functions
+CREATE OR REPLACE FUNCTION public.fn_auto_update_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION public.is_super_admin()
+RETURNS boolean AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid()
+    AND role = 'super_admin'
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION public.current_user_org_id()
+RETURNS uuid AS $$
+BEGIN
+  RETURN (
+    SELECT org_id FROM public.profiles
+    WHERE id = auth.uid()
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION public.current_user_role()
+RETURNS user_role AS $$
+BEGIN
+  RETURN (
+    SELECT role FROM public.profiles
+    WHERE id = auth.uid()
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Step 4: Create base tables
 CREATE TABLE public.organizations (
   id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   name        text NOT NULL UNIQUE,
@@ -48,6 +88,15 @@ CREATE TABLE public.organizations (
   config      jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE public.organization_members (
+  organization_id uuid REFERENCES organizations(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL,
+  role text NOT NULL CHECK (role IN ('member', 'admin', 'super_admin')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (organization_id, user_id)
 );
 
 -- Create profiles table with deferred foreign key check
@@ -311,39 +360,6 @@ CREATE TABLE public.reports (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
--- Step 4: Create helper functions
-CREATE OR REPLACE FUNCTION public.fn_auto_update_timestamp()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION public.is_super_admin()
-RETURNS boolean AS $$
-SELECT EXISTS(
-  SELECT 1
-  FROM public.profiles
-  WHERE id = auth.uid()
-    AND role = 'super_admin'
-);
-$$ LANGUAGE sql STABLE;
-
-CREATE OR REPLACE FUNCTION public.current_user_org_id()
-RETURNS uuid AS $$
-SELECT org_id
-FROM public.profiles
-WHERE id = auth.uid();
-$$ LANGUAGE sql STABLE;
-
-CREATE OR REPLACE FUNCTION public.current_user_role()
-RETURNS user_role AS $$
-SELECT role
-FROM public.profiles
-WHERE id = auth.uid();
-$$ LANGUAGE sql STABLE;
 
 -- Step 5: Create triggers
 CREATE TRIGGER tr_organizations_update_timestamp

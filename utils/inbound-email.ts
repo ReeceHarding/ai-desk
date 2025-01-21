@@ -2,11 +2,20 @@ import { createClient } from '@supabase/supabase-js';
 import { Database } from '../types/supabase';
 import { ParsedEmail } from '../types/gmail';
 import { v4 as uuidv4 } from 'uuid';
+import { config } from 'dotenv';
+import { EmailLogger } from './emailLogger';
 
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Load environment variables
+config();
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error('Missing required environment variables for Supabase connection');
+}
+
+const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 
 interface TicketCreationResult {
   ticketId: string;
@@ -18,6 +27,8 @@ export async function handleInboundEmail(
   orgId: string
 ): Promise<TicketCreationResult> {
   try {
+    console.log(`Processing inbound email: ${parsedEmail.messageId} for org: ${orgId}`);
+    
     // First try to find an existing ticket by thread ID in metadata
     const { data: existingTickets } = await supabase
       .from('tickets')
@@ -27,6 +38,8 @@ export async function handleInboundEmail(
       .limit(1);
 
     if (existingTickets && existingTickets.length > 0) {
+      console.log(`Found existing ticket: ${existingTickets[0].id} for thread: ${parsedEmail.threadId}`);
+      
       // Found existing ticket - add comment
       const ticketId = existingTickets[0].id;
       
@@ -49,11 +62,31 @@ export async function handleInboundEmail(
         } as Database['public']['Tables']['comments']['Insert']['metadata']
       });
 
+      // Log the email
+      await EmailLogger.logEmail({
+        ticketId,
+        messageId: parsedEmail.messageId,
+        threadId: parsedEmail.threadId,
+        direction: 'inbound',
+        snippet: parsedEmail.snippet,
+        subject: parsedEmail.subject,
+        fromAddress: parsedEmail.from,
+        toAddress: parsedEmail.to,
+        authorId: customerProfile.id,
+        orgId: orgId,
+        rawContent: parsedEmail.body.text || parsedEmail.body.html,
+        labels: parsedEmail.labels
+      });
+
+      console.log(`Added comment to ticket: ${ticketId}`);
+
       return {
         ticketId,
         isNewTicket: false
       };
     }
+
+    console.log(`No existing ticket found for thread: ${parsedEmail.threadId}, creating new ticket`);
 
     // No existing ticket found - create new one
     const { data: customerProfile } = await getOrCreateCustomerProfile(parsedEmail.from, orgId);
@@ -82,6 +115,24 @@ export async function handleInboundEmail(
     if (!ticket) {
       throw new Error('Failed to create ticket');
     }
+
+    // Log the email
+    await EmailLogger.logEmail({
+      ticketId: ticket.id,
+      messageId: parsedEmail.messageId,
+      threadId: parsedEmail.threadId,
+      direction: 'inbound',
+      snippet: parsedEmail.snippet,
+      subject: parsedEmail.subject,
+      fromAddress: parsedEmail.from,
+      toAddress: parsedEmail.to,
+      authorId: customerProfile.id,
+      orgId: orgId,
+      rawContent: parsedEmail.body.text || parsedEmail.body.html,
+      labels: parsedEmail.labels
+    });
+
+    console.log(`Created new ticket: ${ticket.id}`);
 
     return {
       ticketId: ticket.id,

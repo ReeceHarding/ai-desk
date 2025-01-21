@@ -21,7 +21,8 @@ const nextConfig = {
         os: false,
         path: false,
         zlib: false,
-        child_process: false
+        child_process: false,
+        http2: false
       };
     }
     return config;

@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Avatar } from '@/components/ui/avatar';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import {
@@ -24,6 +24,8 @@ import {
   ChevronDown,
   Plus,
   X,
+  Mail,
+  Check,
 } from 'lucide-react';
 import debounce from 'lodash/debounce';
 
@@ -40,6 +42,11 @@ type Organization = {
 type Ticket = Database['public']['Tables']['tickets']['Row'] & {
   customer: Profile | null;
   organization: Organization | null;
+  metadata: {
+    thread_id?: string;
+    message_id?: string;
+    email_date?: string;
+  } | null;
 };
 
 const statusColors: Record<string, string> = {
@@ -251,7 +258,7 @@ export default function TicketList() {
                   )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-72 bg-slate-800/95 backdrop-blur-lg border border-slate-700/50 rounded-lg shadow-xl animate-in fade-in-0 zoom-in-95">
+              <DropdownMenuContent className="w-56 bg-slate-800 border-slate-700 text-slate-100">
                 <div className="space-y-6 p-4">
                   <div>
                     <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
@@ -318,6 +325,24 @@ export default function TicketList() {
                       ))}
                     </div>
                   </div>
+
+                  <DropdownMenuItem
+                    className="flex items-center gap-2 cursor-pointer"
+                    onClick={() => {
+                      const newFilter = statusFilter.includes('email') 
+                        ? statusFilter.filter(s => s !== 'email')
+                        : [...statusFilter, 'email'];
+                      setStatusFilter(newFilter);
+                    }}
+                  >
+                    <div className="flex items-center flex-1">
+                      <Mail className="h-4 w-4 mr-2" />
+                      Email Tickets
+                    </div>
+                    {statusFilter.includes('email') && (
+                      <Check className="h-4 w-4" />
+                    )}
+                  </DropdownMenuItem>
 
                   {(statusFilter.length > 0 || priorityFilter.length > 0) && (
                     <div className="border-t border-slate-700/50 pt-4">

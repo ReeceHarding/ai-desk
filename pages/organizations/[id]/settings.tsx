@@ -58,15 +58,32 @@ export default function OrganizationSettings() {
   };
 
   const handleConnectGmail = async () => {
-    // Construct OAuth URL
-    const clientId = process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID;
-    const redirectUri = encodeURIComponent(process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI || '');
-    const scope = encodeURIComponent('https://www.googleapis.com/auth/gmail.modify');
-    
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=org:${id}`;
-    
-    // Redirect to Google OAuth
-    window.location.href = authUrl;
+    try {
+      // Construct OAuth URL
+      const clientId = process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID;
+      const redirectUri = encodeURIComponent(process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI || '');
+      const scope = encodeURIComponent('https://www.googleapis.com/auth/gmail.modify');
+      
+      console.log('Gmail OAuth configuration:', {
+        clientId,
+        redirectUri: process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI,
+        scope: 'https://www.googleapis.com/auth/gmail.modify',
+        state: `org:${id}`,
+      });
+      
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=org:${id}`;
+      
+      console.log('Redirecting to:', authUrl);
+      // Redirect to Google OAuth
+      window.location.href = authUrl;
+    } catch (error) {
+      console.error('Error initiating Gmail connection:', error);
+      toast({
+        title: "Connection Failed",
+        description: "Failed to initiate Gmail connection. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   if (!organization || !isAdmin) {

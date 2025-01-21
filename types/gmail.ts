@@ -40,36 +40,21 @@ export interface GmailMessage {
   id: string;
   threadId: string;
   labelIds: string[];
-  snippet: string;
-  historyId: string;
-  internalDate: string;
-  payload: {
-    partId: string;
-    mimeType: string;
-    filename: string;
-    headers: Array<{
-      name: string;
-      value: string;
-    }>;
-    body: {
-      size: number;
-      data?: string;
-    };
-    parts?: Array<{
-      partId: string;
-      mimeType: string;
-      filename: string;
-      headers: Array<{
-        name: string;
-        value: string;
-      }>;
-      body: {
-        size: number;
-        data?: string;
-      };
-    }>;
+  snippet?: string;
+  subject?: string;
+  from: string;
+  to: string | string[];
+  date: string | number;
+  body?: {
+    text?: string;
+    html?: string;
   };
-  sizeEstimate: number;
+  labels?: string[];
+  attachments?: Array<{
+    filename: string;
+    mimeType: string;
+    data: string;
+  }>;
 }
 
 export interface ParsedEmail {
@@ -79,7 +64,10 @@ export interface ParsedEmail {
   from: string;
   to: string;
   date: Date;
-  body: string;
+  body: {
+    text?: string;
+    html?: string;
+  };
   snippet: string;
   labels: string[];
   attachments: Array<{

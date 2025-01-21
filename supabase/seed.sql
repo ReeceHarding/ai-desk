@@ -1,15 +1,31 @@
 -- Insert organizations
 INSERT INTO public.organizations (id, name, sla_tier)
-VALUES ('123e4567-e89b-12d3-a456-426614174000', 'Acme Corp', 'premium');
+VALUES 
+  ('123e4567-e89b-12d3-a456-426614174000', 'Acme Corp', 'premium'),
+  ('ee0f56a0-4130-4398-bc2d-27529f82efb1', 'Default Organization', 'basic');
 
 -- Insert initial auth.users (profiles will be created by trigger)
 INSERT INTO auth.users (id, email)
 VALUES 
+  ('52549bdb-0edb-4657-9e80-420fd63bceef', 'rieboysspam@gmail.com'),
   ('d0d8c19c-3b73-4c20-8a30-136b8888c042', 'admin@acme.com'),
   ('8a37a557-4c7c-4e5c-a4a4-8f0e8d4d4a9a', 'agent@acme.com'),
   ('f8b4c46b-9c2d-4d21-8c2d-b5c8e3f3d2a1', 'customer@acme.com');
 
+-- Insert organization members
+INSERT INTO public.organization_members (organization_id, user_id, role)
+VALUES
+  ('ee0f56a0-4130-4398-bc2d-27529f82efb1', '52549bdb-0edb-4657-9e80-420fd63bceef', 'super_admin'),
+  ('123e4567-e89b-12d3-a456-426614174000', '52549bdb-0edb-4657-9e80-420fd63bceef', 'admin');
+
 -- Update profiles with additional info
+UPDATE public.profiles 
+SET 
+  role = 'super_admin',
+  display_name = 'Rie Boys',
+  org_id = 'ee0f56a0-4130-4398-bc2d-27529f82efb1'
+WHERE id = '52549bdb-0edb-4657-9e80-420fd63bceef';
+
 UPDATE public.profiles 
 SET 
   role = 'admin',
