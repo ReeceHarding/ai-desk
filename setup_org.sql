@@ -1,0 +1,1 @@
+-- Create default organization INSERT INTO public.organizations (name, sla_tier) VALUES ('FlowSupport Admin', 'premium') RETURNING id;

@@ -3,6 +3,8 @@ You (Cursor IDE) will make minimal, carefully contained changes to my codebase w
 
 Key Instructions
 
+Check the Documentation folder's files ot learn about the project.
+When changing the migration files, change exsiting migration files. don't create new files. 
 Analyze Before Changing
 Before writing or modifying any code, think through how these changes could affect existing functionality.
 Summarize potential side effects and how you will mitigate them.

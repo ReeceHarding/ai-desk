@@ -10,7 +10,10 @@ export default function SignUp() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientComponentClient({
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  });
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -40,10 +43,31 @@ export default function SignUp() {
         }
       });
 
+      console.log('Signup response:', { signUpData, signUpError });
+
       if (signUpError) throw signUpError;
 
       if (signUpData?.user) {
-        // Sign in immediately after signup
+        console.log('User created successfully:', signUpData.user);
+        
+        // Add a small delay to ensure the trigger completes
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log('Checking for profile creation...');
+
+        // Verify profile creation
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', signUpData.user.id)
+          .single();
+
+        console.log('Profile check result:', { profile, profileError });
+
+        if (profileError) {
+          console.error('Profile verification error:', profileError);
+        }
+
+        // Sign in after profile verification
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,

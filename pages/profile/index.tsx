@@ -1,0 +1,285 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/router';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import AppLayout from '../../components/layout/AppLayout';
+import Image from 'next/image';
+
+export default function ProfilePage() {
+  const router = useRouter();
+  const supabase = createClientComponentClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [isLoading, setIsLoading] = useState(true);
+  const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [displayName, setDisplayName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [email, setEmail] = useState('');
+
+  useEffect(() => {
+    const checkUser = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          console.log('No session found, redirecting to signin');
+          router.push('/auth/signin');
+          return;
+        }
+
+        console.log('Session found:', session.user.id);
+        await fetchProfile(session.user.id);
+      } catch (err) {
+        console.error('Session check error:', err);
+        setError('Failed to check authentication status');
+      }
+    };
+
+    checkUser();
+  }, []);
+
+  const fetchProfile = async (userId: string) => {
+    try {
+      console.log('Fetching profile for user:', userId);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('display_name, phone, avatar_url, email')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Profile fetch error:', error);
+        throw error;
+      }
+
+      console.log('Profile data:', data);
+      if (data) {
+        setDisplayName(data.display_name || '');
+        setPhone(data.phone || '');
+        setAvatarUrl(data.avatar_url || '');
+        setEmail(data.email || '');
+      }
+    } catch (err) {
+      console.error('Profile fetch error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch profile');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      // Only check if it's an image
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Please upload an image file');
+      }
+
+      setIsUploading(true);
+      setError(null);
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        throw new Error('No user ID found');
+      }
+
+      // Create a unique file path
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${session.user.id}/${Date.now()}.${fileExt}`;
+
+      // Upload the file
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      // Get the public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      // Update profile with new avatar URL
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', session.user.id);
+
+      if (updateError) throw updateError;
+
+      // Update local state
+      setAvatarUrl(publicUrl);
+    } catch (err) {
+      console.error('Avatar upload error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to upload avatar');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        throw new Error('No user ID found');
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          display_name: displayName,
+          phone,
+          avatar_url: avatarUrl,
+        })
+        .eq('id', session.user.id);
+
+      if (error) throw error;
+      
+      // Refetch to confirm changes
+      await fetchProfile(session.user.id);
+    } catch (err) {
+      console.error('Profile update error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to update profile');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <AppLayout>
+        <div className="max-w-2xl mx-auto p-4">
+          <div className="text-center">Loading profile...</div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppLayout>
+        <div className="max-w-2xl mx-auto p-4">
+          <div className="bg-red-50 text-red-500 p-3 rounded-md">
+            Error: {error}
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  return (
+    <AppLayout>
+      <div className="max-w-2xl mx-auto p-4">
+        <h1 className="text-2xl font-bold mb-4">My Profile</h1>
+        
+        {error && (
+          <div className="bg-red-50 text-red-500 p-3 rounded-md text-sm mb-4">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleUpdateProfile} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium" htmlFor="email">
+              Email (read-only)
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              disabled
+              className="mt-1 w-full border rounded-md px-3 py-2 bg-gray-50"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium" htmlFor="displayName">
+              Display Name
+            </label>
+            <input
+              id="displayName"
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="mt-1 w-full border rounded-md px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium" htmlFor="phone">
+              Phone
+            </label>
+            <input
+              id="phone"
+              type="text"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="mt-1 w-full border rounded-md px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Avatar</label>
+            <div className="flex items-center space-x-4">
+              <div className="relative w-20 h-20 rounded-full overflow-hidden bg-gray-100">
+                {avatarUrl ? (
+                  <Image
+                    src={avatarUrl}
+                    alt="Profile avatar"
+                    fill
+                    className="object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                )}
+              </div>
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarUpload}
+                  className="hidden"
+                  id="avatar-upload"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                >
+                  {isUploading ? 'Uploading...' : 'Change Avatar'}
+                </button>
+                <p className="mt-1 text-xs text-gray-500">
+                  JPG, PNG or GIF (max. 2MB)
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isLoading ? 'Saving...' : 'Save Changes'}
+          </button>
+        </form>
+      </div>
+    </AppLayout>
+  );
+} 
