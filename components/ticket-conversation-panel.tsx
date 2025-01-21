@@ -140,7 +140,7 @@ export function TicketConversationPanel({
       animate={{ opacity: 1, y: 0 }}
       className="mt-8 space-y-4"
     >
-      <h3 className="text-lg font-semibold">Comments</h3>
+      <h3 className="text-lg font-semibold text-slate-100">Comments</h3>
       <div className="space-y-4">
         {loading ? (
           <div className="space-y-4">
@@ -153,10 +153,10 @@ export function TicketConversationPanel({
               key={comment.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-slate-800/50 backdrop-blur-sm rounded-lg p-4"
+              className="bg-slate-800/50 backdrop-blur-sm rounded-lg p-4 hover:bg-slate-800/70 transition-colors"
             >
               <div className="flex items-start gap-4">
-                <Avatar>
+                <Avatar className="ring-2 ring-slate-700/50">
                   <img
                     src={comment.author?.avatar_url || undefined}
                     alt={comment.author?.display_name || 'User'}
@@ -165,7 +165,7 @@ export function TicketConversationPanel({
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-2">
                     <div>
-                      <span className="font-medium">
+                      <span className="font-medium text-slate-100">
                         {comment.author?.display_name || 'Unknown User'}
                       </span>
                       <span className="text-sm text-slate-400 ml-2">
@@ -173,12 +173,12 @@ export function TicketConversationPanel({
                       </span>
                     </div>
                     {comment.is_private && (
-                      <Badge variant="outline" className="text-slate-400 border-slate-700">
+                      <Badge variant="outline" className="text-slate-300 border-slate-600 bg-slate-700/50">
                         Private
                       </Badge>
                     )}
                   </div>
-                  <p className="text-slate-300">{comment.body}</p>
+                  <p className="text-slate-300 leading-relaxed">{comment.body}</p>
                 </div>
               </div>
             </motion.div>
@@ -192,11 +192,11 @@ export function TicketConversationPanel({
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
           placeholder="Write a comment..."
-          className="min-h-[100px]"
+          className="min-h-[100px] bg-slate-800/50 border-slate-700 focus:border-slate-500 focus:ring-slate-500 placeholder:text-slate-500"
         />
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button type="button" variant="ghost" size="icon">
+            <Button type="button" variant="ghost" size="icon" className="text-slate-400 hover:text-white hover:bg-slate-700/50">
               <Paperclip className="h-4 w-4" />
             </Button>
             <label className="flex items-center gap-2 cursor-pointer">
@@ -204,15 +204,15 @@ export function TicketConversationPanel({
                 type="checkbox"
                 checked={isPrivate}
                 onChange={(e) => setIsPrivate(e.target.checked)}
-                className="form-checkbox"
+                className="form-checkbox bg-slate-800 border-slate-700 text-indigo-500 focus:ring-indigo-500"
               />
-              <span className="text-sm text-slate-400">Make private</span>
+              <span className="text-sm text-slate-400 hover:text-slate-300">Make private</span>
             </label>
           </div>
           <Button
             type="submit"
             disabled={!newComment.trim() || submitting}
-            className="inline-flex items-center gap-2"
+            className="inline-flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 disabled:bg-slate-700 disabled:text-slate-400"
           >
             {submitting ? (
               <Skeleton className="h-4 w-4" />

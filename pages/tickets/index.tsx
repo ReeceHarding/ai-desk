@@ -23,6 +23,7 @@ import {
   AlertCircle,
   ChevronDown,
   Plus,
+  X,
 } from 'lucide-react';
 
 type Profile = {
@@ -55,7 +56,7 @@ const priorityColors: Record<string, string> = {
   urgent: 'bg-red-500/10 text-red-500',
 };
 
-const StatusIcon = ({ status }: { status: string }) => {
+const StatusIcon = ({ status, className }: { status: string; className?: string }) => {
   const icons = {
     open: Inbox,
     pending: Clock,
@@ -64,7 +65,7 @@ const StatusIcon = ({ status }: { status: string }) => {
     closed: Lock,
   };
   const Icon = icons[status as keyof typeof icons] || AlertCircle;
-  return <Icon className="h-4 w-4" />;
+  return <Icon className={className || "h-4 w-4"} />;
 };
 
 export default function TicketList() {
@@ -217,24 +218,156 @@ export default function TicketList() {
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="gap-2">
+                <Button variant="secondary" className="gap-2 bg-white text-slate-900 hover:bg-white/90">
                   <Filter className="h-4 w-4" />
                   Filters
-                  <ChevronDown className="h-4 w-4" />
+                  {(statusFilter.length > 0 || priorityFilter.length > 0) && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm font-medium">
+                        {statusFilter.length + priorityFilter.length}
+                      </span>
+                      <ChevronDown className="h-4 w-4" />
+                    </div>
+                  )}
+                  {(statusFilter.length === 0 && priorityFilter.length === 0) && (
+                    <ChevronDown className="h-4 w-4" />
+                  )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem>Status</DropdownMenuItem>
-                <DropdownMenuItem>Priority</DropdownMenuItem>
-                <DropdownMenuItem>Date</DropdownMenuItem>
+              <DropdownMenuContent className="w-72 bg-slate-800/95 backdrop-blur-sm border border-slate-700 p-4 shadow-xl">
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="text-sm font-medium text-slate-300 mb-3">Status</h4>
+                    <div className="space-y-2.5">
+                      {Object.keys(statusColors).map((status) => (
+                        <label key={status} className="flex items-center gap-2.5 cursor-pointer group">
+                          <div className="relative flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={statusFilter.includes(status)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setStatusFilter([...statusFilter, status]);
+                                } else {
+                                  setStatusFilter(statusFilter.filter(s => s !== status));
+                                }
+                              }}
+                              className="peer h-4 w-4 rounded border-slate-600 bg-slate-700/50 text-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:ring-offset-0"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <StatusIcon status={status} className="h-3.5 w-3.5" />
+                            <span className={`capitalize text-sm ${statusColors[status]} group-hover:opacity-80`}>
+                              {status}
+                            </span>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-700/50 pt-6">
+                    <h4 className="text-sm font-medium text-slate-300 mb-3">Priority</h4>
+                    <div className="space-y-2.5">
+                      {Object.keys(priorityColors).map((priority) => (
+                        <label key={priority} className="flex items-center gap-2.5 cursor-pointer group">
+                          <div className="relative flex items-center">
+                            <input
+                              type="checkbox"
+                              checked={priorityFilter.includes(priority)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setPriorityFilter([...priorityFilter, priority]);
+                                } else {
+                                  setPriorityFilter(priorityFilter.filter(p => p !== priority));
+                                }
+                              }}
+                              className="peer h-4 w-4 rounded border-slate-600 bg-slate-700/50 text-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:ring-offset-0"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="h-3.5 w-3.5" />
+                            <span className={`uppercase text-sm ${priorityColors[priority]} group-hover:opacity-80`}>
+                              {priority}
+                            </span>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {(statusFilter.length > 0 || priorityFilter.length > 0) && (
+                    <div className="border-t border-slate-700/50 pt-4">
+                      <Button
+                        variant="ghost"
+                        className="w-full text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                        onClick={() => {
+                          setStatusFilter([]);
+                          setPriorityFilter([]);
+                        }}
+                      >
+                        Clear all filters
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button className="gap-2">
+            <Button className="gap-2" onClick={() => router.push('/tickets/new')}>
               <Plus className="h-4 w-4" />
               New Ticket
             </Button>
           </div>
         </div>
+
+        {/* Active Filters */}
+        {(statusFilter.length > 0 || priorityFilter.length > 0) && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {statusFilter.map((status) => (
+              <Badge
+                key={status}
+                variant="secondary"
+                className={`${statusColors[status]} cursor-pointer hover:opacity-80`}
+                onClick={() => setStatusFilter(statusFilter.filter(s => s !== status))}
+              >
+                <StatusIcon status={status} className="h-3 w-3 mr-1" />
+                {status}
+                <X className="h-3 w-3 ml-1" onClick={(e) => {
+                  e.stopPropagation();
+                  setStatusFilter(statusFilter.filter(s => s !== status));
+                }} />
+              </Badge>
+            ))}
+            {priorityFilter.map((priority) => (
+              <Badge
+                key={priority}
+                variant="secondary"
+                className={`${priorityColors[priority]} cursor-pointer hover:opacity-80`}
+                onClick={() => setPriorityFilter(priorityFilter.filter(p => p !== priority))}
+              >
+                <AlertCircle className="h-3 w-3 mr-1" />
+                {priority.toUpperCase()}
+                <X className="h-3 w-3 ml-1" onClick={(e) => {
+                  e.stopPropagation();
+                  setPriorityFilter(priorityFilter.filter(p => p !== priority));
+                }} />
+              </Badge>
+            ))}
+            {(statusFilter.length > 0 || priorityFilter.length > 0) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-slate-400 hover:text-white"
+                onClick={() => {
+                  setStatusFilter([]);
+                  setPriorityFilter([]);
+                }}
+              >
+                Clear all
+              </Button>
+            )}
+          </div>
+        )}
 
         {/* Tickets Table */}
         <div className="bg-slate-800/50 backdrop-blur-sm rounded-lg overflow-hidden">
