@@ -6,32 +6,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          operationName?: string
-          query?: string
-          variables?: Json
-          extensions?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
+export interface Database {
   public: {
     Tables: {
       article_localizations: {
@@ -72,7 +47,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "knowledge_base_articles"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
       article_revisions: {
@@ -104,7 +79,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "knowledge_base_articles"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
       article_watchers: {
@@ -143,7 +118,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
       attachments: {
@@ -175,7 +150,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "comments"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
       audit_logs: {
@@ -216,7 +191,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
       comment_embeddings: {
@@ -248,50 +223,50 @@ export type Database = {
             isOneToOne: true
             referencedRelation: "comments"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
       comments: {
         Row: {
+          id: string
+          ticket_id: string
           author_id: string
           body: string
-          created_at: string
-          deleted_at: string | null
-          extra_json_1: Json
-          extra_text_1: string | null
-          id: string
           is_private: boolean
           metadata: Json
+          extra_text_1: string | null
+          extra_json_1: Json
           org_id: string
-          ticket_id: string
+          deleted_at: string | null
+          created_at: string
           updated_at: string
         }
         Insert: {
+          id?: string
+          ticket_id: string
           author_id: string
           body: string
-          created_at?: string
-          deleted_at?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id?: string
           is_private?: boolean
           metadata?: Json
+          extra_text_1?: string | null
+          extra_json_1?: Json
           org_id: string
-          ticket_id: string
+          deleted_at?: string | null
+          created_at?: string
           updated_at?: string
         }
         Update: {
+          id?: string
+          ticket_id?: string
           author_id?: string
           body?: string
-          created_at?: string
-          deleted_at?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id?: string
           is_private?: boolean
           metadata?: Json
+          extra_text_1?: string | null
+          extra_json_1?: Json
           org_id?: string
-          ticket_id?: string
+          deleted_at?: string | null
+          created_at?: string
           updated_at?: string
         }
         Relationships: [
@@ -315,7 +290,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "tickets"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
       knowledge_base_articles: {
@@ -384,7 +359,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
       organizations: {
@@ -393,7 +368,7 @@ export type Database = {
           created_at: string
           id: string
           name: string
-          sla_tier: Database["public"]["Enums"]["sla_tier"]
+          sla_tier: 'basic' | 'premium'
           updated_at: string
         }
         Insert: {
@@ -401,7 +376,7 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
-          sla_tier?: Database["public"]["Enums"]["sla_tier"]
+          sla_tier?: 'basic' | 'premium'
           updated_at?: string
         }
         Update: {
@@ -409,52 +384,52 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
-          sla_tier?: Database["public"]["Enums"]["sla_tier"]
+          sla_tier?: 'basic' | 'premium'
           updated_at?: string
         }
         Relationships: []
       }
       profiles: {
         Row: {
-          avatar_url: string | null
-          created_at: string
+          id: string
+          role: 'customer' | 'agent' | 'admin' | 'super_admin'
           display_name: string | null
           email: string | null
-          extra_json_1: Json
-          extra_text_1: string | null
-          id: string
-          metadata: Json
-          org_id: string
           phone: string | null
-          role: Database["public"]["Enums"]["user_role"]
+          avatar_url: string | null
+          metadata: Json
+          extra_text_1: string | null
+          extra_json_1: Json
+          org_id: string
+          created_at: string
           updated_at: string
         }
         Insert: {
-          avatar_url?: string | null
-          created_at?: string
+          id: string
+          role?: 'customer' | 'agent' | 'admin' | 'super_admin'
           display_name?: string | null
           email?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id: string
-          metadata?: Json
-          org_id: string
           phone?: string | null
-          role?: Database["public"]["Enums"]["user_role"]
+          avatar_url?: string | null
+          metadata?: Json
+          extra_text_1?: string | null
+          extra_json_1?: Json
+          org_id: string
+          created_at?: string
           updated_at?: string
         }
         Update: {
-          avatar_url?: string | null
-          created_at?: string
+          id?: string
+          role?: 'customer' | 'agent' | 'admin' | 'super_admin'
           display_name?: string | null
           email?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id?: string
-          metadata?: Json
-          org_id?: string
           phone?: string | null
-          role?: Database["public"]["Enums"]["user_role"]
+          avatar_url?: string | null
+          metadata?: Json
+          extra_text_1?: string | null
+          extra_json_1?: Json
+          org_id?: string
+          created_at?: string
           updated_at?: string
         }
         Relationships: [
@@ -464,256 +439,89 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
-      reports: {
+      tickets: {
         Row: {
-          created_at: string
-          data: Json
-          extra_json_1: Json
-          extra_text_1: string | null
           id: string
+          subject: string
+          description: string
+          status: 'open' | 'pending' | 'on_hold' | 'solved' | 'closed' | 'overdue'
+          priority: 'low' | 'medium' | 'high' | 'urgent'
+          customer_id: string
+          assigned_agent_id: string | null
+          escalation_level: number
+          due_at: string | null
+          custom_fields: Json
           metadata: Json
+          extra_text_1: string | null
+          extra_json_1: Json
           org_id: string
-          owner_id: string | null
-          report_type: string
+          deleted_at: string | null
+          created_at: string
           updated_at: string
         }
         Insert: {
-          created_at?: string
-          data: Json
-          extra_json_1?: Json
-          extra_text_1?: string | null
           id?: string
+          subject: string
+          description: string
+          status?: 'open' | 'pending' | 'on_hold' | 'solved' | 'closed' | 'overdue'
+          priority?: 'low' | 'medium' | 'high' | 'urgent'
+          customer_id: string
+          assigned_agent_id?: string | null
+          escalation_level?: number
+          due_at?: string | null
+          custom_fields?: Json
           metadata?: Json
+          extra_text_1?: string | null
+          extra_json_1?: Json
           org_id: string
-          owner_id?: string | null
-          report_type: string
+          deleted_at?: string | null
+          created_at?: string
           updated_at?: string
         }
         Update: {
-          created_at?: string
-          data?: Json
-          extra_json_1?: Json
-          extra_text_1?: string | null
           id?: string
+          subject?: string
+          description?: string
+          status?: 'open' | 'pending' | 'on_hold' | 'solved' | 'closed' | 'overdue'
+          priority?: 'low' | 'medium' | 'high' | 'urgent'
+          customer_id?: string
+          assigned_agent_id?: string | null
+          escalation_level?: number
+          due_at?: string | null
+          custom_fields?: Json
           metadata?: Json
+          extra_text_1?: string | null
+          extra_json_1?: Json
           org_id?: string
-          owner_id?: string | null
-          report_type?: string
+          deleted_at?: string | null
+          created_at?: string
           updated_at?: string
         }
         Relationships: [
           {
-            foreignKeyName: "reports_org_id_fkey"
-            columns: ["org_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "reports_owner_id_fkey"
-            columns: ["owner_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      tags: {
-        Row: {
-          created_at: string
-          description: string | null
-          extra_json_1: Json
-          extra_text_1: string | null
-          id: string
-          metadata: Json
-          name: string
-          org_id: string
-          tag_type: string | null
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          description?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id?: string
-          metadata?: Json
-          name: string
-          org_id: string
-          tag_type?: string | null
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          description?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id?: string
-          metadata?: Json
-          name?: string
-          org_id?: string
-          tag_type?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "tags_org_id_fkey"
-            columns: ["org_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      team_members: {
-        Row: {
-          created_at: string
-          metadata: Json
-          role_in_team: string | null
-          team_id: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          metadata?: Json
-          role_in_team?: string | null
-          team_id: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          metadata?: Json
-          role_in_team?: string | null
-          team_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "team_members_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_members_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      teams: {
-        Row: {
-          config: Json
-          created_at: string
-          description: string | null
-          extra_json_1: Json
-          extra_text_1: string | null
-          id: string
-          name: string
-          org_id: string
-          updated_at: string
-        }
-        Insert: {
-          config?: Json
-          created_at?: string
-          description?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id?: string
-          name: string
-          org_id: string
-          updated_at?: string
-        }
-        Update: {
-          config?: Json
-          created_at?: string
-          description?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id?: string
-          name?: string
-          org_id?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "teams_org_id_fkey"
-            columns: ["org_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ticket_co_assignees: {
-        Row: {
-          agent_id: string
-          assigned_at: string
-          ticket_id: string
-        }
-        Insert: {
-          agent_id: string
-          assigned_at?: string
-          ticket_id: string
-        }
-        Update: {
-          agent_id?: string
-          assigned_at?: string
-          ticket_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ticket_co_assignees_agent_id_fkey"
-            columns: ["agent_id"]
+            foreignKeyName: "tickets_assigned_agent_id_fkey"
+            columns: ["assigned_agent_id"]
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "ticket_co_assignees_ticket_id_fkey"
-            columns: ["ticket_id"]
+            foreignKeyName: "tickets_customer_id_fkey"
+            columns: ["customer_id"]
             isOneToOne: false
-            referencedRelation: "tickets"
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
-        ]
-      }
-      ticket_embeddings: {
-        Row: {
-          created_at: string
-          embedding: string | null
-          metadata: Json
-          ticket_id: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          embedding?: string | null
-          metadata?: Json
-          ticket_id: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          embedding?: string | null
-          metadata?: Json
-          ticket_id?: string
-          updated_at?: string
-        }
-        Relationships: [
           {
-            foreignKeyName: "ticket_embeddings_ticket_id_fkey"
-            columns: ["ticket_id"]
-            isOneToOne: true
-            referencedRelation: "tickets"
+            foreignKeyName: "tickets_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
-          },
+          }
         ]
       }
       ticket_watchers: {
@@ -752,89 +560,7 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["id"]
-          },
-        ]
-      }
-      tickets: {
-        Row: {
-          assigned_agent_id: string | null
-          created_at: string
-          custom_fields: Json
-          customer_id: string
-          deleted_at: string | null
-          description: string
-          due_at: string | null
-          escalation_level: number
-          extra_json_1: Json
-          extra_text_1: string | null
-          id: string
-          metadata: Json
-          org_id: string
-          priority: Database["public"]["Enums"]["ticket_priority"]
-          status: Database["public"]["Enums"]["ticket_status"]
-          subject: string
-          updated_at: string
-        }
-        Insert: {
-          assigned_agent_id?: string | null
-          created_at?: string
-          custom_fields?: Json
-          customer_id: string
-          deleted_at?: string | null
-          description: string
-          due_at?: string | null
-          escalation_level?: number
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id?: string
-          metadata?: Json
-          org_id: string
-          priority?: Database["public"]["Enums"]["ticket_priority"]
-          status?: Database["public"]["Enums"]["ticket_status"]
-          subject: string
-          updated_at?: string
-        }
-        Update: {
-          assigned_agent_id?: string | null
-          created_at?: string
-          custom_fields?: Json
-          customer_id?: string
-          deleted_at?: string | null
-          description?: string
-          due_at?: string | null
-          escalation_level?: number
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          id?: string
-          metadata?: Json
-          org_id?: string
-          priority?: Database["public"]["Enums"]["ticket_priority"]
-          status?: Database["public"]["Enums"]["ticket_status"]
-          subject?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "tickets_assigned_agent_id_fkey"
-            columns: ["assigned_agent_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tickets_customer_id_fkey"
-            columns: ["customer_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tickets_org_id_fkey"
-            columns: ["org_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
+          }
         ]
       }
     }
@@ -842,19 +568,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      binary_quantize:
-        | {
-            Args: {
-              "": string
-            }
-            Returns: unknown
-          }
-        | {
-            Args: {
-              "": unknown
-            }
-            Returns: unknown
-          }
       current_user_org_id: {
         Args: Record<PropertyKey, never>
         Returns: string
@@ -863,227 +576,12 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]
       }
-      gtrgm_compress: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      gtrgm_decompress: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      gtrgm_in: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      gtrgm_options: {
-        Args: {
-          "": unknown
-        }
-        Returns: undefined
-      }
-      gtrgm_out: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      halfvec_avg: {
-        Args: {
-          "": number[]
-        }
-        Returns: unknown
-      }
-      halfvec_out: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      halfvec_send: {
-        Args: {
-          "": unknown
-        }
-        Returns: string
-      }
-      halfvec_typmod_in: {
-        Args: {
-          "": unknown[]
-        }
-        Returns: number
-      }
-      hnsw_bit_support: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      hnsw_halfvec_support: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      hnsw_sparsevec_support: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      hnswhandler: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      is_super_admin: {
-        Args: Record<PropertyKey, never>
-        Returns: boolean
-      }
-      ivfflat_bit_support: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      ivfflat_halfvec_support: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      ivfflathandler: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      l2_norm:
-        | {
-            Args: {
-              "": unknown
-            }
-            Returns: number
-          }
-        | {
-            Args: {
-              "": unknown
-            }
-            Returns: number
-          }
-      l2_normalize:
-        | {
-            Args: {
-              "": string
-            }
-            Returns: string
-          }
-        | {
-            Args: {
-              "": unknown
-            }
-            Returns: unknown
-          }
-        | {
-            Args: {
-              "": unknown
-            }
-            Returns: unknown
-          }
-      set_limit: {
-        Args: {
-          "": number
-        }
-        Returns: number
-      }
-      show_limit: {
-        Args: Record<PropertyKey, never>
-        Returns: number
-      }
-      show_trgm: {
-        Args: {
-          "": string
-        }
-        Returns: string[]
-      }
-      sparsevec_out: {
-        Args: {
-          "": unknown
-        }
-        Returns: unknown
-      }
-      sparsevec_send: {
-        Args: {
-          "": unknown
-        }
-        Returns: string
-      }
-      sparsevec_typmod_in: {
-        Args: {
-          "": unknown[]
-        }
-        Returns: number
-      }
-      vector_avg: {
-        Args: {
-          "": number[]
-        }
-        Returns: string
-      }
-      vector_dims:
-        | {
-            Args: {
-              "": string
-            }
-            Returns: number
-          }
-        | {
-            Args: {
-              "": unknown
-            }
-            Returns: number
-          }
-      vector_norm: {
-        Args: {
-          "": string
-        }
-        Returns: number
-      }
-      vector_out: {
-        Args: {
-          "": string
-        }
-        Returns: unknown
-      }
-      vector_send: {
-        Args: {
-          "": string
-        }
-        Returns: string
-      }
-      vector_typmod_in: {
-        Args: {
-          "": unknown[]
-        }
-        Returns: number
-      }
     }
     Enums: {
-      sla_tier: "basic" | "premium"
-      ticket_priority: "low" | "medium" | "high" | "urgent"
-      ticket_status:
-        | "open"
-        | "pending"
-        | "on_hold"
-        | "solved"
-        | "closed"
-        | "overdue"
-      user_role: "customer" | "agent" | "admin" | "super_admin"
+      user_role: 'customer' | 'agent' | 'admin' | 'super_admin'
+      ticket_status: 'open' | 'pending' | 'on_hold' | 'solved' | 'closed' | 'overdue'
+      ticket_priority: 'low' | 'medium' | 'high' | 'urgent'
+      sla_tier: 'basic' | 'premium'
     }
     CompositeTypes: {
       [_ in never]: never

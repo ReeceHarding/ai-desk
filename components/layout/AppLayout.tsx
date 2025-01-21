@@ -25,6 +25,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
               <Link href="/dashboard" className="text-xl font-semibold">
                 Zendesk Clone
               </Link>
+              <div className="ml-10 flex items-center space-x-4">
+                <Link
+                  href="/tickets"
+                  className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+                >
+                  Tickets
+                </Link>
+              </div>
             </div>
             <div className="flex items-center space-x-4">
               <Link
