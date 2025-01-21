@@ -151,7 +151,7 @@ export default function NewTicket() {
     <AppLayout>
       <Box className="min-h-screen bg-[#1C1C1C] text-white p-8">
         <Paper className="max-w-3xl mx-auto bg-[#2C2C2C] p-8 border border-gray-800">
-          <Text size="xl" fw={600} className="mb-6">Create New Ticket</Text>
+          <Text size="xl" fw="bold" className="mb-6">Create New Ticket</Text>
 
           {error && (
             <Alert 
