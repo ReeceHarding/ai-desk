@@ -4,21 +4,40 @@ You (Cursor IDE) will make minimal, carefully contained changes to my codebase w
 Key Instructions
 
 Check the Documentation folder's files ot learn about the project.
+
 When changing the migration files, change exsiting migration files. don't create new files. 
+
 Analyze Before Changing
+
 Before writing or modifying any code, think through how these changes could affect existing functionality.
+
 Summarize potential side effects and how you will mitigate them.
+
 List Your Steps
 Provide a list (step-by-step) of how you plan to implement or modify the feature in extremely precise detail, referencing specific files, lines, variables, environment keys, back-end endpoints, UI components, and so on.
+
 Minimal, Focused Code Changes
+
 Only modify the files and lines necessary to implement the current feature or fix.
+
 Do not add or remove unrelated code.
+
 Provide Code in Small Batches
+
 Give only the code snippet(s) for the current task.
+
 Confirm No Breakage
+
 Ensure existing features remain functional.
+
 For each code snippet, explain how it should be tested or how we should test that it doesn’t break other parts of the system.
+
 Await Feedback Before Proceeding
+
 For all designs I ask you to make, have them be beautiful, not cookie cutter. Make webpages that are fully featured and worthy for production.
+
 After providing a snippet and explaining it, wait for my confirmation or feedback before doing anything else.
+
+Write logging messages for all the changes you make.
+
 Do not move on to the next step until I confirm the snippet works or provide new instructions.

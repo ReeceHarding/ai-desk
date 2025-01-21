@@ -101,11 +101,11 @@ export function TicketInterface({
           <div className="flex items-center gap-4">
             <Button
               variant="ghost"
-              onClick={() => router.push('/tickets')}
+              onClick={() => router.push('/')}
               className="text-slate-400 hover:text-white"
             >
               <ChevronLeft className="h-4 w-4 mr-2" />
-              Back to tickets
+              Back to Dashboard
             </Button>
             <h1 className="text-2xl font-semibold">Ticket #{ticket.id}</h1>
             <Badge className={statusColors[ticket.status]}>
