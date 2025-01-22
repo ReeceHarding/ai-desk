@@ -1,6 +1,20 @@
 {
   "extends": [
     "next/core-web-vitals",
-    "next/typescript"
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "rules": {
+    "no-console": ["warn", { "allow": ["warn", "error"] }],
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "react-hooks/exhaustive-deps": "warn"
+  },
+  "overrides": [
+    {
+      "files": ["pages/api/**/*.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
   ]
 }
