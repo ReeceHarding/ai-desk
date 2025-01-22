@@ -2,6 +2,8 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { Database } from '@/types/supabase';
+import { importInitialEmails } from '@/utils/gmail';
+import { GmailTokens, GMAIL_SCOPES } from '@/types/gmail';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   console.log('\n=== Gmail Callback Started ===');
@@ -156,6 +158,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         console.log('Successfully updated profile with Gmail tokens');
+
+        // Import initial emails
+        try {
+          await importInitialEmails(id, {
+            access_token,
+            refresh_token,
+            token_type: 'Bearer',
+            scope: GMAIL_SCOPES.join(' '),
+            expiry_date: Date.now() + (expires_in * 1000)
+          });
+          console.log('Successfully imported initial emails');
+        } catch (importError) {
+          console.error('Error importing initial emails:', importError);
+          // Continue with redirect even if import fails
+        }
 
         // Redirect back to profile settings
         return res.redirect('/profile/settings?success=true');
