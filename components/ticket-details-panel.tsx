@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/ui/avatar';
+import Image from 'next/image';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import {
   AlertCircle,
@@ -59,7 +59,6 @@ const StatusIcon = ({ status }: { status: string }) => {
 interface TicketDetailsPanelProps {
   ticket: Ticket;
   isOpen: boolean;
-  onClose: () => void;
   onStatusChange: (status: Ticket['status']) => void;
   onPriorityChange: (priority: Ticket['priority']) => void;
 }
@@ -67,7 +66,6 @@ interface TicketDetailsPanelProps {
 export function TicketDetailsPanel({
   ticket,
   isOpen,
-  onClose,
   onStatusChange,
   onPriorityChange,
 }: TicketDetailsPanelProps) {
@@ -137,9 +135,12 @@ export function TicketDetailsPanel({
         <h3 className="text-sm font-medium text-slate-400 mb-2">Customer</h3>
         <div className="flex items-center gap-3">
           <Avatar>
-            <img
-              src={ticket.customer?.avatar_url || undefined}
+            <Image
+              src={ticket.customer?.avatar_url || '/default-avatar.png'}
               alt={ticket.customer?.display_name || 'Customer'}
+              width={40}
+              height={40}
+              className="rounded-full"
             />
           </Avatar>
           <div>

@@ -32,7 +32,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       }
     }
     fetchUserOrg();
-  }, []);
+  }, [supabase]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();

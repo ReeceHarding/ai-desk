@@ -7,6 +7,8 @@ Check the Documentation folder's files ot learn about the project.
 
 When changing the migration files, change exsiting migration files. don't create new files. 
 
+Don't 
+
 Analyze Before Changing
 
 Before writing or modifying any code, think through how these changes could affect existing functionality.

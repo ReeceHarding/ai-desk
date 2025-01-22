@@ -6,16 +6,13 @@ import {
   Filter,
   MoreHorizontal,
   Phone,
-  Mail,
   MessageSquare,
   Bell,
   Home,
-  Settings,
   Users,
   BarChart,
   ChevronDown,
   Clock,
-  AlertCircle,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
