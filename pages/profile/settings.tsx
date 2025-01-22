@@ -1,12 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
-import { useRouter } from 'next/router';
+import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
-import AppLayout from '@/components/layout/AppLayout';
 import { getGmailProfile } from '@/utils/gmail';
+import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
+import { useRouter } from 'next/router';
+import { useCallback, useEffect, useState } from 'react';
 
 interface Profile {
   id: string;
@@ -22,21 +22,40 @@ export default function ProfileSettings() {
   const { toast } = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [gmailAddress, setGmailAddress] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   const fetchProfile = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user?.id)
-      .single();
+    try {
+      if (!user?.id) {
+        console.log('No user ID available yet');
+        return;
+      }
 
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return;
+      console.log('Fetching profile for user:', user.id);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load profile data. Please try refreshing the page.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      console.log('Profile data loaded:', data);
+      setProfile(data);
+    } catch (err) {
+      console.error('Unexpected error fetching profile:', err);
+    } finally {
+      setIsLoading(false);
     }
-
-    setProfile(data);
-  }, [supabase, user?.id]);
+  }, [supabase, user?.id, toast]);
 
   const fetchGmailProfile = useCallback(async () => {
     try {
@@ -143,8 +162,30 @@ export default function ProfileSettings() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <AppLayout>
+        <div className="container mx-auto py-8">
+          <div className="flex items-center justify-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+            <span className="ml-2">Loading profile...</span>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
   if (!profile) {
-    return <div>Loading...</div>;
+    return (
+      <AppLayout>
+        <div className="container mx-auto py-8">
+          <div className="text-center">
+            <h2 className="text-xl font-semibold mb-2">Profile Not Found</h2>
+            <p className="text-gray-600">Unable to load your profile data. Please try refreshing the page.</p>
+          </div>
+        </div>
+      </AppLayout>
+    );
   }
 
   return (
