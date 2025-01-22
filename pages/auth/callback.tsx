@@ -8,53 +8,26 @@ export default function AuthCallback() {
 
   useEffect(() => {
     const handleAuthCallback = async () => {
-      try {
-        console.log('[AUTH-CALLBACK] Starting auth callback handler');
-        console.log('[AUTH-CALLBACK] Query params:', router.query);
-        
-        // Check if we have a session
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        console.log('[AUTH-CALLBACK] Session check result:', {
-          hasSession: !!session,
-          error: sessionError?.message,
-          userId: session?.user?.id
-        });
-
-        if (sessionError) {
-          throw sessionError;
-        }
-
-        if (session) {
-          console.log('[AUTH-CALLBACK] Session found, checking profile...');
-          
-          // Check if profile exists
-          const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-            
-          console.log('[AUTH-CALLBACK] Profile check result:', {
-            hasProfile: !!profile,
-            error: profileError?.message
-          });
-
-          // Successful sign in - redirect to dashboard
-          console.log('[AUTH-CALLBACK] Redirecting to dashboard');
-          router.replace('/dashboard');
-        } else {
-          console.log('[AUTH-CALLBACK] No session found, redirecting to signin');
-          router.replace('/auth/signin?error=No session found');
-        }
-      } catch (error) {
-        console.error('[AUTH-CALLBACK] Error in auth callback:', error);
-        router.replace('/auth/signin?error=Authentication failed');
+      const error = await supabase.auth.getSession();
+      if (error) {
+        console.log('Error getting session:', error);
+        router.push('/auth/signin');
+        return;
       }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.log('No user found');
+        router.push('/auth/signin');
+        return;
+      }
+
+      console.log('User found:', user);
+      router.push('/dashboard');
     };
 
     handleAuthCallback();
-  }, [router, supabase.auth]);
+  }, [router, supabase]);
 
   return null;
 } 

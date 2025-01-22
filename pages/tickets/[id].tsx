@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { Database } from '@/types/supabase';
@@ -33,55 +33,52 @@ export default function TicketPage() {
   const user = useUser();
   const router = useRouter();
 
-  useEffect(() => {
-    if (!router.isReady || !user) return;
+  const fetchTicket = useCallback(async () => {
+    try {
+      const id = Array.isArray(router.query.id) ? router.query.id[0] : router.query.id;
+      if (!id) return;
 
-    const ticketId = Array.isArray(router.query.id) ? router.query.id[0] : router.query.id;
-    if (!ticketId) {
-      router.push('/tickets');
-      return;
-    }
+      const { data, error } = await supabase
+        .from('tickets')
+        .select(`
+          *,
+          customer:profiles!tickets_customer_id_fkey (
+            display_name,
+            email,
+            avatar_url
+          ),
+          organization:organizations!tickets_org_id_fkey (
+            name
+          )
+        `)
+        .eq('id', id)
+        .single();
 
-    async function fetchTicket() {
-      try {
-        const { data: ticketData, error: ticketError } = await supabase
-          .from('tickets')
-          .select(`
-            *,
-            customer:profiles!tickets_customer_id_fkey (
-              display_name,
-              email,
-              avatar_url
-            ),
-            organization:organizations!tickets_org_id_fkey (
-              name
-            )
-          `)
-          .eq('id', ticketId as string)
-          .single();
-
-        if (ticketError) throw ticketError;
-
-        if (ticketData) {
-          const typedTicket: Ticket = {
-            ...ticketData,
-            customer: ticketData.customer as Profile,
-            organization: ticketData.organization as Organization,
-          };
-          setTicket(typedTicket);
-        } else {
-          setError('Ticket not found');
-        }
-      } catch (err) {
-        console.error('Error fetching ticket:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load ticket');
-      } finally {
-        setLoading(false);
+      if (error) throw error;
+      
+      if (data) {
+        const typedTicket: Ticket = {
+          ...data,
+          customer: data.customer as Profile,
+          organization: data.organization as Organization,
+        };
+        setTicket(typedTicket);
+      } else {
+        setError('Ticket not found');
       }
+    } catch (err) {
+      console.error('Error fetching ticket:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch ticket');
+    } finally {
+      setLoading(false);
     }
+  }, [router.query.id, supabase]);
 
-    fetchTicket();
-  }, [router.isReady, router.query.id, user, supabase]);
+  useEffect(() => {
+    if (router.query.id) {
+      fetchTicket();
+    }
+  }, [router.query.id, fetchTicket]);
 
   const handleStatusChange = async (newStatus: Ticket['status']) => {
     if (!ticket || !user) return;
@@ -180,7 +177,7 @@ export default function TicketPage() {
                 {error || 'Ticket not found'}
               </h1>
               <p className="text-slate-400 max-w-md mx-auto">
-                We couldn't find the ticket you're looking for. It may have been deleted or you may not have permission to view it.
+                We couldn&apos;t find the ticket you&apos;re looking for. It may have been deleted or you may not have permission to view it.
               </p>
             </div>
             <Button

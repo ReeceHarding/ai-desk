@@ -1,7 +1,7 @@
 "use client"
 
 import { motion, AnimatePresence } from "framer-motion"
-import { ChevronDown, ChevronRight, Plus, Building, User, Globe, Phone, Hash, MessageSquare, Link2, MoreHorizontal } from "lucide-react"
+import { ChevronDown, ChevronRight, Plus, Building, User, Globe, Phone, MessageSquare, Link2, MoreHorizontal } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"

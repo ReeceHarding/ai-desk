@@ -1,35 +1,36 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/router';
 import AppLayout from '../components/layout/AppLayout';
+import { User } from '@supabase/supabase-js';
 
 export default function Dashboard() {
   const supabase = createClientComponentClient();
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const getUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (!session) {
-          router.push('/auth/signin');
-          return;
-        }
-
-        setUser(session.user);
-      } catch (err) {
-        console.error('Session check error:', err);
+  const getUser = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
         router.push('/auth/signin');
-      } finally {
-        setIsLoading(false);
+        return;
       }
-    };
 
+      setUser(session.user);
+    } catch (err) {
+      console.error('Session check error:', err);
+      router.push('/auth/signin');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router, supabase.auth]);
+
+  useEffect(() => {
     getUser();
-  }, []);
+  }, [getUser]);
 
   if (isLoading) {
     return (

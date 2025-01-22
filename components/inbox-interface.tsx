@@ -23,10 +23,22 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ConversationPanel } from "./conversation-panel"
 import { DetailsPanel } from "./details-panel"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+// import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/components/ui/use-toast";
+// import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function InboxInterface() {
-  const [isLoading, setIsLoading] = useState(false)
-  const [selectedFilter, setSelectedFilter] = useState("all")
+  const [isLoading] = useState(false)
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null)
 
   const handleRowClick = (id: string) => {

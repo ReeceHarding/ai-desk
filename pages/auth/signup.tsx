@@ -58,9 +58,9 @@ export default function SignUp() {
         console.error('[SIGNUP] No OAuth URL received in response');
         throw new Error('No OAuth URL received');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[SIGNUP] Google sign-in error:', error);
-      setError(error.message || 'Failed to start Google sign-in');
+      setError(error instanceof Error ? error.message : 'Failed to start Google sign-in');
     } finally {
       setLoading(false);
     }
@@ -126,9 +126,9 @@ export default function SignUp() {
       } else {
         throw new Error('Failed to create user account');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Signup error:', error);
-      setError(error.message);
+      setError(error instanceof Error ? error.message : 'Failed to create account');
     } finally {
       setLoading(false);
     }

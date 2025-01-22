@@ -2,6 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { GmailMessage } from '../../../types/gmail';
+import { gmail_v1 } from 'googleapis';
 
 const oauth2Client = new OAuth2Client(
   process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
@@ -9,7 +10,7 @@ const oauth2Client = new OAuth2Client(
   process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
 );
 
-const extractBody = (part: any): string | null => {
+const extractBody = (part: gmail_v1.Schema$MessagePart): string | null => {
   if (part.mimeType === 'text/plain' && part.body?.data) {
     return Buffer.from(part.body.data, 'base64').toString();
   }
@@ -66,7 +67,7 @@ export default async function handler(
 
           const headers = message.payload?.headers || [];
           const getHeader = (name: string) =>
-            headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase())?.value;
+            headers.find((h: gmail_v1.Schema$MessagePartHeader) => h.name?.toLowerCase() === name.toLowerCase())?.value;
 
           const body = message.payload ? extractBody(message.payload) : '';
 
