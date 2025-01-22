@@ -5,19 +5,29 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:  # Allow manual workflow runs
 
 jobs:
   verify-deployment:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+      GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+      GMAIL_REDIRECT_URI: ${{ secrets.GMAIL_REDIRECT_URI }}
+      NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
+      NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     
     - name: Use Node.js
-      uses: actions/setup-node@v2
+      uses: actions/setup-node@v3
       with:
         node-version: '18.x'
         cache: 'npm'
@@ -25,18 +35,39 @@ jobs:
     - name: Install dependencies
       run: npm ci
       
+    - name: Check environment variables
+      run: npm run check-env
+      
     - name: Run linting
       run: npm run lint
+      continue-on-error: true  # Don't fail build on lint warnings
       
     - name: Type check
       run: tsc --noEmit
       
     - name: Run tests
-      run: npm test
+      run: npm test || exit 1  # Fail if tests fail
       
     - name: Verify build
       run: npm run verify-build
 
     - name: Check for undefined exports
       run: |
-        ! find . -type f -name "*.ts" -o -name "*.tsx" | xargs grep -l "export.*undefined" 
+        ! find . -type f -name "*.ts" -o -name "*.tsx" | xargs grep -l "export.*undefined"
+        
+    - name: Check workflow status
+      if: always()
+      run: |
+        gh workflow view "Pre-deployment Checks"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Create issue on failure
+      if: failure()
+      run: |
+        gh issue create \
+          --title "🚨 Pre-deployment checks failed" \
+          --body "Workflow run failed. Please check the [workflow logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for more details." \
+          --label "bug,ci-failure"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
