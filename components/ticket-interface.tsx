@@ -1,11 +1,9 @@
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 import { useRouter } from 'next/router';
-import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { Database } from '@/types/supabase';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
@@ -20,7 +18,6 @@ import {
   Lock,
   Inbox,
   AlertCircle,
-  Building,
   Calendar,
   ChevronLeft,
 } from 'lucide-react';
@@ -204,7 +201,6 @@ export function TicketInterface({
             <TicketConversationPanel
               ticket={ticket}
               isOpen={showConversation}
-              onClose={() => setShowConversation(false)}
             />
           </div>
 
@@ -212,7 +208,6 @@ export function TicketInterface({
           <TicketDetailsPanel
             ticket={ticket}
             isOpen={showDetails}
-            onClose={() => setShowDetails(false)}
             onStatusChange={onStatusChange}
             onPriorityChange={onPriorityChange}
           />

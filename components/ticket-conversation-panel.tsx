@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
+import Image from 'next/image';
 import { Database } from '@/types/supabase';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -32,13 +33,11 @@ type Comment = Database['public']['Tables']['comments']['Row'] & {
 interface TicketConversationPanelProps {
   ticket: Ticket;
   isOpen: boolean;
-  onClose: () => void;
 }
 
 export function TicketConversationPanel({
   ticket,
   isOpen,
-  onClose,
 }: TicketConversationPanelProps) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState('');
@@ -157,9 +156,12 @@ export function TicketConversationPanel({
             >
               <div className="flex items-start gap-4">
                 <Avatar className="ring-2 ring-slate-700/50">
-                  <img
-                    src={comment.author?.avatar_url || undefined}
+                  <Image
+                    src={comment.author?.avatar_url || '/default-avatar.png'}
                     alt={comment.author?.display_name || 'User'}
+                    width={40}
+                    height={40}
+                    className="rounded-full"
                   />
                 </Avatar>
                 <div className="flex-1">
