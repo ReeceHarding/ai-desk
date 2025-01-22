@@ -9,6 +9,45 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      organization_members: {
+        Row: {
+          organization_id: string
+          user_id: string
+          role: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          organization_id: string
+          user_id: string
+          role: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          organization_id?: string
+          user_id?: string
+          role?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_members_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "organization_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
       article_localizations: {
         Row: {
           article_id: string

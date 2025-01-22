@@ -2,7 +2,10 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/tickets": "pages/tickets.js",
   "/profile/settings": "pages/profile/settings.js",
-  "/tickets/[id]": "pages/tickets/[id].js"
+  "/tickets": "pages/tickets.js",
+  "/api/integrations/gmail/callback": "pages/api/integrations/gmail/callback.js",
+  "/api/gmail/profile": "pages/api/gmail/profile.js",
+  "/tickets/[id]": "pages/tickets/[id].js",
+  "/dashboard": "pages/dashboard.js"
 }
