@@ -72,4 +72,10 @@ create policy "Allow admins to manage organization members"
       and om.user_id = auth.uid()
       and om.role in ('admin', 'super_admin')
     )
-  ); 
+  );
+
+-- Add gmail_watch_expiration column to profiles table
+ALTER TABLE public.profiles
+ADD COLUMN IF NOT EXISTS gmail_refresh_token text,
+ADD COLUMN IF NOT EXISTS gmail_access_token text,
+ADD COLUMN IF NOT EXISTS gmail_watch_expiration timestamptz; 
