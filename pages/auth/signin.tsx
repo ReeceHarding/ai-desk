@@ -20,27 +20,9 @@ export default function SignIn() {
       setError(null);
       setIsLoading(true);
       
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-            ...(process.env.NEXT_PUBLIC_GOOGLE_AUTH_CLIENT_ID ? {
-              client_id: process.env.NEXT_PUBLIC_GOOGLE_AUTH_CLIENT_ID
-            } : {})
-          },
-        },
-      });
-
-      console.log('[SIGNIN] Google sign-in response:', {
-        success: !error,
-        error: error?.message,
-        hasUrl: !!data?.url,
-        redirectTo: `${window.location.origin}/auth/callback`
-      });
-
+      const response = await fetch('/api/auth/google-oauth-url');
+      const data = await response.json();
+      
       if (error) throw error;
       
       // Only redirect if we have a URL
@@ -50,9 +32,9 @@ export default function SignIn() {
       } else {
         throw new Error('No OAuth URL received');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('[SIGNIN] Google sign-in error:', error);
-      setError(error.message || 'Failed to start Google sign-in');
+      setError(error instanceof Error ? error.message : 'Failed to start Google sign-in');
     } finally {
       setIsLoading(false);
     }
@@ -189,7 +171,7 @@ export default function SignIn() {
         </div>
 
         <p className="mt-6 text-center text-sm text-gray-600">
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link href="/auth/signup" className="font-medium text-blue-600 hover:text-blue-700 transition duration-150 ease-in-out">
             Sign up
           </Link>

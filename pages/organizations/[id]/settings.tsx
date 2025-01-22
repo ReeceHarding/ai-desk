@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { Button } from '@/components/ui/button';
@@ -7,26 +7,47 @@ import { Label } from '@/components/ui/label';
 import { useUserRole } from '@/hooks/useUserRole';
 import { toast } from '@/components/ui/use-toast';
 
+interface Organization {
+  id: string;
+  name: string;
+  gmail_refresh_token?: string;
+}
+
 export default function OrganizationSettings() {
   const router = useRouter();
   const { id } = router.query;
   const supabase = useSupabaseClient();
-  const [organization, setOrganization] = useState<any>(null);
+  const [organization, setOrganization] = useState<Organization | null>(null);
   const { role } = useUserRole();
   const isAdmin = role === 'admin' || role === 'super_admin';
+
+  const fetchOrganization = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('organizations')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching organization:', error);
+      return;
+    }
+
+    setOrganization(data);
+  }, [supabase, id]);
 
   useEffect(() => {
     if (id) {
       fetchOrganization();
     }
-  }, [id]);
+  }, [id, fetchOrganization]);
 
   useEffect(() => {
     // Check for success/error query params
     if (router.query.success) {
       toast({
         title: "Gmail Connected",
-        description: "Your organization's Gmail account has been successfully connected.",
+        description: "Your organization&apos;s Gmail account has been successfully connected.",
         variant: "default",
       });
       // Remove query param
@@ -40,22 +61,7 @@ export default function OrganizationSettings() {
       // Remove query param
       router.replace(`/organizations/${id}/settings`, undefined, { shallow: true });
     }
-  }, [router.query]);
-
-  const fetchOrganization = async () => {
-    const { data, error } = await supabase
-      .from('organizations')
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (error) {
-      console.error('Error fetching organization:', error);
-      return;
-    }
-
-    setOrganization(data);
-  };
+  }, [router.query, id, router]);
 
   const handleConnectGmail = async () => {
     try {
@@ -98,7 +104,7 @@ export default function OrganizationSettings() {
         <CardHeader>
           <CardTitle>Gmail Integration</CardTitle>
           <CardDescription>
-            Connect your organization's Gmail account to handle email communications
+            Connect your organization&apos;s Gmail account to handle email communications
           </CardDescription>
         </CardHeader>
         <CardContent>

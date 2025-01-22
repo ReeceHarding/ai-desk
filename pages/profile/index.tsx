@@ -18,29 +18,7 @@ export default function ProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<string>('');
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (!session) {
-          console.log('No session found, redirecting to signin');
-          router.push('/auth/signin');
-          return;
-        }
-
-        console.log('Session found:', session.user.id);
-        await fetchProfile(session.user.id);
-      } catch (err) {
-        console.error('Session check error:', err);
-        setError('Failed to check authentication status');
-      }
-    };
-
-    checkUser();
-  }, []);
+  const [_isAdmin, setIsAdmin] = useState(false);
 
   const fetchProfile = async (userId: string) => {
     try {
@@ -53,25 +31,41 @@ export default function ProfilePage() {
 
       if (error) {
         console.error('Profile fetch error:', error);
-        throw error;
+        setError('Failed to fetch profile');
+        return;
       }
 
-      console.log('Profile data:', data);
       if (data) {
         setDisplayName(data.display_name || '');
         setPhone(data.phone || '');
         setAvatarUrl(data.avatar_url || '');
         setEmail(data.email || '');
-        setRole(data.role || 'customer');
-        setIsAdmin(data.role === 'admin' || data.role === 'super_admin');
+        setRole(data.role || '');
       }
     } catch (err) {
       console.error('Profile fetch error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch profile');
-    } finally {
-      setIsLoading(false);
+      setError('Failed to fetch profile');
     }
   };
+
+  useEffect(() => {
+    const getUser = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          router.push('/auth/signin');
+          return;
+        }
+
+        await fetchProfile(user.id);
+      } catch (error) {
+        console.error('Error:', error);
+        router.push('/auth/signin');
+      }
+    };
+
+    getUser();
+  }, [router, supabase.auth]);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     try {

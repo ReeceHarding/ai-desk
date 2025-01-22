@@ -1,56 +1,47 @@
-interface LoggerOptions {
-  level?: string;
-  metadata?: Record<string, any>;
+import { createClient } from '@supabase/supabase-js';
+
+interface LogEntry {
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  metadata?: Record<string, unknown>;
+  timestamp: string;
 }
 
-class Logger {
-  private level: string;
+export class Logger {
+  private supabase;
 
-  constructor(options: LoggerOptions = {}) {
-    this.level = options.level || 'info';
+  constructor(supabaseUrl: string, supabaseKey: string) {
+    this.supabase = createClient(supabaseUrl, supabaseKey);
   }
 
-  private formatMessage(level: string, message: string, metadata?: Record<string, any>) {
-    const timestamp = new Date().toISOString();
-    return {
-      timestamp,
-      level,
-      message,
-      ...metadata,
-    };
-  }
+  private async logToSupabase(level: LogEntry['level'], message: string, metadata?: Record<string, unknown>): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from('logs')
+        .insert([{
+          level,
+          message,
+          metadata,
+          timestamp: new Date().toISOString()
+        }]);
 
-  private async log(level: string, message: string, metadata?: Record<string, any>) {
-    const formattedMessage = this.formatMessage(level, message, metadata);
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.log(JSON.stringify(formattedMessage, null, 2));
-    } else {
-      // In production, we could send this to a logging service
-      // For now, we'll just use console.log
-      console.log(JSON.stringify(formattedMessage));
+      if (error) {
+        console.error('Error logging to Supabase:', error);
+      }
+    } catch (error) {
+      console.error('Failed to log to Supabase:', error);
     }
   }
 
-  async info(message: string, metadata?: Record<string, any>) {
-    return this.log('info', message, metadata);
+  async info(message: string, metadata?: Record<string, unknown>): Promise<void> {
+    await this.logToSupabase('info', message, metadata);
   }
 
-  async error(message: string, metadata?: Record<string, any>) {
-    return this.log('error', message, metadata);
+  async warn(message: string, metadata?: Record<string, unknown>): Promise<void> {
+    await this.logToSupabase('warn', message, metadata);
   }
 
-  async warn(message: string, metadata?: Record<string, any>) {
-    return this.log('warn', message, metadata);
+  async error(message: string, metadata?: Record<string, unknown>): Promise<void> {
+    await this.logToSupabase('error', message, metadata);
   }
-
-  async debug(message: string, metadata?: Record<string, any>) {
-    if (process.env.NODE_ENV === 'development') {
-      return this.log('debug', message, metadata);
-    }
-  }
-}
-
-export const logger = new Logger({
-  level: process.env.LOG_LEVEL || 'info',
-}); 
+} 

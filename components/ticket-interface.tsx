@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion';
-import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { Database } from '@/types/supabase';
 import { Button } from '@/components/ui/button';
@@ -87,8 +86,6 @@ export function TicketInterface({
   onSubscribeToggle,
 }: TicketInterfaceProps) {
   const router = useRouter();
-  const [showDetails, setShowDetails] = useState(true);
-  const [showConversation, setShowConversation] = useState(false);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white">
@@ -200,14 +197,14 @@ export function TicketInterface({
             {/* Conversation Panel */}
             <TicketConversationPanel
               ticket={ticket}
-              isOpen={showConversation}
+              isOpen={true}
             />
           </div>
 
           {/* Right column - Details Panel */}
           <TicketDetailsPanel
             ticket={ticket}
-            isOpen={showDetails}
+            isOpen={true}
             onStatusChange={onStatusChange}
             onPriorityChange={onPriorityChange}
           />

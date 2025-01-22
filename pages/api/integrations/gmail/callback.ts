@@ -3,7 +3,16 @@ import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { Database } from '@/types/supabase';
 import { importInitialEmails } from '@/utils/gmail';
-import { GmailTokens, GMAIL_SCOPES } from '@/types/gmail';
+import { GMAIL_SCOPES } from '@/types/gmail';
+
+interface GoogleOAuthError extends Error {
+  response?: {
+    data?: {
+      error_description?: string;
+      error?: string;
+    };
+  };
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   console.log('\n=== Gmail Callback Started ===');
@@ -180,21 +189,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.error('Invalid state type:', type);
         throw new Error('Invalid state parameter');
       }
-    } catch (tokenError: any) {
+    } catch (tokenError: unknown) {
+      const error = tokenError as GoogleOAuthError;
       console.error('Token exchange/update error:', {
-        error: tokenError.message,
-        response: tokenError.response?.data,
-        stack: tokenError.stack,
+        error: error.message,
+        response: error.response?.data,
+        stack: error.stack,
       });
-      const errorMessage = tokenError.response?.data?.error_description || tokenError.message || 'Failed to exchange token';
+      const errorMessage = error.response?.data?.error_description || error.message || 'Failed to exchange token';
       return res.redirect(`/profile/settings?error=true&message=${encodeURIComponent(errorMessage)}`);
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as GoogleOAuthError;
     console.error('Gmail OAuth callback error:', {
-      error: error.message,
-      stack: error.stack,
+      error: err.message,
+      stack: err.stack,
     });
-    const errorMessage = error.message || 'Unknown error occurred';
+    const errorMessage = err.message || 'Unknown error occurred';
     
     // Redirect to settings with error
     return res.redirect(`/profile/settings?error=true&message=${encodeURIComponent(errorMessage)}`);

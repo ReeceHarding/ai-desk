@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { Database } from '../../types/supabase';
 
@@ -11,17 +11,7 @@ export default function OrganizationManagement() {
   const supabase = useSupabaseClient<Database>();
   const user = useUser();
 
-  useEffect(() => {
-    // Redirect if not logged in
-    if (!user) {
-      window.location.href = '/auth/signin';
-      return;
-    }
-
-    fetchOrganizations();
-  }, [user]);
-
-  const fetchOrganizations = async () => {
+  const fetchOrganizations = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('organizations')
@@ -36,7 +26,17 @@ export default function OrganizationManagement() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [supabase]);
+
+  useEffect(() => {
+    // Redirect if not logged in
+    if (!user) {
+      window.location.href = '/auth/signin';
+      return;
+    }
+
+    fetchOrganizations();
+  }, [user, fetchOrganizations]);
 
   if (!user) {
     return null; // Will redirect in useEffect
@@ -67,6 +67,7 @@ export default function OrganizationManagement() {
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">Organizations</h2>
           <button 
+            type="button"
             className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg"
           >
             Create New Org
@@ -98,12 +99,16 @@ export default function OrganizationManagement() {
                     </td>
                     <td className="px-6 py-4">
                       <button 
+                        type="button"
                         className="text-blue-400 hover:text-blue-300 mr-3"
+                        aria-label={`Edit ${org.name}`}
                       >
                         Edit
                       </button>
                       <button 
+                        type="button"
                         className="text-red-400 hover:text-red-300"
+                        aria-label={`Delete ${org.name}`}
                       >
                         Delete
                       </button>
