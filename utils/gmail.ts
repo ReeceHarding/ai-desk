@@ -1,8 +1,9 @@
-import { GmailMessage, GmailTokens, ParsedEmail, GmailProfile, GMAIL_SCOPES } from '../types/gmail';
 import { createClient } from '@supabase/supabase-js';
-import { Database } from '../types/supabase';
 import dotenv from 'dotenv';
 import { resolve } from 'path';
+import { getTestSupabaseClient } from '../__tests__/utils/test-setup';
+import { GmailMessage, GmailProfile, GmailTokens, ParsedEmail } from '../types/gmail';
+import { Database } from '../types/supabase';
 
 // Load environment variables
 dotenv.config({ path: resolve(__dirname, '../.env') });
@@ -12,10 +13,13 @@ if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_A
   throw new Error('Missing required environment variables for Supabase');
 }
 
-const supabase = createClient<Database>(
-  process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-);
+// Initialize Supabase client
+const supabase = process.env.NODE_ENV === 'test' 
+  ? getTestSupabaseClient()
+  : createClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
@@ -120,87 +124,49 @@ export async function getGmailProfile(tokens: GmailTokens): Promise<GmailProfile
 
 export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[]> {
   try {
-    await logger.info('Starting Gmail inbox polling...', { 
-      hasAccessToken: !!tokens.access_token,
-      hasRefreshToken: !!tokens.refresh_token,
-      tokenExpiry: tokens.expiry_date
-    });
-
-    const response = await fetch(`${API_BASE_URL}/api/gmail/messages`, {
-      method: 'POST',
+    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages', {
+      method: 'GET',
       headers: {
+        'Authorization': `Bearer ${tokens.access_token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-      }),
-    });
-
-    await logger.info('Gmail API response received', { 
-      status: response.status,
-      ok: response.ok,
-      statusText: response.statusText
     });
 
     if (!response.ok) {
       if (response.status === 401) {
-        await logger.info('Access token expired, attempting to refresh...');
+        await logger.info('Access token expired, refreshing...');
         const newTokens = await refreshGmailTokens(tokens.refresh_token);
         return pollGmailInbox(newTokens);
       }
       throw new Error(`Failed to fetch Gmail messages: ${response.statusText}`);
     }
 
-    const messages = await response.json();
-    await logger.info(`Successfully fetched messages`, { 
-      count: messages.length,
-      messageIds: messages.map((m: any) => m.id),
-      subjects: messages.map((m: any) => m.subject)
-    });
-    return messages;
+    const data = await response.json();
+    return data.messages || [];
   } catch (error) {
-    await logger.error('Error polling Gmail:', error);
+    logger.error('Error polling Gmail inbox', error);
     throw error;
   }
 }
 
 export function parseGmailMessage(message: GmailMessage): ParsedEmail {
-  try {
-    console.log(`Parsing message ${message.id}...`);
-    
-    // Ensure we have a valid date string
-    let dateStr: string;
-    try {
-      dateStr = message.date 
-        ? new Date(message.date).toISOString() 
-        : new Date().toISOString();
-    } catch (error) {
-      console.warn(`Invalid date format for message ${message.id}, using current date`);
-      dateStr = new Date().toISOString();
-    }
+  logger.info('Parsing message', { messageId: message.id });
 
-    const parsed = {
-      messageId: message.id,
-      threadId: message.threadId,
-      subject: message.subject || '(No Subject)',
-      from: message.from,
-      to: Array.isArray(message.to) ? message.to.join(', ') : message.to,
-      date: new Date(dateStr),
-      body: {
-        text: message.body?.text || '',
-        html: message.body?.html || ''
-      },
-      snippet: message.snippet || '',
-      labels: message.labels || [],
-      attachments: message.attachments || []
-    };
-    console.log(`Successfully parsed message ${message.id}`);
-    return parsed;
-  } catch (error) {
-    console.error(`Error parsing message ${message.id}:`, error);
-    throw error;
-  }
+  const parsedEmail: ParsedEmail = {
+    messageId: message.id,
+    threadId: message.threadId,
+    subject: message.subject || '',
+    from: Array.isArray(message.from) ? message.from[0] : message.from,
+    to: Array.isArray(message.to) ? message.to[0] : message.to,
+    date: new Date(message.date),
+    body: message.body || { text: '', html: '' },
+    snippet: message.snippet || '',
+    labels: message.labelIds || [],
+    attachments: message.attachments || []
+  };
+
+  logger.info('Successfully parsed message', { messageId: message.id });
+  return parsedEmail;
 }
 
 export async function refreshGmailTokens(refreshToken: string): Promise<GmailTokens> {
@@ -363,10 +329,10 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
   }
 }
 
-export async function pollAndCreateTickets(userId: string) {
+export async function pollAndCreateTickets(userId: string): Promise<any[]> {
+  await logger.info(`Starting email polling for user { userId: '${userId}' }`);
+
   try {
-    await logger.info('Starting email polling for user', { userId });
-    
     // Get user's Gmail tokens
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -375,68 +341,50 @@ export async function pollAndCreateTickets(userId: string) {
       .single();
 
     if (profileError) {
-      await logger.error('Error fetching profile', { userId, error: profileError });
-      throw profileError;
+      throw new Error('Failed to fetch user profile');
     }
 
-    await logger.info('Found user profile', { 
-      userId,
-      email: profile.email,
-      hasAccessToken: !!profile.gmail_access_token,
-      hasRefreshToken: !!profile.gmail_refresh_token
-    });
-
-    if (!profile?.gmail_refresh_token) {
-      await logger.error('No Gmail tokens found for user', { userId });
+    if (!profile || !profile.gmail_access_token || !profile.gmail_refresh_token) {
       throw new Error('Gmail not connected');
     }
 
     const tokens: GmailTokens = {
-      access_token: profile.gmail_access_token!,
+      access_token: profile.gmail_access_token,
       refresh_token: profile.gmail_refresh_token,
       token_type: 'Bearer',
-      scope: GMAIL_SCOPES.join(' '),
+      scope: 'https://www.googleapis.com/auth/gmail.modify',
       expiry_date: Date.now() + (3600 * 1000) // Default 1 hour expiry
     };
 
-    // Poll for new messages
-    const messages = await pollGmailInbox(tokens);
-    await logger.info(`Found ${messages.length} new messages`, { userId });
+    try {
+      const messages = await pollGmailInbox(tokens);
+      const tickets = [];
 
-    // Process each message
-    const createdTickets = [];
-    for (const message of messages) {
-      try {
-        await logger.info('Processing message', { 
-          messageId: message.id,
-          subject: message.subject,
-          from: message.from
-        });
-
-        const parsedEmail = parseGmailMessage(message);
-        const ticket = await createTicketFromEmail(parsedEmail, userId);
-        await addGmailLabel(message.id, 'Processed', tokens);
-        createdTickets.push(ticket);
-
-        await logger.info('Created ticket from email', { 
-          messageId: message.id,
-          ticketId: ticket.id,
-          subject: ticket.subject
-        });
-      } catch (error) {
-        await logger.error(`Failed to process message ${message.id}`, error);
-        // Continue processing other messages
-        continue;
+      for (const message of messages) {
+        try {
+          const parsedEmail = parseGmailMessage(message);
+          const ticket = await createTicketFromEmail(parsedEmail, userId);
+          if (ticket) {
+            tickets.push(ticket);
+          }
+        } catch (error) {
+          await logger.error('Error creating ticket from email', error);
+        }
       }
-    }
 
-    await logger.info('Completed email polling cycle', { 
-      userId, 
-      ticketsCreated: createdTickets.length,
-      ticketIds: createdTickets.map(t => t.id)
-    });
-    return createdTickets;
-  } catch (error) {
+      return tickets;
+    } catch (error: any) {
+      if (error.message.includes('401')) {
+        await logger.info('Access token expired, refreshing...');
+        const newTokens = await refreshGmailTokens(tokens.refresh_token);
+        return pollAndCreateTickets(userId);
+      }
+      if (error.response?.status === 500) {
+        throw new Error('Failed to fetch Gmail messages: Internal Server Error');
+      }
+      throw error;
+    }
+  } catch (error: any) {
     await logger.error('Error in pollAndCreateTickets', error);
     throw error;
   }

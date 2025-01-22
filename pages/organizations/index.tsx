@@ -67,7 +67,6 @@ export default function OrganizationManagement() {
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold">Organizations</h2>
           <button 
-            type="button"
             className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg"
           >
             Create New Org
@@ -99,16 +98,12 @@ export default function OrganizationManagement() {
                     </td>
                     <td className="px-6 py-4">
                       <button 
-                        type="button"
                         className="text-blue-400 hover:text-blue-300 mr-3"
-                        aria-label={`Edit ${org.name}`}
                       >
                         Edit
                       </button>
                       <button 
-                        type="button"
                         className="text-red-400 hover:text-red-300"
-                        aria-label={`Delete ${org.name}`}
                       >
                         Delete
                       </button>

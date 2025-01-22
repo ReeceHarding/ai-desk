@@ -1,5 +1,5 @@
 # Dependencies
-node_modules
+/node_modules
 /.pnp
 .pnp.js
 
@@ -14,11 +14,9 @@ node_modules
 /build
 
 # Environment Variables
+.env*.local
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.test
 
 # Debug
 npm-debug.log*
@@ -30,4 +28,20 @@ yarn-error.log*
 *.pem
 
 # Local Supabase
-.temp 
+.temp
+
+# Vercel
+.vercel
+
+# Typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Supabase
+**/supabase/.branches
+**/supabase/.temp
+**/supabase/.env
+
+# IDE
+.vscode/
+.idea/ 

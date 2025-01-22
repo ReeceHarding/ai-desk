@@ -44,6 +44,7 @@
   },
   "name": "zendesk",
   "version": "1.0.0",
+  "private": true,
   "description": "A modern ticket management system built with Next.js and Supabase.",
   "main": "index.js",
   "scripts": {
