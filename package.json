@@ -55,7 +55,11 @@
     "gmail:start-polling": "ts-node scripts/gmail-polling.ts",
     "gmail:test": "ts-node scripts/test-gmail-polling.ts",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "prebuild": "tsc --noEmit && jest --bail",
+    "check-env": "ts-node scripts/check-env.ts",
+    "verify-build": "npm run check-env && npm run lint && tsc --noEmit && next build",
+    "predeploy": "npm run verify-build"
   },
   "repository": {
     "type": "git",

@@ -44,4 +44,10 @@ export class Logger {
   async error(message: string, metadata?: Record<string, unknown>): Promise<void> {
     await this.logToSupabase('error', message, metadata);
   }
-} 
+}
+
+// Export an instantiated logger
+export const logger = new Logger(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+); 
