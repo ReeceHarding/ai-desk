@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { useRouter } from 'next/router';
 import { Button } from '@/components/ui/button';
@@ -8,19 +8,62 @@ import { useToast } from '@/components/ui/use-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { getGmailProfile } from '@/utils/gmail';
 
+interface Profile {
+  id: string;
+  email: string;
+  gmail_access_token?: string | null;
+  gmail_refresh_token?: string | null;
+}
+
 export default function ProfileSettings() {
   const supabase = useSupabaseClient();
   const user = useUser();
   const router = useRouter();
   const { toast } = useToast();
-  const [profile, setProfile] = useState<any>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [gmailAddress, setGmailAddress] = useState<string | null>(null);
+
+  const fetchProfile = useCallback(async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user?.id)
+      .single();
+
+    if (error) {
+      console.error('Error fetching profile:', error);
+      return;
+    }
+
+    setProfile(data);
+  }, [supabase, user?.id]);
+
+  const fetchGmailProfile = useCallback(async () => {
+    try {
+      if (!profile?.gmail_refresh_token || !profile?.gmail_access_token) {
+        setGmailAddress(null);
+        return;
+      }
+
+      const gmailProfile = await getGmailProfile({
+        refresh_token: profile.gmail_refresh_token,
+        access_token: profile.gmail_access_token,
+        token_type: 'Bearer',
+        scope: 'https://www.googleapis.com/auth/gmail.modify',
+        expiry_date: 0
+      });
+      setGmailAddress(gmailProfile.emailAddress);
+    } catch (error) {
+      console.error('Error fetching Gmail profile:', error);
+      setGmailAddress(null);
+    }
+  }, [profile?.gmail_refresh_token, profile?.gmail_access_token]);
 
   useEffect(() => {
     if (user) {
       fetchProfile();
     }
-  }, [user]);
+  }, [user, fetchProfile]);
 
   useEffect(() => {
     // Check for success/error query params
@@ -41,7 +84,7 @@ export default function ProfileSettings() {
       // Remove query params
       router.replace('/profile/settings', undefined, { shallow: true });
     }
-  }, [router.query, toast]);
+  }, [router.query, router, toast]);
 
   useEffect(() => {
     // Fetch Gmail profile when tokens are available
@@ -50,38 +93,7 @@ export default function ProfileSettings() {
     } else {
       setGmailAddress(null);
     }
-  }, [profile?.gmail_refresh_token, profile?.gmail_access_token]);
-
-  const fetchGmailProfile = async () => {
-    try {
-      const gmailProfile = await getGmailProfile({
-        refresh_token: profile.gmail_refresh_token,
-        access_token: profile.gmail_access_token,
-        token_type: 'Bearer',
-        scope: 'https://www.googleapis.com/auth/gmail.modify',
-        expiry_date: 0
-      });
-      setGmailAddress(gmailProfile.emailAddress);
-    } catch (error) {
-      console.error('Error fetching Gmail profile:', error);
-      setGmailAddress(null);
-    }
-  };
-
-  const fetchProfile = async () => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user?.id)
-      .single();
-
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return;
-    }
-
-    setProfile(data);
-  };
+  }, [profile?.gmail_refresh_token, profile?.gmail_access_token, fetchGmailProfile]);
 
   const handleConnectGmail = async () => {
     // Construct OAuth URL

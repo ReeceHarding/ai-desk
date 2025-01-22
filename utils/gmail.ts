@@ -186,7 +186,7 @@ export function parseGmailMessage(message: GmailMessage): ParsedEmail {
       subject: message.subject || '(No Subject)',
       from: message.from,
       to: Array.isArray(message.to) ? message.to.join(', ') : message.to,
-      date: dateStr,
+      date: new Date(dateStr),
       body: {
         text: message.body?.text || '',
         html: message.body?.html || ''

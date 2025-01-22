@@ -6,18 +6,16 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
 
 export function ConversationPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [message, setMessage] = useState("")
-  const [showDetails, setShowDetails] = useState(true)
 
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
           initial={{ x: "100%" }}
-          animate={{ x: showDetails ? "400px" : 0 }}
+          animate={{ x: 0 }}
           exit={{ x: "100%" }}
           transition={{ type: "spring", damping: 20 }}
           className="fixed inset-y-0 right-0 w-[600px] bg-slate-900 border-l border-slate-800 flex flex-col z-20"

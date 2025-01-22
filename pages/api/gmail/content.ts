@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { gmail_v1 } from 'googleapis';
 
 const oauth2Client = new OAuth2Client(
   process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
@@ -8,7 +9,7 @@ const oauth2Client = new OAuth2Client(
   process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
 );
 
-const extractBody = (part: any): string | null => {
+const extractBody = (part: gmail_v1.Schema$MessagePart): string | null => {
   if (part.mimeType === 'text/plain' && part.body?.data) {
     return Buffer.from(part.body.data, 'base64').toString();
   }
