@@ -98,12 +98,16 @@ $$ LANGUAGE plpgsql;
 -- =========================================
 
 CREATE TABLE public.organizations (
-  id          uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  name        text NOT NULL UNIQUE,
-  sla_tier    public.sla_tier NOT NULL DEFAULT 'basic',
-  config      jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  updated_at  timestamptz NOT NULL DEFAULT now()
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL UNIQUE,
+  sla_tier public.sla_tier NOT NULL DEFAULT 'basic',
+  config jsonb NOT NULL DEFAULT '{}'::jsonb,
+  gmail_access_token text,
+  gmail_refresh_token text,
+  gmail_watch_expiration timestamp with time zone,
+  gmail_history_id text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE public.organization_members (
@@ -916,3 +920,18 @@ CREATE INDEX IF NOT EXISTS logs_level_timestamp_idx ON public.logs (level, times
 
 -- Grant access to service role
 GRANT ALL ON public.logs TO service_role;
+
+-- Add indexes for better query performance
+CREATE INDEX IF NOT EXISTS logs_timestamp_idx ON public.logs (timestamp DESC);
+CREATE INDEX IF NOT EXISTS logs_level_idx ON public.logs (level);
+
+-- Add RLS policies
+ALTER TABLE public.logs ENABLE ROW LEVEL SECURITY;
+
+-- Allow service role full access
+CREATE POLICY "Service role can do all on logs"
+ON public.logs
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);

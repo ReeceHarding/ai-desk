@@ -9,6 +9,67 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      organizations: {
+        Row: {
+          id: string
+          name: string
+          sla_tier: string
+          config: Json
+          gmail_access_token: string | null
+          gmail_refresh_token: string | null
+          gmail_watch_expiration: string | null
+          gmail_history_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          sla_tier?: string
+          config?: Json
+          gmail_access_token?: string | null
+          gmail_refresh_token?: string | null
+          gmail_watch_expiration?: string | null
+          gmail_history_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          sla_tier?: string
+          config?: Json
+          gmail_access_token?: string | null
+          gmail_refresh_token?: string | null
+          gmail_watch_expiration?: string | null
+          gmail_history_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      logs: {
+        Row: {
+          id: string
+          level: string
+          message: string
+          metadata: Json
+          timestamp: string
+        }
+        Insert: {
+          id?: string
+          level: string
+          message: string
+          metadata?: Json
+          timestamp?: string
+        }
+        Update: {
+          id?: string
+          level?: string
+          message?: string
+          metadata?: Json
+          timestamp?: string
+        }
+      }
       organization_members: {
         Row: {
           organization_id: string
@@ -400,48 +461,6 @@ export interface Database {
             referencedColumns: ["id"]
           }
         ]
-      }
-      organizations: {
-        Row: {
-          config: Json
-          created_at: string
-          id: string
-          name: string
-          sla_tier: 'basic' | 'premium'
-          updated_at: string
-          gmail_refresh_token: string | null
-          gmail_access_token: string | null
-          gmail_watch_expiration: string | null
-          gmail_watch_resource_id: string | null
-          gmail_watch_status: 'active' | 'expired' | 'failed' | 'pending' | null
-        }
-        Insert: {
-          config?: Json
-          created_at?: string
-          id?: string
-          name: string
-          sla_tier?: 'basic' | 'premium'
-          updated_at?: string
-          gmail_refresh_token?: string | null
-          gmail_access_token?: string | null
-          gmail_watch_expiration?: string | null
-          gmail_watch_resource_id?: string | null
-          gmail_watch_status?: 'active' | 'expired' | 'failed' | 'pending' | null
-        }
-        Update: {
-          config?: Json
-          created_at?: string
-          id?: string
-          name?: string
-          sla_tier?: 'basic' | 'premium'
-          updated_at?: string
-          gmail_refresh_token?: string | null
-          gmail_access_token?: string | null
-          gmail_watch_expiration?: string | null
-          gmail_watch_resource_id?: string | null
-          gmail_watch_status?: 'active' | 'expired' | 'failed' | 'pending' | null
-        }
-        Relationships: []
       }
       profiles: {
         Row: {

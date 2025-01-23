@@ -103,20 +103,51 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
           schema: 'public',
           table: 'ticket_email_chats',
           filter: `ticket_id=eq.${ticket.id}`,
         },
         (payload) => {
-          // Add new message to the list
-          const newMessage = payload.new as EmailMessage;
-          setMessageList((prev) => [newMessage, ...prev]);
+          if (payload.eventType === 'INSERT') {
+            // Add new message to the list
+            const newMessage = payload.new as EmailMessage;
+            setMessageList((prev) => {
+              // Check if message already exists
+              const exists = prev.some(msg => msg.id === newMessage.id);
+              if (exists) return prev;
+              
+              // Add new message and sort by date
+              const updated = [newMessage, ...prev];
+              return updated.sort((a, b) => {
+                const dateA = a.gmail_date ? new Date(a.gmail_date) : new Date(a.created_at);
+                const dateB = b.gmail_date ? new Date(b.gmail_date) : new Date(b.created_at);
+                return dateB.getTime() - dateA.getTime();
+              });
+            });
+          } else if (payload.eventType === 'UPDATE') {
+            // Update existing message
+            const updatedMessage = payload.new as EmailMessage;
+            setMessageList((prev) => 
+              prev.map(msg => msg.id === updatedMessage.id ? updatedMessage : msg)
+            );
+          } else if (payload.eventType === 'DELETE') {
+            // Remove deleted message
+            const deletedMessage = payload.old as EmailMessage;
+            setMessageList((prev) => 
+              prev.filter(msg => msg.id !== deletedMessage.id)
+            );
+          }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log(`Subscribed to real-time updates for ticket ${ticket.id}`);
+        }
+      });
 
     return () => {
+      console.log(`Unsubscribing from real-time updates for ticket ${ticket.id}`);
       supabase.removeChannel(channel);
     };
   }, [ticket?.id, supabase]);
