@@ -411,6 +411,9 @@ export interface Database {
           updated_at: string
           gmail_refresh_token: string | null
           gmail_access_token: string | null
+          gmail_watch_expiration: string | null
+          gmail_watch_resource_id: string | null
+          gmail_watch_status: 'active' | 'expired' | 'failed' | 'pending' | null
         }
         Insert: {
           config?: Json
@@ -421,6 +424,9 @@ export interface Database {
           updated_at?: string
           gmail_refresh_token?: string | null
           gmail_access_token?: string | null
+          gmail_watch_expiration?: string | null
+          gmail_watch_resource_id?: string | null
+          gmail_watch_status?: 'active' | 'expired' | 'failed' | 'pending' | null
         }
         Update: {
           config?: Json
@@ -431,6 +437,9 @@ export interface Database {
           updated_at?: string
           gmail_refresh_token?: string | null
           gmail_access_token?: string | null
+          gmail_watch_expiration?: string | null
+          gmail_watch_resource_id?: string | null
+          gmail_watch_status?: 'active' | 'expired' | 'failed' | 'pending' | null
         }
         Relationships: []
       }
@@ -450,6 +459,9 @@ export interface Database {
           updated_at: string
           gmail_refresh_token: string | null
           gmail_access_token: string | null
+          gmail_watch_expiration: string | null
+          gmail_watch_resource_id: string | null
+          gmail_watch_status: 'active' | 'expired' | 'failed' | 'pending' | null
         }
         Insert: {
           id: string
@@ -466,6 +478,9 @@ export interface Database {
           updated_at?: string
           gmail_refresh_token?: string | null
           gmail_access_token?: string | null
+          gmail_watch_expiration?: string | null
+          gmail_watch_resource_id?: string | null
+          gmail_watch_status?: 'active' | 'expired' | 'failed' | 'pending' | null
         }
         Update: {
           id?: string
@@ -482,6 +497,9 @@ export interface Database {
           updated_at?: string
           gmail_refresh_token?: string | null
           gmail_access_token?: string | null
+          gmail_watch_expiration?: string | null
+          gmail_watch_resource_id?: string | null
+          gmail_watch_status?: 'active' | 'expired' | 'failed' | 'pending' | null
         }
         Relationships: [
           {
@@ -610,6 +628,75 @@ export interface Database {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      ticket_email_chats: {
+        Row: {
+          id: string
+          ticket_id: string
+          message_id: string
+          thread_id: string
+          from_address: string
+          to_address: string[]
+          cc_address: string[]
+          bcc_address: string[]
+          subject: string | null
+          body: string
+          attachments: Json
+          gmail_date: string
+          org_id: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          ticket_id: string
+          message_id: string
+          thread_id: string
+          from_address: string
+          to_address: string[]
+          cc_address?: string[]
+          bcc_address?: string[]
+          subject?: string | null
+          body: string
+          attachments?: Json
+          gmail_date: string
+          org_id: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          ticket_id?: string
+          message_id?: string
+          thread_id?: string
+          from_address?: string
+          to_address?: string[]
+          cc_address?: string[]
+          bcc_address?: string[]
+          subject?: string | null
+          body?: string
+          attachments?: Json
+          gmail_date?: string
+          org_id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_email_chats_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_email_chats_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           }
         ]

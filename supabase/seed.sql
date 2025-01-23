@@ -16,7 +16,8 @@ VALUES
 INSERT INTO public.organization_members (organization_id, user_id, role)
 VALUES
   ('ee0f56a0-4130-4398-bc2d-27529f82efb1', '52549bdb-0edb-4657-9e80-420fd63bceef', 'super_admin'),
-  ('123e4567-e89b-12d3-a456-426614174000', '52549bdb-0edb-4657-9e80-420fd63bceef', 'admin');
+  ('123e4567-e89b-12d3-a456-426614174000', '52549bdb-0edb-4657-9e80-420fd63bceef', 'admin')
+ON CONFLICT (organization_id, user_id) DO NOTHING;
 
 -- Update profiles with additional info
 UPDATE public.profiles 

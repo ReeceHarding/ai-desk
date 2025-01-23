@@ -1,8 +1,8 @@
-import { NextApiRequest, NextApiResponse } from 'next';
-import { google } from 'googleapis';
-import { OAuth2Client } from 'google-auth-library';
-import { createClient } from '@supabase/supabase-js';
 import { logger } from '@/utils/logger';
+import { createClient } from '@supabase/supabase-js';
+import { OAuth2Client } from 'google-auth-library';
+import { google } from 'googleapis';
+import { NextApiRequest, NextApiResponse } from 'next';
 
 const oauth2Client = new OAuth2Client(
   process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,

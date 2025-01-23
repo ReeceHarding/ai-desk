@@ -1,0 +1,2 @@
+# Run Gmail watch manager every 12 hours
+0 */12 * * * cd /app && /usr/local/bin/node jobs/gmail-watch-manager.ts >> /var/log/gmail-watch-manager.log 2>&1 

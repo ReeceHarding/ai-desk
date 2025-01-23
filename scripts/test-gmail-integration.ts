@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-import { Database } from '../types/supabase';
-import { pollAndCreateTickets } from '../utils/gmail';
 import dotenv from 'dotenv';
 import { resolve } from 'path';
+import { Database } from '../types/supabase';
+import { pollAndCreateTickets } from '../utils/gmail';
 
 // Mock fetch globally
 const originalFetch = global.fetch;
@@ -73,7 +73,7 @@ console.log('Environment check:', {
 console.log('Initializing Supabase client...');
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 async function createTestProfile() {
