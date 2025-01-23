@@ -124,6 +124,9 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
   const handleSendMessage = async (htmlBody: string, attachments: any[]) => {
     if (!ticket) return;
     try {
+      // Get the latest message for threading info
+      const latestMessage = messageList[0];
+      
       // Send email via API
       const response = await fetch('/api/gmail/send', {
         method: 'POST',
@@ -132,17 +135,21 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         },
         body: JSON.stringify({
           ticketId: ticket.id,
-          threadId: ticket.thread_id,
-          fromAddress: "support@yourdomain.com", // Replace with actual sender
-          toAddresses: ["recipient@example.com"], // Replace with actual recipient
-          subject: "Re: Support Ticket", // Replace with actual subject
+          threadId: ticket.thread_id || latestMessage?.thread_id,
+          messageId: latestMessage?.message_id,
+          inReplyTo: latestMessage?.message_id,
+          references: latestMessage?.message_id,
+          fromAddress: latestMessage?.to_address?.[0] || "support@yourdomain.com",
+          toAddresses: [latestMessage?.from_address || "recipient@example.com"],
+          subject: latestMessage ? `Re: ${latestMessage.subject?.replace(/^Re:\s*/i, '')}` : "Re: Support Ticket",
           htmlBody,
           attachments,
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send email');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to send email');
       }
 
       const data = await response.json();
@@ -151,6 +158,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
       setMessageList((prev) => [data, ...prev]);
     } catch (error) {
       console.error("Send message error:", error);
+      throw error; // Re-throw to be handled by the UI
     }
   };
 

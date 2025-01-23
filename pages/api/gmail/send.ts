@@ -42,12 +42,29 @@ async function constructEmailWithAttachments(
     raw += `Bcc: ${bccAddresses.join(', ')}\r\n`;
   }
   raw += `Subject: ${subject}\r\n`;
-  if (inReplyTo) {
-    raw += `In-Reply-To: <${inReplyTo}>\r\n`;
+  
+  // Add threading headers
+  if (inReplyTo && typeof inReplyTo === 'string' && inReplyTo.length > 0) {
+    // Gmail Message-IDs are always wrapped in < >
+    raw += `In-Reply-To: <${inReplyTo.replace(/[<>]/g, '')}>\r\n`;
   }
+  
   if (references) {
-    raw += `References: <${references}>\r\n`;
+    // If references is a string, use it directly
+    if (typeof references === 'string') {
+      // Gmail Message-IDs are always wrapped in < >
+      raw += `References: <${references.replace(/[<>]/g, '')}>\r\n`;
+    } 
+    // If references is an array, join with spaces
+    else if (Array.isArray(references)) {
+      raw += `References: ${references.map(ref => `<${ref.replace(/[<>]/g, '')}>`).join(' ')}\r\n`;
+    }
+  } 
+  // If we have inReplyTo but no references, use inReplyTo as references
+  else if (inReplyTo && typeof inReplyTo === 'string' && inReplyTo.length > 0) {
+    raw += `References: <${inReplyTo.replace(/[<>]/g, '')}>\r\n`;
   }
+
   raw += `MIME-Version: 1.0\r\n`;
   raw += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`;
 
@@ -228,22 +245,39 @@ export default async function handler(
 
     // Send email via Gmail API
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    const result = await gmail.users.messages.send({
+    
+    // Prepare the message request
+    const messageRequest: any = {
       userId: 'me',
       requestBody: {
         raw,
-        threadId,
-      },
-    }).catch(async (error) => {
+      }
+    };
+
+    // Only add threadId if it exists and is valid
+    if (threadId && typeof threadId === 'string' && threadId.length > 0) {
+      messageRequest.requestBody.threadId = threadId;
+    }
+
+    // Send the message
+    const result = await gmail.users.messages.send(messageRequest).catch(async (error) => {
       await logger.error('Gmail API error', { 
         error: error.message,
         code: error.code,
-        status: error.status
+        status: error.status,
+        threadId,
+        inReplyTo,
+        references
       });
       throw error;
     });
 
-    await logger.info('Email sent successfully, storing in database');
+    await logger.info('Email sent successfully, storing in database', {
+      messageId: result.data.id,
+      threadId: result.data.threadId,
+      inReplyTo,
+      references
+    });
 
     // Store in ticket_email_chats
     const { data: chatData, error: chatError } = await supabase
