@@ -2,8 +2,8 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/api/gmail/send": "pages/api/gmail/send.js",
-  "/profile/settings": "pages/profile/settings.js",
   "/profile": "pages/profile.js",
-  "/tickets": "pages/tickets.js"
+  "/profile/settings": "pages/profile/settings.js",
+  "/tickets": "pages/tickets.js",
+  "/api/gmail/send": "pages/api/gmail/send.js"
 }
