@@ -23,6 +23,7 @@ export default function ProfileSettings() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [gmailAddress, setGmailAddress] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [origin, setOrigin] = useState<string>('');
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -114,22 +115,44 @@ export default function ProfileSettings() {
     }
   }, [profile?.gmail_refresh_token, profile?.gmail_access_token, fetchGmailProfile]);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
+
   const handleConnectGmail = async () => {
-    // Construct OAuth URL
-    const clientId = process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID;
-    const redirectUri = encodeURIComponent(process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI || '');
-    const scopes = [
-      'https://www.googleapis.com/auth/gmail.modify',
-      'https://www.googleapis.com/auth/gmail.compose',
-      'https://www.googleapis.com/auth/gmail.send',
-      'https://www.googleapis.com/auth/gmail.readonly'
-    ];
-    const scope = encodeURIComponent(scopes.join(' '));
-    
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=profile:${user?.id}`;
-    
-    // Redirect to Google OAuth
-    window.location.href = authUrl;
+    try {
+      const response = await fetch('/api/gmail/auth-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'profile',
+          id: user?.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to get auth URL');
+      }
+
+      const { url } = data;
+
+      if (typeof window !== 'undefined') {
+        window.location.href = url;
+      }
+    } catch (error) {
+      console.error('Error getting Gmail auth URL:', error);
+      toast({
+        title: "Error",
+        description: "Failed to start Gmail connection process. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleDisconnectGmail = async () => {

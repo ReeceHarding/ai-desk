@@ -22,8 +22,7 @@ import {
     Mail,
     MoreHorizontal,
     Plus,
-    Search,
-    X
+    Search
 } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
@@ -248,247 +247,111 @@ export default function TicketList() {
                     placeholder="Search tickets..."
                     value={searchQuery}
                     onChange={handleSearchChange}
-                    className="pl-9"
+                    className="pl-10 bg-slate-800/50 border-slate-700"
                   />
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="secondary" className="gap-2 bg-slate-800/90 text-slate-100 hover:bg-slate-700/90 border border-slate-700 shadow-lg transition-all duration-200 px-4">
-                      <Filter className="h-4 w-4" />
-                      {!isEmailPanelOpen && <span>Filters</span>}
-                      {(statusFilter.length > 0 || priorityFilter.length > 0) && (
-                        <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-medium bg-indigo-500/20 text-indigo-300 rounded-full">
-                          {statusFilter.length + priorityFilter.length}
-                        </span>
-                      )}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-56 bg-slate-800 border-slate-700 text-slate-100">
-                    <div className="space-y-6 p-4">
-                      <div>
-                        <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-                          <div className="h-1 w-1 rounded-full bg-slate-500"></div>
-                          Status
-                        </h4>
-                        <div className="space-y-2.5">
-                          {Object.keys(statusColors).map((status) => (
-                            <label key={status} className="flex items-center gap-2.5 cursor-pointer group">
-                              <div className="relative flex items-center">
-                                <input
-                                  type="checkbox"
-                                  checked={statusFilter.includes(status)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setStatusFilter([...statusFilter, status]);
-                                    } else {
-                                      setStatusFilter(statusFilter.filter(s => s !== status));
-                                    }
-                                  }}
-                                  className="peer h-4 w-4 rounded-sm border-slate-600 bg-slate-700/50 text-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:ring-offset-0 transition-all duration-200"
-                                />
-                              </div>
-                              <div className="flex items-center gap-2 flex-1">
-                                <StatusIcon status={status} className="h-3.5 w-3.5" />
-                                <span className={`capitalize text-sm ${statusColors[status]} group-hover:opacity-80 transition-opacity duration-200`}>
-                                  {status}
-                                </span>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="border-t border-slate-700/50 pt-6">
-                        <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-                          <div className="h-1 w-1 rounded-full bg-slate-500"></div>
-                          Priority
-                        </h4>
-                        <div className="space-y-2.5">
-                          {Object.keys(priorityColors).map((priority) => (
-                            <label key={priority} className="flex items-center gap-2.5 cursor-pointer group">
-                              <div className="relative flex items-center">
-                                <input
-                                  type="checkbox"
-                                  checked={priorityFilter.includes(priority)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setPriorityFilter([...priorityFilter, priority]);
-                                    } else {
-                                      setPriorityFilter(priorityFilter.filter(p => p !== priority));
-                                    }
-                                  }}
-                                  className="peer h-4 w-4 rounded-sm border-slate-600 bg-slate-700/50 text-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:ring-offset-0 transition-all duration-200"
-                                />
-                              </div>
-                              <div className="flex items-center gap-2 flex-1">
-                                <AlertCircle className={`h-3.5 w-3.5 ${priorityColors[priority].replace('bg-', 'text-')}`} />
-                                <span className={`uppercase text-sm ${priorityColors[priority]} group-hover:opacity-80 transition-opacity duration-200`}>
-                                  {priority}
-                                </span>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
-                      </div>
-
-                      <DropdownMenuItem
-                        className="flex items-center gap-2 cursor-pointer"
-                        onClick={() => {
-                          const newFilter = statusFilter.includes('email') 
-                            ? statusFilter.filter(s => s !== 'email')
-                            : [...statusFilter, 'email'];
-                          setStatusFilter(newFilter);
-                        }}
-                      >
-                        <div className="flex items-center flex-1">
-                          <Mail className="h-4 w-4 mr-2" />
-                          Email Tickets
-                        </div>
-                        {statusFilter.includes('email') && (
-                          <Check className="h-4 w-4" />
-                        )}
-                      </DropdownMenuItem>
-
-                      {(statusFilter.length > 0 || priorityFilter.length > 0) && (
-                        <div className="border-t border-slate-700/50 pt-4">
-                          <Button
-                            variant="ghost"
-                            className="w-full text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all duration-200 rounded-md"
-                            onClick={() => {
-                              setStatusFilter([]);
-                              setPriorityFilter([]);
-                            }}
-                          >
-                            Clear all filters
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <Button className="gap-2 transition-all duration-300 px-4" onClick={() => router.push('/tickets/new')}>
+                <Button
+                  onClick={() => router.push('/tickets/new')}
+                  className="inline-flex items-center gap-2"
+                >
                   <Plus className="h-4 w-4" />
-                  {!isEmailPanelOpen && <span>New Ticket</span>}
+                  New Ticket
                 </Button>
               </div>
             </div>
 
-            {/* Active Filters */}
-            {(statusFilter.length > 0 || priorityFilter.length > 0) && (
-              <div className="flex flex-wrap gap-2 mb-8">
-                {statusFilter.map((status) => (
-                  <Badge
-                    key={status}
-                    variant="secondary"
-                    className={`${statusColors[status]} cursor-pointer hover:opacity-80`}
-                    onClick={() => setStatusFilter(statusFilter.filter(s => s !== status))}
-                  >
-                    <StatusIcon status={status} className="h-3 w-3 mr-1" />
-                    {status}
-                    <X className="h-3 w-3 ml-1" onClick={(e) => {
-                      e.stopPropagation();
-                      setStatusFilter(statusFilter.filter(s => s !== status));
-                    }} />
-                  </Badge>
-                ))}
-                {priorityFilter.map((priority) => (
-                  <Badge
-                    key={priority}
-                    variant="secondary"
-                    className={`${priorityColors[priority]} cursor-pointer hover:opacity-80`}
-                    onClick={() => setPriorityFilter(priorityFilter.filter(p => p !== priority))}
-                  >
-                    <AlertCircle className="h-3 w-3 mr-1" />
-                    {priority.toUpperCase()}
-                    <X className="h-3 w-3 ml-1" onClick={(e) => {
-                      e.stopPropagation();
-                      setPriorityFilter(priorityFilter.filter(p => p !== priority));
-                    }} />
-                  </Badge>
-                ))}
-                {(statusFilter.length > 0 || priorityFilter.length > 0) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-slate-400 hover:text-white"
-                    onClick={() => {
-                      setStatusFilter([]);
-                      setPriorityFilter([]);
-                    }}
-                  >
-                    Clear all
+            {/* Filters */}
+            <div className="flex items-center gap-4 mb-6">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="inline-flex items-center gap-2">
+                    <Filter className="h-4 w-4" />
+                    Status
                   </Button>
-                )}
-              </div>
-            )}
-
-            {/* No Results */}
-            {filteredTickets.length === 0 && (
-              <div className="text-center py-12">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-800/50 mb-4">
-                  <Search className="h-6 w-6 text-slate-400" />
-                </div>
-                <h3 className="text-lg font-medium mb-2">No tickets found</h3>
-                <p className="text-slate-400 max-w-md mx-auto">
-                  {searchQuery ? 
-                    `No tickets match your search "${searchQuery}". Try adjusting your search terms.` :
-                    'No tickets match the selected filters. Try adjusting your filter criteria.'}
-                </p>
-              </div>
-            )}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  {Object.keys(statusColors).map((status) => (
+                    <DropdownMenuItem
+                      key={status}
+                      onClick={() => {
+                        if (statusFilter.includes(status)) {
+                          setStatusFilter(statusFilter.filter((s) => s !== status));
+                        } else {
+                          setStatusFilter([...statusFilter, status]);
+                        }
+                      }}
+                    >
+                      <div className="flex items-center gap-2">
+                        {statusFilter.includes(status) ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <div className="w-4" />
+                        )}
+                        <StatusIcon status={status} />
+                        <span className="capitalize">{status.replace('_', ' ')}</span>
+                      </div>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
 
             {/* Tickets List */}
-            <div className="space-y-6">
+            <div className="space-y-4">
               {filteredTickets.map((ticket) => (
                 <div
                   key={ticket.id}
-                  className={`bg-slate-800/50 backdrop-blur-sm rounded-lg p-6 hover:bg-slate-800/70 transition-all duration-300 cursor-pointer ${
-                    isEmailPanelOpen ? 'pr-4' : 'pr-6'
-                  }`}
                   onClick={() => handleTicketClick(ticket)}
+                  className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50 hover:bg-slate-800 transition-colors cursor-pointer"
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <Avatar className={`transition-all duration-300 ${
-                        isEmailPanelOpen ? 'h-8 w-8' : 'h-10 w-10'
-                      }`}>
-                        {ticket.customer?.avatar_url ? (
-                          <AvatarImage src={ticket.customer.avatar_url} alt={ticket.customer.display_name || ''} />
-                        ) : (
-                          <AvatarFallback>
-                            {ticket.customer?.display_name?.[0] || ticket.customer?.email?.[0] || '?'}
-                          </AvatarFallback>
-                        )}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-4">
+                      <Avatar className="h-10 w-10">
+                        <AvatarImage src={ticket.customer?.avatar_url || undefined} />
+                        <AvatarFallback>
+                          {ticket.customer?.display_name?.[0] || ticket.customer?.email?.[0] || '?'}
+                        </AvatarFallback>
                       </Avatar>
                       <div>
-                        <h3 className="font-medium text-slate-200">{ticket.subject || '(No Subject)'}</h3>
-                        <p className={`text-sm text-slate-400 truncate transition-all duration-300 ${
-                          isEmailPanelOpen ? 'max-w-[200px]' : 'max-w-xl'
-                        }`}>{ticket.description}</p>
+                        <h3 className="font-medium mb-1">{ticket.subject}</h3>
+                        <div className="flex items-center gap-2 text-sm text-slate-400">
+                          <span>{ticket.customer?.display_name || ticket.customer?.email}</span>
+                          <span>•</span>
+                          <span>
+                            {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
+                          </span>
+                          {ticket.metadata?.thread_id && (
+                            <>
+                              <span>•</span>
+                              <Mail className="h-4 w-4" />
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
-                    <div className={`flex items-center transition-all duration-300 ${
-                      isEmailPanelOpen ? 'gap-2' : 'gap-4'
-                    }`}>
+                    <div className="flex items-center gap-2">
                       <Badge className={statusColors[ticket.status]}>
-                        <StatusIcon status={ticket.status} />
-                        <span className={`ml-1 capitalize transition-all duration-300 ${
-                          isEmailPanelOpen ? 'hidden' : 'inline'
-                        }`}>{ticket.status}</span>
+                        <StatusIcon status={ticket.status} className="h-3 w-3 mr-1" />
+                        <span className="capitalize">{ticket.status.replace('_', ' ')}</span>
                       </Badge>
-                      <Badge className={`${priorityColors[ticket.priority]} transition-all duration-300 ${
-                        isEmailPanelOpen ? 'hidden sm:inline-flex' : ''
-                      }`}>
-                        {ticket.priority.toUpperCase()}
+                      <Badge className={priorityColors[ticket.priority]}>
+                        {ticket.priority}
                       </Badge>
-                      <span className={`text-sm text-slate-400 transition-all duration-300 ${
-                        isEmailPanelOpen ? 'hidden lg:inline' : ''
-                      }`}>
-                        {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
-                      </span>
-                      <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem onClick={(e) => {
+                            e.stopPropagation();
+                            router.push(`/tickets/${ticket.id}`);
+                          }}>
+                            View Details
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </div>
                 </div>
@@ -496,14 +359,21 @@ export default function TicketList() {
             </div>
           </div>
         </div>
-
-        {/* Email Thread Panel */}
-        <EmailThreadPanel
-          isOpen={isEmailPanelOpen}
-          onClose={() => setIsEmailPanelOpen(false)}
-          ticket={selectedTicket}
-        />
       </div>
+
+      {/* Email Thread Panel */}
+      <EmailThreadPanel
+        isOpen={isEmailPanelOpen}
+        onClose={() => {
+          setIsEmailPanelOpen(false);
+          setSelectedTicket(null);
+        }}
+        ticket={selectedTicket ? {
+          id: selectedTicket.id,
+          thread_id: selectedTicket.metadata?.thread_id,
+          message_id: selectedTicket.metadata?.message_id,
+        } : null}
+      />
     </div>
   );
 } 

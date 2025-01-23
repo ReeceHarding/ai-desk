@@ -9,12 +9,38 @@ interface LogEntry {
 
 export class Logger {
   private supabase;
+  private initialized: boolean = false;
 
-  constructor(supabaseUrl: string, supabaseKey: string) {
-    this.supabase = createClient(supabaseUrl, supabaseKey);
+  constructor(supabaseUrl?: string, supabaseKey?: string) {
+    if (supabaseUrl && supabaseKey) {
+      this.supabase = createClient(supabaseUrl, supabaseKey);
+      this.initialized = true;
+    }
   }
 
   private async logToSupabase(level: LogEntry['level'], message: string, metadata?: Record<string, unknown>): Promise<void> {
+    // Always log to console first
+    const consoleMessage = `[${level.toUpperCase()}] ${message}`;
+    
+    // Type-safe console logging
+    switch (level) {
+      case 'info':
+        metadata ? console.info(consoleMessage, metadata) : console.info(consoleMessage);
+        break;
+      case 'warn':
+        metadata ? console.warn(consoleMessage, metadata) : console.warn(consoleMessage);
+        break;
+      case 'error':
+        metadata ? console.error(consoleMessage, metadata) : console.error(consoleMessage);
+        break;
+    }
+
+    // If Supabase is not initialized, return after console logging
+    if (!this.initialized) {
+      console.warn('Logger not properly initialized with Supabase credentials');
+      return;
+    }
+
     try {
       const { error } = await this.supabase
         .from('logs')
@@ -26,10 +52,20 @@ export class Logger {
         }]);
 
       if (error) {
-        console.error('Error logging to Supabase:', error);
+        console.error('Error logging to Supabase:', {
+          error,
+          level,
+          message,
+          metadata
+        });
       }
     } catch (error) {
-      console.error('Failed to log to Supabase:', error);
+      console.error('Failed to log to Supabase:', {
+        error,
+        level,
+        message,
+        metadata
+      });
     }
   }
 
@@ -48,6 +84,6 @@ export class Logger {
 
 // Export an instantiated logger
 export const logger = new Logger(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
 ); 

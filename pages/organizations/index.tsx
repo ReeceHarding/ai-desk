@@ -1,5 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
+import { Lock } from 'lucide-react';
+import { useRouter } from 'next/router';
+import { useCallback, useEffect, useState } from 'react';
 import { Database } from '../../types/supabase';
 
 type Organization = Database['public']['Tables']['organizations']['Row'];
@@ -10,6 +13,7 @@ export default function OrganizationManagement() {
   const [error, setError] = useState<string | null>(null);
   const supabase = useSupabaseClient<Database>();
   const user = useUser();
+  const router = useRouter();
 
   const fetchOrganizations = useCallback(async () => {
     try {
@@ -31,15 +35,28 @@ export default function OrganizationManagement() {
   useEffect(() => {
     // Redirect if not logged in
     if (!user) {
-      window.location.href = '/auth/signin';
+      router.push('/auth/signin');
       return;
     }
 
     fetchOrganizations();
-  }, [user, fetchOrganizations]);
+  }, [user, router, fetchOrganizations]);
 
   if (!user) {
-    return null; // Will redirect in useEffect
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Lock className="h-12 w-12 text-slate-400 mx-auto" />
+          <h1 className="text-2xl font-semibold">Please log in to view organizations</h1>
+          <Button
+            onClick={() => router.push('/auth/signin')}
+            className="inline-flex items-center gap-2"
+          >
+            Log In
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   if (isLoading) {
