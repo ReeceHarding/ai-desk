@@ -1,11 +1,11 @@
-import { useState } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { Phone, MoreHorizontal, Star, Send, ImageIcon, Smile, Command, X, AlertCircle } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Badge } from "@/components/ui/badge"
+import { AnimatePresence, motion } from "framer-motion"
+import { AlertCircle, Command, ImageIcon, MoreHorizontal, Phone, Send, Smile, Star, X } from "lucide-react"
+import { useState } from "react"
 
 export function ConversationPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [message, setMessage] = useState("")
@@ -17,11 +17,11 @@ export function ConversationPanel({ isOpen, onClose }: { isOpen: boolean; onClos
           initial={{ x: "100%" }}
           animate={{ x: 0 }}
           exit={{ x: "100%" }}
-          transition={{ type: "spring", damping: 20 }}
-          className="fixed inset-y-0 right-0 w-[600px] bg-slate-900 border-l border-slate-800 flex flex-col z-20"
+          transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+          className="fixed top-0 right-0 w-[600px] h-screen bg-slate-900 border-l border-slate-800 flex flex-col min-h-screen overflow-hidden"
         >
           {/* Header */}
-          <div className="p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm flex items-center justify-between">
+          <div className="flex-none p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center">
                 <Phone className="h-5 w-5 text-slate-300" />
@@ -62,7 +62,7 @@ export function ConversationPanel({ isOpen, onClose }: { isOpen: boolean; onClos
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-auto p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
             <div className="flex justify-center">
               <Badge variant="secondary" className="bg-slate-800 text-slate-300">
                 Today
@@ -97,7 +97,7 @@ export function ConversationPanel({ isOpen, onClose }: { isOpen: boolean; onClos
           </div>
 
           {/* Composer */}
-          <div className="p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm">
+          <div className="flex-none p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm">
             <div className="relative">
               <Textarea
                 value={message}

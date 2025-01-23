@@ -20,7 +20,7 @@ For role and organizational management, users can create roles such as customer,
 
 In terms of collaboration, the system allows public or private comments on tickets, and teams can work together using skills-based assignments or round-robin auto-assignments. There's also an option for agents to add internal notes that remain hidden from customers.
 
-The knowledge base supports content creation with options for public or internal articles, offering version control and localizations for multi-language support. This is managed via a dedicated section accessible from the dashboard. Article revisions and localizations enhance the robustness and accessibility of the company’s support resources.
+The knowledge base supports content creation with options for public or internal articles, offering version control and localizations for multi-language support. This is managed via a dedicated section accessible from the dashboard. Article revisions and localizations enhance the robustness and accessibility of the company's support resources.
 
 ## Settings and Account Management
 
@@ -30,6 +30,77 @@ Users can manage personal data and preferences through the Account Settings page
 
 FlowSupport is designed to handle error states gracefully. If a user inputs invalid data or loses connectivity, the system provides clear error messages and fallback options to correct the problems and continue their tasks. For example, if login attempts fail, the user is prompted to verify credentials or reset their password. Similarly, if an attempt is made to access restricted features, an appropriate message will explain the issue and any potential resolution steps. Once these issues are resolved, users can seamlessly return to their workflow.
 
+## Gmail Integration
+
+### Watch Management
+The system maintains Gmail API watches to receive real-time notifications when new emails arrive. This is implemented through the following components:
+
+1. **Database Schema**
+   - Organizations and profiles tables include:
+     - `gmail_watch_expiration`: Timestamp when the current watch expires
+     - `gmail_watch_resource_id`: Unique identifier for the watch
+     - `gmail_watch_status`: Current status ('active', 'expired', 'failed', 'pending')
+
+2. **Watch Setup**
+   - When a new Gmail connection is established, a watch is automatically set up
+   - The watch is configured to monitor the INBOX label
+   - Watch information is stored in the database
+
+3. **Automatic Refresh**
+   - A scheduled job runs every 12 hours to check for expiring watches
+   - Watches that expire within 24 hours are automatically renewed
+   - Failed watches are logged and marked for review
+
+4. **Error Handling**
+   - Watch setup/refresh failures are logged to audit_logs
+   - The system maintains the last known good state
+   - Automatic retry mechanism for failed watch operations
+
+5. **Monitoring**
+   - Watch status is tracked in the database
+   - Audit logs provide visibility into watch operations
+   - Error notifications for failed watch operations
+
+### Implementation Details
+
+The Gmail watch management system consists of:
+
+1. **Database Changes**
+   - New columns added to organizations and profiles tables
+   - Indexes on watch expiration for performance
+
+2. **Utility Functions**
+   - `setupOrRefreshWatch`: Sets up or refreshes a Gmail watch
+   - `stopWatch`: Gracefully stops an active watch
+   - `checkAndRefreshWatches`: Manages watch lifecycle
+
+3. **Scheduled Job**
+   - Runs every 12 hours via cron
+   - Checks for expiring watches
+   - Handles watch renewal
+
+4. **Error Handling**
+   - Comprehensive error logging
+   - Automatic status updates
+   - Retry mechanism for transient failures
+
+### Best Practices
+
+1. **Watch Management**
+   - Always check watch status before operations
+   - Handle token refresh during watch operations
+   - Log all watch-related activities
+
+2. **Error Recovery**
+   - Implement graceful degradation
+   - Maintain audit trail
+   - Alert on persistent failures
+
+3. **Performance**
+   - Use database indexes for efficient queries
+   - Batch watch operations when possible
+   - Monitor API quota usage
+
 ## Conclusion and Overall App Journey
 
-From the initial sign-up through everyday usage, FlowSupport is engineered to deliver an efficient and intuitive CRM experience. Users begin with a comprehensive onboarding process that establishes their organization’s structure and priorities, which then leads to a seamlessly integrated dashboard where day-to-day tasks are managed and resolved. Key goals like reducing manual intervention and improving ticket resolution times are achieved through AI-driven suggestions and an easily navigable platform. Whether managing tickets or accessing analytics, FlowSupport offers a streamlined, cohesive experience designed to enhance productivity and customer satisfaction.
+From the initial sign-up through everyday usage, FlowSupport is engineered to deliver an efficient and intuitive CRM experience. Users begin with a comprehensive onboarding process that establishes their organization's structure and priorities, which then leads to a seamlessly integrated dashboard where day-to-day tasks are managed and resolved. Key goals like reducing manual intervention and improving ticket resolution times are achieved through AI-driven suggestions and an easily navigable platform. Whether managing tickets or accessing analytics, FlowSupport offers a streamlined, cohesive experience designed to enhance productivity and customer satisfaction.

@@ -1,28 +1,31 @@
-import { motion } from 'framer-motion';
-import { useRouter } from 'next/router';
-import { Database } from '@/types/supabase';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import {
-  Star,
-  Bell,
-  BellOff,
-  Share2,
-  MoreHorizontal,
-  Clock,
-  EyeOff,
-  CheckCircle,
-  Lock,
-  Inbox,
-  AlertCircle,
-  Calendar,
-  ChevronLeft,
-} from 'lucide-react';
+import { Database } from '@/types/supabase';
 import { format, formatDistanceToNow } from 'date-fns';
-import { TicketDetailsPanel } from './ticket-details-panel';
+import { motion } from 'framer-motion';
+import {
+    AlertCircle,
+    Bell,
+    BellOff,
+    Calendar,
+    CheckCircle,
+    ChevronLeft,
+    Clock,
+    EyeOff,
+    Inbox,
+    Lock,
+    Mail,
+    MoreHorizontal,
+    Share2,
+    Star,
+} from 'lucide-react';
+import { useRouter } from 'next/router';
+import { useState } from 'react';
+import { EmailThreadPanel } from './email-thread-panel';
 import { TicketConversationPanel } from './ticket-conversation-panel';
+import { TicketDetailsPanel } from './ticket-details-panel';
 
 type Profile = {
   display_name: string | null;
@@ -86,6 +89,7 @@ export function TicketInterface({
   onSubscribeToggle,
 }: TicketInterfaceProps) {
   const router = useRouter();
+  const [isEmailPanelOpen, setIsEmailPanelOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white">
@@ -112,6 +116,19 @@ export function TicketInterface({
           </div>
           <div className="flex items-center gap-2">
             <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsEmailPanelOpen(true)}
+                    className="text-slate-400 hover:text-white hover:bg-slate-700/50"
+                  >
+                    <Mail className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>View Email Thread</TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -209,6 +226,13 @@ export function TicketInterface({
             onPriorityChange={onPriorityChange}
           />
         </div>
+
+        {/* Email Thread Panel */}
+        <EmailThreadPanel
+          isOpen={isEmailPanelOpen}
+          onClose={() => setIsEmailPanelOpen(false)}
+          ticketId={ticket.id}
+        />
       </div>
     </div>
   );

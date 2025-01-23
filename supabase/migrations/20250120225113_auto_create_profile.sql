@@ -19,12 +19,14 @@ BEGIN
     RAISE LOG '[PROFILE_CREATION] No existing profile found for user_id: %', NEW.id;
   ELSE
     RAISE LOG '[PROFILE_CREATION] Found existing profile with id: %', existing_profile_id;
+    RETURN NEW;
   END IF;
   
   -- Only proceed if profile doesn't exist
   IF existing_profile_id IS NULL THEN
-    -- Get or create default organization
+    -- Start a transaction block
     BEGIN
+      -- Get or create default organization
       INSERT INTO public.organizations (name, sla_tier)
       VALUES ('Default Organization', 'basic')
       ON CONFLICT (name) DO UPDATE 
@@ -32,13 +34,12 @@ BEGIN
       RETURNING id INTO default_org_id;
       
       RAISE LOG '[PROFILE_CREATION] Using organization with ID: %', default_org_id;
-    EXCEPTION WHEN OTHERS THEN
-      RAISE LOG '[PROFILE_CREATION] Error creating/getting organization: % %', SQLERRM, SQLSTATE;
-      RAISE;
-    END;
-    
-    -- Create profile for the new user
-    BEGIN
+      
+      IF default_org_id IS NULL THEN
+        RAISE EXCEPTION 'Failed to create or get default organization';
+      END IF;
+      
+      -- Create profile for the new user
       RAISE LOG '[PROFILE_CREATION] Attempting to create profile with:';
       RAISE LOG '[PROFILE_CREATION] - ID: %', NEW.id;
       RAISE LOG '[PROFILE_CREATION] - Email: %', NEW.email;
@@ -62,24 +63,25 @@ BEGIN
         'https://ucbtpddvvbsrqroqhvev.supabase.co/storage/v1/object/public/avatars/profile-circle-icon-256x256-cm91gqm2.png'
       );
       
+      -- If we get here, both operations succeeded
       RAISE LOG '[PROFILE_CREATION] Successfully created profile for user_id: % with org_id: %', NEW.id, default_org_id;
+      
+      -- Create organization member entry
+      INSERT INTO public.organization_members (organization_id, user_id, role)
+      VALUES (default_org_id, NEW.id, 'admin');
+      
+      RAISE LOG '[PROFILE_CREATION] Successfully created organization member entry';
+      
+      RETURN NEW;
     EXCEPTION WHEN OTHERS THEN
-      RAISE LOG '[PROFILE_CREATION] Error creating profile: % %', SQLERRM, SQLSTATE;
-      RAISE LOG '[PROFILE_CREATION] SQL State: %', SQLSTATE;
+      RAISE LOG '[PROFILE_CREATION] Error in transaction:';
+      RAISE LOG '[PROFILE_CREATION] Error State: %', SQLSTATE;
       RAISE LOG '[PROFILE_CREATION] Error Message: %', SQLERRM;
-      RAISE;
+      RAISE;  -- Re-raise the error to rollback the transaction
     END;
-  ELSE
-    RAISE LOG '[PROFILE_CREATION] Profile already exists for user_id: %', NEW.id;
   END IF;
   
   RAISE LOG '[PROFILE_CREATION] END - handle_new_user() completed successfully';
-  RETURN NEW;
-EXCEPTION WHEN OTHERS THEN
-  RAISE LOG '[PROFILE_CREATION] FATAL ERROR in handle_new_user:';
-  RAISE LOG '[PROFILE_CREATION] Error State: %', SQLSTATE;
-  RAISE LOG '[PROFILE_CREATION] Error Message: %', SQLERRM;
-  RAISE LOG '[PROFILE_CREATION] Stack Trace: %', pg_backend_pid();
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

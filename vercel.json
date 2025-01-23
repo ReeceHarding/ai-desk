@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run verify-build",
+  "buildCommand": "next build",
   "installCommand": "npm ci",
   "framework": "nextjs",
   "builds": [
@@ -8,8 +8,10 @@
       "use": "@vercel/next"
     }
   ],
-  "env": {
-    "NEXT_PUBLIC_SUPABASE_URL": "@next_public_supabase_url",
-    "SUPABASE_SERVICE_ROLE_KEY": "@supabase_service_role_key"
-  }
+  "crons": [
+    {
+      "path": "/api/cron/refresh-gmail-watches",
+      "schedule": "0 0 * * *"
+    }
+  ]
 } 
