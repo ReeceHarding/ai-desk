@@ -135,9 +135,7 @@ export default async function handler(
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    await logger.info('Fetching organization Gmail tokens');
-    
-    // Get current user's organization ID first
+    // Get current user's organization ID first - we need this regardless of token source
     const { data: orgId, error: orgIdError } = await supabase.rpc('current_user_org_id');
     
     if (orgIdError) {
@@ -149,21 +147,47 @@ export default async function handler(
       await logger.error('No organization ID found for user');
       return res.status(500).json({ error: 'No organization found for user' });
     }
+
+    await logger.info('Fetching Gmail tokens');
     
-    // Get organization's Gmail tokens with the correct org ID
-    const { data: orgData, error: orgError } = await supabase
-      .from('organizations')
+    // Get current user's profile first
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
       .select('gmail_access_token, gmail_refresh_token')
-      .eq('id', orgId)
+      .eq('id', session.user.id)
       .single();
 
-    if (orgError || !orgData) {
-      await logger.error('Failed to get organization tokens', { error: orgError });
-      return res.status(500).json({ error: 'Failed to get organization tokens' });
+    if (profileError) {
+      await logger.error('Failed to get profile', { error: profileError });
+      return res.status(500).json({ error: 'Failed to get profile' });
     }
 
-    if (!orgData.gmail_access_token || !orgData.gmail_refresh_token) {
-      await logger.error('Missing Gmail tokens');
+    // Use profile tokens if available
+    let accessToken = profile?.gmail_access_token;
+    let refreshToken = profile?.gmail_refresh_token;
+
+    // If no profile tokens, try organization tokens
+    if (!accessToken || !refreshToken) {
+      await logger.info('No profile tokens found, checking organization tokens');
+      
+      // Get organization's Gmail tokens using the orgId we already have
+      const { data: orgData, error: orgError } = await supabase
+        .from('organizations')
+        .select('gmail_access_token, gmail_refresh_token')
+        .eq('id', orgId)
+        .single();
+
+      if (orgError || !orgData) {
+        await logger.error('Failed to get organization tokens', { error: orgError });
+        return res.status(500).json({ error: 'Failed to get organization tokens' });
+      }
+
+      accessToken = orgData.gmail_access_token;
+      refreshToken = orgData.gmail_refresh_token;
+    }
+
+    if (!accessToken || !refreshToken) {
+      await logger.error('No Gmail tokens found in profile or organization');
       return res.status(500).json({ error: 'Gmail tokens not configured' });
     }
 
@@ -177,8 +201,8 @@ export default async function handler(
     );
 
     oauth2Client.setCredentials({
-      access_token: orgData.gmail_access_token,
-      refresh_token: orgData.gmail_refresh_token,
+      access_token: accessToken,
+      refresh_token: refreshToken,
     });
 
     await logger.info('Constructing email with attachments', { 

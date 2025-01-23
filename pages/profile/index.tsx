@@ -21,32 +21,70 @@ export default function ProfilePage() {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<string>('');
   const [_isAdmin, setIsAdmin] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   const fetchProfile = async (userId: string) => {
     try {
       console.log('Fetching profile for user:', userId);
-      const { data, error } = await supabase
+      
+      // First check if user exists in auth
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError) {
+        console.error('Auth check error:', authError);
+        setError('Failed to verify authentication');
+        setDebugInfo({ type: 'auth_error', error: authError });
+        return;
+      }
+      console.log('Auth check successful:', authData);
+
+      // Then check if profile exists
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('display_name, phone, avatar_url, email, role')
+        .select('*')
         .eq('id', userId)
         .single();
 
-      if (error) {
-        console.error('Profile fetch error:', error);
+      if (profileError) {
+        console.error('Profile fetch error:', profileError);
         setError('Failed to fetch profile');
+        setDebugInfo({ type: 'profile_error', error: profileError, userId });
+        return;
+      }
+      console.log('Profile data:', profileData);
+
+      if (!profileData) {
+        console.log('No profile found, checking organizations...');
+        // Check if default organization exists
+        const { data: orgData, error: orgError } = await supabase
+          .from('organizations')
+          .select('*')
+          .eq('name', 'Default Organization')
+          .single();
+
+        if (orgError) {
+          console.error('Organization check error:', orgError);
+          setDebugInfo({ type: 'org_error', error: orgError });
+        } else {
+          console.log('Default organization:', orgData);
+          setDebugInfo({ type: 'org_found', org: orgData });
+        }
+
+        setError('Profile not found. Please contact support.');
         return;
       }
 
-      if (data) {
-        setDisplayName(data.display_name || '');
-        setPhone(data.phone || '');
-        setAvatarUrl(data.avatar_url || '');
-        setEmail(data.email || '');
-        setRole(data.role || '');
-      }
+      setDisplayName(profileData.display_name || '');
+      setPhone(profileData.phone || '');
+      setAvatarUrl(profileData.avatar_url || '');
+      setEmail(profileData.email || '');
+      setRole(profileData.role || '');
+      
     } catch (err) {
       console.error('Profile fetch error:', err);
       setError('Failed to fetch profile');
+      setDebugInfo({ type: 'unknown_error', error: err });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -171,8 +209,15 @@ export default function ProfilePage() {
     return (
       <AppLayout>
         <div className={`transition-all duration-300 mx-auto p-2 ${isThreadPanelOpen ? 'max-w-xl' : 'max-w-2xl'}`}>
-          <div className="bg-red-50 text-red-500 p-2 rounded-md">
-            Error: {error}
+          <div className="bg-red-50 text-red-500 p-4 rounded-md space-y-2">
+            <div className="font-medium">Error: {error}</div>
+            {debugInfo && (
+              <div className="text-sm bg-red-100 p-2 rounded">
+                <pre className="whitespace-pre-wrap">
+                  {JSON.stringify(debugInfo, null, 2)}
+                </pre>
+              </div>
+            )}
           </div>
         </div>
       </AppLayout>

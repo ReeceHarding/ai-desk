@@ -2,11 +2,8 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
+  "/api/gmail/send": "pages/api/gmail/send.js",
   "/profile/settings": "pages/profile/settings.js",
-  "/api/integrations/gmail/callback": "pages/api/integrations/gmail/callback.js",
-  "/api/gmail/auth-url": "pages/api/gmail/auth-url.js",
-  "/api/gmail/watch": "pages/api/gmail/watch.js",
-  "/dashboard": "pages/dashboard.js",
-  "/api/gmail/profile": "pages/api/gmail/profile.js",
-  "/profile": "pages/profile.js"
+  "/profile": "pages/profile.js",
+  "/tickets": "pages/tickets.js"
 }
