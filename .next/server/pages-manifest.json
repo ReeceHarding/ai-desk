@@ -2,8 +2,13 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/profile": "pages/profile.js",
   "/profile/settings": "pages/profile/settings.js",
   "/tickets": "pages/tickets.js",
-  "/api/gmail/send": "pages/api/gmail/send.js"
+  "/auth/signup": "pages/auth/signup.js",
+  "/auth/signin": "pages/auth/signin.js",
+  "/api/gmail/profile": "pages/api/gmail/profile.js",
+  "/api/gmail/watch": "pages/api/gmail/watch.js",
+  "/api/gmail/auth-url": "pages/api/gmail/auth-url.js",
+  "/api/integrations/gmail/callback": "pages/api/integrations/gmail/callback.js",
+  "/dashboard": "pages/dashboard.js"
 }
