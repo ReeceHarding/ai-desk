@@ -1,4 +1,3 @@
-import { Database } from './supabase';
 
 export type EmailDirection = 'inbound' | 'outbound';
 

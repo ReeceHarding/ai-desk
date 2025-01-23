@@ -1,40 +1,28 @@
-import { useState } from "react"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { motion } from "framer-motion"
 import {
-  Search,
-  Star,
-  Filter,
-  MoreHorizontal,
-  Phone,
-  MessageSquare,
-  Bell,
-  Home,
-  Users,
-  BarChart,
-  ChevronDown,
-  Clock,
+    BarChart,
+    Bell,
+    ChevronDown,
+    Clock,
+    Filter,
+    Home,
+    MessageSquare,
+    MoreHorizontal,
+    Phone,
+    Search,
+    Star,
+    Users,
 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Skeleton } from "@/components/ui/skeleton"
+import { useState } from "react"
 import { ConversationPanel } from "./conversation-panel"
 import { DetailsPanel } from "./details-panel"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
 // import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import { useToast } from "@/components/ui/use-toast";
 // import { ScrollArea } from "@/components/ui/scroll-area";
 
 export default function InboxInterface() {
@@ -43,6 +31,10 @@ export default function InboxInterface() {
 
   const handleRowClick = (id: string) => {
     setSelectedConversation(id)
+  }
+
+  const handleClose = () => {
+    setSelectedConversation(null)
   }
 
   return (
@@ -67,9 +59,9 @@ export default function InboxInterface() {
         </div>
       </div>
 
-      <div className="flex flex-1">
+      <div className="flex flex-1 relative overflow-hidden">
         {/* Left Sidebar */}
-        <div className="w-16 bg-slate-950/50 backdrop-blur-sm flex flex-col items-center py-4 border-r border-slate-800">
+        <div className="w-16 bg-slate-950/50 backdrop-blur-sm flex flex-col items-center py-4 border-r border-slate-800 z-10">
           <TooltipProvider>
             <div className="space-y-4">
               <Tooltip>
@@ -121,8 +113,15 @@ export default function InboxInterface() {
           </TooltipProvider>
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 overflow-hidden flex flex-col">
+        {/* Main Content - Wrapped in motion.div */}
+        <motion.div 
+          className="flex-1"
+          animate={{
+            x: selectedConversation ? "-300px" : "0px",
+            width: selectedConversation ? "calc(100% + 300px)" : "100%"
+          }}
+          transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+        >
           {/* Toolbar */}
           <div className="p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm">
             <div className="flex items-center justify-between mb-4">
@@ -250,9 +249,14 @@ export default function InboxInterface() {
               </tbody>
             </table>
           </div>
-        </div>
+        </motion.div>
+
+        {/* Conversation Panel */}
+        <ConversationPanel 
+          isOpen={selectedConversation !== null} 
+          onClose={handleClose}
+        />
       </div>
-      <ConversationPanel isOpen={!!selectedConversation} onClose={() => setSelectedConversation(null)} />
       <DetailsPanel isOpen={!!selectedConversation} />
     </div>
   )

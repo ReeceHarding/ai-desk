@@ -1,8 +1,7 @@
-import { NextApiRequest, NextApiResponse } from 'next';
-import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import { gmail_v1, google } from 'googleapis';
+import { NextApiRequest, NextApiResponse } from 'next';
 import { GmailMessage } from '../../../types/gmail';
-import { gmail_v1 } from 'googleapis';
 
 const oauth2Client = new OAuth2Client(
   process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,

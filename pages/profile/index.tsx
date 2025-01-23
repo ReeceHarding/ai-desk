@@ -1,14 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/router';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import AppLayout from '../../components/layout/AppLayout';
 import Image from 'next/image';
+import { useRouter } from 'next/router';
+import React, { useEffect, useRef, useState } from 'react';
+import AppLayout from '../../components/layout/AppLayout';
 import { Button } from '../../components/ui/button';
+import { useThreadPanel } from '../../contexts/ThreadPanelContext';
 
 export default function ProfilePage() {
   const router = useRouter();
   const supabase = createClientComponentClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { isThreadPanelOpen } = useThreadPanel();
   
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
@@ -158,7 +160,7 @@ export default function ProfilePage() {
   if (isLoading) {
     return (
       <AppLayout>
-        <div className="max-w-2xl mx-auto p-4">
+        <div className={`transition-all duration-300 mx-auto p-2 ${isThreadPanelOpen ? 'max-w-xl' : 'max-w-2xl'}`}>
           <div className="text-center">Loading profile...</div>
         </div>
       </AppLayout>
@@ -168,8 +170,8 @@ export default function ProfilePage() {
   if (error) {
     return (
       <AppLayout>
-        <div className="max-w-2xl mx-auto p-4">
-          <div className="bg-red-50 text-red-500 p-3 rounded-md">
+        <div className={`transition-all duration-300 mx-auto p-2 ${isThreadPanelOpen ? 'max-w-xl' : 'max-w-2xl'}`}>
+          <div className="bg-red-50 text-red-500 p-2 rounded-md">
             Error: {error}
           </div>
         </div>
@@ -179,122 +181,120 @@ export default function ProfilePage() {
 
   return (
     <AppLayout>
-      <div className="max-w-2xl mx-auto p-4">
-        <h1 className="text-2xl font-bold mb-4">My Profile</h1>
+      <div className={`transition-all duration-300 mx-auto ${isThreadPanelOpen ? 'max-w-xl p-2' : 'max-w-2xl p-4'}`}>
+        <h1 className="text-xl font-bold mb-3">My Profile</h1>
         
         {error && (
-          <div className="bg-red-50 text-red-500 p-3 rounded-md text-sm mb-4">
+          <div className="bg-red-50 text-red-500 p-2 rounded-md text-sm mb-3">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleUpdateProfile} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium" htmlFor="email">
-              Email (read-only)
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              disabled
-              className="mt-1 w-full border rounded-md px-3 py-2 bg-gray-50"
-            />
-          </div>
+        <form onSubmit={handleUpdateProfile} className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium" htmlFor="email">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                value={email}
+                disabled
+                className="mt-1 w-full border rounded-md px-2 py-1.5 bg-gray-50 text-sm"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium" htmlFor="displayName">
-              Display Name
-            </label>
-            <input
-              id="displayName"
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="mt-1 w-full border rounded-md px-3 py-2"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium" htmlFor="phone">
-              Phone
-            </label>
-            <input
-              id="phone"
-              type="text"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="mt-1 w-full border rounded-md px-3 py-2"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium" htmlFor="role">
-              Role
-            </label>
-            <select
-              id="role"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="mt-1 w-full border rounded-md px-3 py-2"
-            >
-              <option value="customer">Customer</option>
-              <option value="agent">Agent</option>
-              <option value="admin">Admin</option>
-              <option value="super_admin">Super Admin</option>
-            </select>
-            <p className="mt-1 text-xs text-yellow-600">
-              Role selection enabled for testing purposes
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">Avatar</label>
-            <div className="flex items-center space-x-4">
-              <div className="relative w-20 h-20 rounded-full overflow-hidden bg-gray-100">
-                {avatarUrl ? (
-                  <Image
-                    src={avatarUrl}
-                    alt="Profile avatar"
-                    fill
-                    className="object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400">
-                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  </div>
-                )}
-              </div>
-              <div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarUpload}
-                  className="hidden"
-                  id="avatar-upload"
-                />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                >
-                  {isUploading ? 'Uploading...' : 'Change Avatar'}
-                </button>
-                <p className="mt-1 text-xs text-gray-500">
-                  JPG, PNG or GIF (max. 2MB)
-                </p>
-              </div>
+            <div>
+              <label className="block text-sm font-medium" htmlFor="displayName">
+                Display Name
+              </label>
+              <input
+                id="displayName"
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="mt-1 w-full border rounded-md px-2 py-1.5 text-sm"
+              />
             </div>
           </div>
 
-          <div className="mt-6">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium" htmlFor="phone">
+                Phone
+              </label>
+              <input
+                id="phone"
+                type="text"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="mt-1 w-full border rounded-md px-2 py-1.5 text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium" htmlFor="role">
+                Role
+              </label>
+              <select
+                id="role"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="mt-1 w-full border rounded-md px-2 py-1.5 text-sm"
+              >
+                <option value="customer">Customer</option>
+                <option value="agent">Agent</option>
+                <option value="admin">Admin</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-start space-x-3 py-2">
+            <div className="relative w-16 h-16 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
+              {avatarUrl ? (
+                <Image
+                  src={avatarUrl}
+                  alt="Profile avatar"
+                  fill
+                  className="object-cover"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+              )}
+            </div>
+            <div className="flex-grow">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarUpload}
+                className="hidden"
+                id="avatar-upload"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="px-3 py-1.5 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+              >
+                {isUploading ? 'Uploading...' : 'Change Avatar'}
+              </button>
+              <p className="mt-1 text-xs text-gray-500">
+                JPG, PNG or GIF (max. 2MB)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-between items-center pt-2">
             <Button
               type="submit"
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+              className="bg-blue-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-blue-700"
               disabled={isLoading}
             >
               {isLoading ? 'Saving...' : 'Save Changes'}
@@ -305,7 +305,7 @@ export default function ProfilePage() {
                 await supabase.auth.signOut();
                 router.push('/auth/signin');
               }}
-              className="ml-4 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700"
+              className="bg-red-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-red-700"
             >
               Sign Out
             </Button>
