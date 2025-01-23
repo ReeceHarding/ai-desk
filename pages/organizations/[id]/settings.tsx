@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/router';
-import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { useUserRole } from '@/hooks/useUserRole';
 import { toast } from '@/components/ui/use-toast';
+import { useUserRole } from '@/hooks/useUserRole';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { useRouter } from 'next/router';
+import { useCallback, useEffect, useState } from 'react';
 
 interface Organization {
   id: string;
@@ -20,6 +20,7 @@ export default function OrganizationSettings() {
   const [organization, setOrganization] = useState<Organization | null>(null);
   const { role } = useUserRole();
   const isAdmin = role === 'admin' || role === 'super_admin';
+  const [origin, setOrigin] = useState<string>('');
 
   const fetchOrganization = useCallback(async () => {
     const { data, error } = await supabase
@@ -41,6 +42,12 @@ export default function OrganizationSettings() {
       fetchOrganization();
     }
   }, [id, fetchOrganization]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   useEffect(() => {
     // Check for success/error query params
@@ -65,30 +72,30 @@ export default function OrganizationSettings() {
 
   const handleConnectGmail = async () => {
     try {
-      // Construct OAuth URL
-      const clientId = process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID;
-      const redirectUri = encodeURIComponent(process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI || '');
-      const scope = encodeURIComponent('https://www.googleapis.com/auth/gmail.modify');
-      
-      console.log('Gmail OAuth configuration:', {
-        clientId,
-        redirectUri: process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI,
-        scope: 'https://www.googleapis.com/auth/gmail.modify',
-        state: `org:${id}`,
+      const response = await fetch('/api/gmail/auth-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'organization',
+          id: organization?.id,
+        }),
       });
-      
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent&state=org:${id}`;
-      
-      console.log('Redirecting to:', authUrl);
-      // Redirect to Google OAuth
-      window.location.href = authUrl;
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to get auth URL');
+      }
+
+      const { authUrl } = data;
+
+      if (typeof window !== 'undefined') {
+        window.location.href = authUrl;
+      }
     } catch (error) {
-      console.error('Error initiating Gmail connection:', error);
-      toast({
-        title: "Connection Failed",
-        description: "Failed to initiate Gmail connection. Please try again.",
-        variant: "destructive",
-      });
+      console.error('Error getting Gmail auth URL:', error);
     }
   };
 

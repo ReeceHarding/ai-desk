@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { useRouter } from 'next/router';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import AuthLayout from '../../components/auth/AuthLayout';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
+import React, { useEffect, useState } from 'react';
+import AuthLayout from '../../components/auth/AuthLayout';
 
 export default function SignUp() {
   const [email, setEmail] = useState('');
@@ -14,6 +14,13 @@ export default function SignUp() {
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
     supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
   });
+  const [origin, setOrigin] = useState<string>('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -29,7 +36,7 @@ export default function SignUp() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${origin}/auth/callback`,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
@@ -42,7 +49,7 @@ export default function SignUp() {
         error: error?.message,
         hasUrl: !!data?.url,
         url: data?.url,
-        redirectTo: `${window.location.origin}/auth/callback`
+        redirectTo: `${origin}/auth/callback`
       });
 
       if (error) {
@@ -53,7 +60,9 @@ export default function SignUp() {
       // Only redirect if we have a URL
       if (data?.url) {
         console.log('[SIGNUP] Redirecting to OAuth URL:', data.url);
-        window.location.href = data.url;
+        if (typeof window !== 'undefined') {
+          window.location.href = data.url;
+        }
       } else {
         console.error('[SIGNUP] No OAuth URL received in response');
         throw new Error('No OAuth URL received');
@@ -66,72 +75,75 @@ export default function SignUp() {
     }
   };
 
-  const handleSignUp = async (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
-
+    
     try {
-      // Validate email format
+      setError(null);
+      setLoading(true);
+
       if (!validateEmail(email)) {
-        throw new Error('Please enter a valid email address');
+        setError('Please enter a valid email address');
+        return;
       }
 
-      // Sign up the user
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      if (password.length < 6) {
+        setError('Password must be at least 6 characters');
+        return;
+      }
+
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-          data: {
-            email_confirmed: true
-          }
-        }
+          emailRedirectTo: `${origin}/auth/callback`,
+        },
       });
 
-      console.log('Signup response:', { signUpData, signUpError });
-
-      if (signUpError) throw signUpError;
-
-      if (signUpData?.user) {
-        console.log('User created successfully:', signUpData.user);
-        
-        // Add a small delay to ensure the trigger completes
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        console.log('Checking for profile creation...');
-
-        // Verify profile creation
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', signUpData.user.id)
-          .single();
-
-        console.log('Profile check result:', { profile, profileError });
-
-        if (profileError) {
-          console.error('Profile verification error:', profileError);
-        }
-
-        // Sign in after profile verification
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (signInError) throw signInError;
-
-        // Redirect to dashboard
-        router.push('/dashboard');
-      } else {
-        throw new Error('Failed to create user account');
+      if (error) {
+        console.error('Error signing up:', error.message);
+        setError(error.message);
+        return;
       }
-    } catch (error: unknown) {
-      console.error('Signup error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to create account');
+
+      if (data?.user?.identities?.length === 0) {
+        setError('This email is already registered. Please sign in instead.');
+        return;
+      }
+
+      if (data?.user && !data.session) {
+        // Email confirmation is required
+        setError('Please check your email for a confirmation link to complete your registration.');
+        return;
+      }
+
+      if (data?.session) {
+        // User is signed in immediately
+        console.log('Signup successful, redirecting to dashboard');
+        router.push('/dashboard');
+      }
+    } catch (err) {
+      console.error('Unexpected error during signup:', err);
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGitHubSignIn = async () => {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: {
+        redirectTo: `${origin}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      console.error('Error signing in with GitHub:', error.message);
+      return;
+    }
+
+    // Let Supabase handle the redirect
   };
 
   return (
