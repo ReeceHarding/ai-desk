@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { useRouter } from 'next/router';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import AuthLayout from '../../components/auth/AuthLayout';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
+import React, { useEffect, useState } from 'react';
+import AuthLayout from '../../components/auth/AuthLayout';
 
 export default function SignIn() {
   const router = useRouter();
@@ -13,53 +13,64 @@ export default function SignIn() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [origin, setOrigin] = useState<string>('');
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
 
   const handleGoogleSignIn = async () => {
-    try {
-      console.log('[SIGNIN] Starting Google sign-in flow');
-      setError(null);
-      setIsLoading(true);
-      
-      const response = await fetch('/api/auth/google-oauth-url');
-      const data = await response.json();
-      
-      if (error) throw error;
-      
-      // Only redirect if we have a URL
-      if (data?.url) {
-        console.log('[SIGNIN] Redirecting to OAuth URL');
-        window.location.href = data.url;
-      } else {
-        throw new Error('No OAuth URL received');
-      }
-    } catch (error: unknown) {
-      console.error('[SIGNIN] Google sign-in error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to start Google sign-in');
-    } finally {
-      setIsLoading(false);
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${origin}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      console.error('Error signing in with Google:', error.message);
+      return;
     }
+
+    // Let Supabase handle the redirect
   };
 
-  const handleSignIn = async (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setError(null);
-    setIsLoading(true);
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get('email') as string;
+    const password = formData.get('password') as string;
 
-    try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-      if (error) throw error;
-
-      // Redirect to the original requested page or dashboard
-      router.push(typeof from === 'string' ? decodeURIComponent(from) : '/dashboard');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign in');
-    } finally {
-      setIsLoading(false);
+    if (error) {
+      console.error('Error signing in:', error.message);
+      return;
     }
+
+    // After successful signin, redirect to dashboard
+    router.push('/dashboard');
+  };
+
+  const handleGitHubSignIn = async () => {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'github',
+      options: {
+        redirectTo: `${origin}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      console.error('Error signing in with GitHub:', error.message);
+      return;
+    }
+
+    // Let Supabase handle the redirect
   };
 
   return (
