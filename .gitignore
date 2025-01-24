@@ -48,3 +48,4 @@ next-env.d.ts
 # Sensitive files
 gmail-pubsub-key.json
 .env.production
+.next

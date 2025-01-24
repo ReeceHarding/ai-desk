@@ -1,8 +1,0 @@
-{
-  "/_app": "pages/_app.js",
-  "/_document": "pages/_document.js",
-  "/_error": "pages/_error.js",
-  "/organizations/[id]/kb": "pages/organizations/[id]/kb.js",
-  "/api/kb/upload": "pages/api/kb/upload.js",
-  "/api/gmail/profile": "pages/api/gmail/profile.js"
-}
