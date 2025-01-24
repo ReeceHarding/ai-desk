@@ -16,7 +16,9 @@ export default function App({ Component, pageProps }: AppProps) {
         initialSession={pageProps.initialSession}
       >
         <ThreadPanelProvider>
-          <Component {...pageProps} />
+          <div className="min-h-screen bg-white text-gray-900 antialiased">
+            <Component {...pageProps} />
+          </div>
         </ThreadPanelProvider>
       </SessionContextProvider>
     </MantineProvider>
