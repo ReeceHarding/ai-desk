@@ -11,17 +11,10 @@ export default function Sidebar() {
   const [orgId, setOrgId] = useState<string | null>(null);
   const isAdmin = role === 'admin' || role === 'super_admin';
 
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/auth/signin');
-  };
-
   useEffect(() => {
     const getOrgId = async () => {
-      console.log('Sidebar - Current role:', role);
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        console.log('Sidebar - Fetching org_id for user:', user.id);
         try {
           const { data: profileData, error: profileError } = await supabase
             .from('profiles')
@@ -30,86 +23,76 @@ export default function Sidebar() {
             .single();
           
           if (profileError) {
-            console.log('Sidebar - Error fetching profile:', profileError);
+            console.error('Error fetching profile:', profileError);
             return;
           }
           
           if (profileData) {
-            console.log('Sidebar - Found org_id:', profileData.org_id);
             setOrgId(profileData.org_id);
-          } else {
-            console.log('Sidebar - No org_id found for user');
           }
         } catch (error) {
-          console.error('Sidebar - Error:', error);
+          console.error('Error:', error);
         }
       }
     };
 
     getOrgId();
-  }, [supabase, role]);
+  }, [supabase]);
 
-  console.log('Sidebar - Render state:', { isAdmin, orgId, role });
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/auth/signin');
+  };
+
+  const NavLink = ({ href, children }: { href: string; children: React.ReactNode }) => {
+    const isActive = router.pathname === href || router.pathname.startsWith(`${href}/`);
+    return (
+      <Link
+        href={href}
+        className={`flex items-center px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
+          isActive
+            ? 'bg-gray-100 text-gray-900'
+            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+        }`}
+      >
+        {children}
+      </Link>
+    );
+  };
 
   return (
-    <aside className="w-64 bg-white shadow-lg h-screen flex flex-col">
-      <div className="p-4">
-        <Link href="/dashboard" className="text-xl font-semibold">
-          Zendesk Clone
-        </Link>
-      </div>
-      
-      <nav className="flex-1 p-4">
-        <div className="space-y-2">
-          <Link
-            href="/tickets"
-            className="block text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium"
-          >
-            Tickets
-          </Link>
-          
-          {isAdmin && (
-            <>
-              <Link
-                href={`/organizations/${orgId}/settings`}
-                className="block text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium"
-              >
-                Organization Settings
-              </Link>
-              
-              <Link
-                href={`/organizations/${orgId}/kb`}
-                className="block text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium"
-              >
-                Knowledge Base
-              </Link>
-            </>
-          )}
-          
-          <Link
-            href="/profile/settings"
-            className="block text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium"
-          >
-            Settings
-          </Link>
-          
-          <Link
-            href="/profile"
-            className="block text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium"
-          >
-            Profile
-          </Link>
+    <div className="w-64 h-full bg-white border-r border-gray-200">
+      <div className="flex flex-col h-full">
+        <div className="space-y-4 flex-1 px-3 py-4">
+          <nav className="space-y-1">
+            <NavLink href="/dashboard">Dashboard</NavLink>
+            <NavLink href="/tickets">Tickets</NavLink>
+            
+            {isAdmin && (
+              <>
+                <NavLink href={`/organizations/${orgId}/settings`}>
+                  Organization Settings
+                </NavLink>
+                <NavLink href={`/organizations/${orgId}/kb`}>
+                  Knowledge Base
+                </NavLink>
+              </>
+            )}
+            
+            <NavLink href="/profile">Profile</NavLink>
+            <NavLink href="/profile/settings">Settings</NavLink>
+          </nav>
         </div>
-      </nav>
-      
-      <div className="p-4 border-t">
-        <button
-          onClick={handleSignOut}
-          className="w-full bg-red-600 text-white hover:bg-red-700 px-4 py-2 rounded-md text-sm font-medium"
-        >
-          Sign Out
-        </button>
+
+        <div className="p-4 border-t border-gray-200">
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-200"
+          >
+            Sign Out
+          </button>
+        </div>
       </div>
-    </aside>
+    </div>
   );
 } 

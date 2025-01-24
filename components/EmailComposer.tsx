@@ -9,7 +9,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 const ReactQuill = dynamic(() => import('react-quill'), {
   ssr: false,
-  loading: () => <div className="h-[200px] bg-slate-800/50 rounded-lg animate-pulse" />
+  loading: () => <div className="h-[200px] bg-gray-100 rounded-lg animate-pulse" />
 })
 
 type Attachment = {
@@ -79,7 +79,7 @@ export function EmailComposer({ onSend, loading }: EmailComposerProps) {
         theme="snow"
         value={editorValue}
         onChange={setEditorValue}
-        className="bg-white text-black rounded-md"
+        className="bg-white text-gray-900 rounded-lg border border-gray-200"
         placeholder="Compose your email..."
         modules={{
           toolbar: [
@@ -94,9 +94,9 @@ export function EmailComposer({ onSend, loading }: EmailComposerProps) {
         {attachments.map((att) => (
           <div
             key={att.name}
-            className="flex items-center gap-1 px-2 py-1 bg-gray-800 text-white rounded"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 text-gray-700 rounded-lg border border-gray-200"
           >
-            <Paperclip className="h-4 w-4" />
+            <Paperclip className="h-4 w-4 text-gray-500" />
             <span className="text-sm">{att.name}</span>
           </div>
         ))}
@@ -114,6 +114,7 @@ export function EmailComposer({ onSend, loading }: EmailComposerProps) {
             variant="ghost"
             size="icon"
             onClick={() => fileInputRef.current?.click()}
+            className="text-gray-500 hover:text-gray-900 hover:bg-gray-100"
           >
             <Paperclip className="h-5 w-5" />
           </Button>
@@ -123,8 +124,9 @@ export function EmailComposer({ onSend, loading }: EmailComposerProps) {
           variant="default"
           size="sm"
           disabled={loading}
+          className="bg-blue-600 hover:bg-blue-700 text-white"
         >
-          <Send className="h-4 w-4 mr-1" />
+          <Send className="h-4 w-4 mr-1.5" />
           Send
         </Button>
       </div>

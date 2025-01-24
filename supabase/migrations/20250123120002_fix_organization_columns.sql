@@ -83,6 +83,22 @@ UPDATE public.organizations
 SET gmail_history_id = '2180684'
 WHERE id = 'ee0f56a0-4130-4398-bc2d-27529f82efb1';
 
+-- Drop RLS policies from organizations
+DROP POLICY IF EXISTS "Users can view organizations they are members of" ON organizations;
+DROP POLICY IF EXISTS "Organization creators and admins can manage their organizations" ON organizations;
+
+-- Disable RLS on organizations
+ALTER TABLE organizations DISABLE ROW LEVEL SECURITY;
+
+-- Disable RLS on profiles
+ALTER TABLE profiles DISABLE ROW LEVEL SECURITY;
+
+-- Drop any existing policies on profiles
+DROP POLICY IF EXISTS "Users can view their own profile" ON profiles;
+DROP POLICY IF EXISTS "Users can update their own profile" ON profiles;
+DROP POLICY IF EXISTS "Users can insert their own profile" ON profiles;
+DROP POLICY IF EXISTS "Users can delete their own profile" ON profiles;
+
 -- Drop RLS policies from organization_members
 DROP POLICY IF EXISTS "Users can see their own org members" ON organization_members;
 DROP POLICY IF EXISTS "Users can insert their own org members" ON organization_members;

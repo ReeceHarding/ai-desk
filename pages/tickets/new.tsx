@@ -1,20 +1,21 @@
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
-import { Database } from '@/types/supabase';
+import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { 
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
 } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { Database } from '@/types/supabase';
+import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { ChevronLeft } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
 
 type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
 
@@ -48,27 +49,34 @@ export default function NewTicket() {
     setSubmitting(true);
     try {
       // First get the user's org_id
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('org_id')
         .eq('id', user.id)
         .single();
 
-      if (!profile?.org_id) {
-        throw new Error('Organization not found');
-      }
+      if (profileError) throw profileError;
+      if (!profile?.org_id) throw new Error('User is not associated with an organization');
 
-      const { error } = await supabase.from('tickets').insert({
-        subject,
-        description,
-        priority,
-        status: 'open',
-        customer_id: user.id,
-        org_id: profile.org_id,
-      });
+      // Create the ticket
+      const { data: ticket, error: ticketError } = await supabase
+        .from('tickets')
+        .insert([
+          {
+            subject,
+            description,
+            priority,
+            status: 'open',
+            customer_id: user.id,
+            org_id: profile.org_id,
+          },
+        ])
+        .select()
+        .single();
 
-      if (error) throw error;
-      router.push('/tickets');
+      if (ticketError) throw ticketError;
+
+      router.push(`/tickets/${ticket.id}`);
     } catch (error) {
       console.error('Error creating ticket:', error);
     } finally {
@@ -77,94 +85,101 @@ export default function NewTicket() {
   };
 
   if (!user) {
-    return null;
+    return (
+      <AppLayout>
+        <div className="container mx-auto px-4 py-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Access Denied</CardTitle>
+              <CardDescription>
+                Please log in to create a new ticket
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </AppLayout>
+    );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white">
-      <div className="max-w-3xl mx-auto p-8">
-        <Button
-          variant="ghost"
-          onClick={() => router.push('/tickets')}
-          className="mb-8 text-slate-400 hover:text-white group"
-        >
-          <ChevronLeft className="h-4 w-4 mr-2 transition-transform group-hover:-translate-x-0.5" />
-          Back to tickets
-        </Button>
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-800/50 backdrop-blur-sm rounded-lg p-6"
-        >
-          <div className="mb-6">
-            <h1 className="text-2xl font-semibold mb-1">Create New Ticket</h1>
-            <p className="text-slate-400">Submit a new support request. We'll get back to you as soon as possible.</p>
+    <AppLayout>
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-2xl mx-auto">
+          <div className="flex items-center gap-4 mb-6">
+            <Button
+              variant="ghost"
+              onClick={() => router.push('/tickets')}
+              className="text-gray-600 hover:text-gray-900"
+            >
+              <ChevronLeft className="h-4 w-4 mr-2" />
+              Back to Tickets
+            </Button>
+            <h1 className="text-2xl font-semibold text-gray-900">Create New Ticket</h1>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="subject" className="text-sm font-medium text-slate-300">Subject</Label>
-              <Input
-                id="subject"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="Brief summary of your request"
-                required
-                className="bg-slate-900/50 border-slate-700 focus:border-slate-600 focus:ring-slate-600 placeholder:text-slate-500"
-              />
-            </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Ticket Details</CardTitle>
+              <CardDescription>
+                Fill out the form below to create a new support ticket.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="subject">Subject</Label>
+                  <Input
+                    id="subject"
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    placeholder="Brief description of the issue"
+                    required
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="description" className="text-sm font-medium text-slate-300">Description</Label>
-              <Textarea
-                id="description"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Detailed description of your request"
-                required
-                className="min-h-[200px] bg-slate-900/50 border-slate-700 focus:border-slate-600 focus:ring-slate-600 placeholder:text-slate-500"
-              />
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="description">How can we help you today?</Label>
+                  <Textarea
+                    id="description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Please describe your issue in detail. The more information you provide, the better we can help you."
+                    className="min-h-[200px]"
+                    required
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="priority" className="text-sm font-medium text-slate-300">Priority</Label>
-              <Select
-                value={priority}
-                onValueChange={(value: TicketPriority) => setPriority(value)}
-              >
-                <SelectTrigger 
-                  id="priority" 
-                  className="bg-slate-900/50 border-slate-700 focus:border-slate-600 focus:ring-slate-600"
-                >
-                  <SelectValue placeholder="Select priority" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  {Object.keys(priorityColors).map((p) => (
-                    <SelectItem 
-                      key={p} 
-                      value={p}
-                      className={`${priorityColors[p]} hover:bg-slate-700/50 focus:bg-slate-700/50 cursor-pointer`}
-                    >
-                      {p.charAt(0).toUpperCase() + p.slice(1)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="priority">Priority</Label>
+                  <Select
+                    value={priority}
+                    onValueChange={(value) => setPriority(value as TicketPriority)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(priorityColors).map((p) => (
+                        <SelectItem key={p} value={p}>
+                          <span className={priorityColors[p]}>
+                            {p.charAt(0).toUpperCase() + p.slice(1)}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="pt-4">
-              <Button
-                type="submit"
-                disabled={submitting || !subject || !description}
-                className="w-full bg-indigo-500 hover:bg-indigo-600 text-white disabled:bg-slate-700 disabled:text-slate-400 transition-colors"
-              >
-                {submitting ? 'Creating...' : 'Create Ticket'}
-              </Button>
-            </div>
-          </form>
-        </motion.div>
+                <div className="flex justify-end">
+                  <Button type="submit" disabled={submitting}>
+                    {submitting ? 'Creating...' : 'Create Ticket'}
+                  </Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
+    </AppLayout>
   );
 } 

@@ -1,15 +1,15 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
-import Image from 'next/image';
-import { Database } from '@/types/supabase';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { Avatar } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Send, Paperclip } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Database } from '@/types/supabase';
+import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { formatDistanceToNow } from 'date-fns';
+import { motion } from 'framer-motion';
+import { Paperclip, Send } from 'lucide-react';
+import Image from 'next/image';
+import { useEffect, useState } from 'react';
 
 type Profile = {
   display_name: string | null;
@@ -139,7 +139,7 @@ export function TicketConversationPanel({
       animate={{ opacity: 1, y: 0 }}
       className="mt-8 space-y-4"
     >
-      <h3 className="text-lg font-semibold text-slate-100">Comments</h3>
+      <h3 className="text-lg font-semibold text-gray-900">Comments</h3>
       <div className="space-y-4">
         {loading ? (
           <div className="space-y-4">
@@ -152,10 +152,10 @@ export function TicketConversationPanel({
               key={comment.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-slate-800/50 backdrop-blur-sm rounded-lg p-4 hover:bg-slate-800/70 transition-colors"
+              className="bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors"
             >
               <div className="flex items-start gap-4">
-                <Avatar className="ring-2 ring-slate-700/50">
+                <Avatar className="ring-2 ring-gray-100">
                   <Image
                     src={comment.author?.avatar_url || '/default-avatar.png'}
                     alt={comment.author?.display_name || 'User'}
@@ -167,20 +167,20 @@ export function TicketConversationPanel({
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-2">
                     <div>
-                      <span className="font-medium text-slate-100">
+                      <span className="font-medium text-gray-900">
                         {comment.author?.display_name || 'Unknown User'}
                       </span>
-                      <span className="text-sm text-slate-400 ml-2">
+                      <span className="text-sm text-gray-500 ml-2">
                         {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
                       </span>
                     </div>
                     {comment.is_private && (
-                      <Badge variant="outline" className="text-slate-300 border-slate-600 bg-slate-700/50">
+                      <Badge variant="outline">
                         Private
                       </Badge>
                     )}
                   </div>
-                  <p className="text-slate-300 leading-relaxed">{comment.body}</p>
+                  <p className="text-gray-600 leading-relaxed">{comment.body}</p>
                 </div>
               </div>
             </motion.div>
@@ -194,11 +194,11 @@ export function TicketConversationPanel({
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
           placeholder="Write a comment..."
-          className="min-h-[100px] bg-slate-800/50 border-slate-700 focus:border-slate-500 focus:ring-slate-500 placeholder:text-slate-500"
+          className="min-h-[100px] resize-none"
         />
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button type="button" variant="ghost" size="icon" className="text-slate-400 hover:text-white hover:bg-slate-700/50">
+            <Button type="button" variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900">
               <Paperclip className="h-4 w-4" />
             </Button>
             <label className="flex items-center gap-2 cursor-pointer">
@@ -206,15 +206,15 @@ export function TicketConversationPanel({
                 type="checkbox"
                 checked={isPrivate}
                 onChange={(e) => setIsPrivate(e.target.checked)}
-                className="form-checkbox bg-slate-800 border-slate-700 text-indigo-500 focus:ring-indigo-500"
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
-              <span className="text-sm text-slate-400 hover:text-slate-300">Make private</span>
+              <span className="text-sm text-gray-600 hover:text-gray-900">Make private</span>
             </label>
           </div>
           <Button
             type="submit"
             disabled={!newComment.trim() || submitting}
-            className="inline-flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 disabled:bg-slate-700 disabled:text-slate-400"
+            className="inline-flex items-center gap-2"
           >
             {submitting ? (
               <Skeleton className="h-4 w-4" />

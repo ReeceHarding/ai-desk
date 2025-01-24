@@ -21,14 +21,20 @@ const supabase = createClient<Database>(
 const API_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
 
 interface GmailMessagePart {
-  mimeType?: string | null;
+  mimeType?: string;
+  headers?: { name: string; value: string; }[];
   body?: {
-    data?: string | null;
-  } | null;
-  parts?: GmailMessagePart[] | null;
+    data?: string;
+    size?: number;
+  };
+  parts?: GmailMessagePart[];
+  filename?: string;
+  partId?: string;
 }
 
-const extractBody = (part: GmailMessagePart): string | null => {
+const extractBody = (part: GmailMessagePart | undefined): string | null => {
+  if (!part) return null;
+  
   if (part.mimeType === 'text/plain' && part.body?.data) {
     return Buffer.from(part.body.data, 'base64').toString();
   }
@@ -183,7 +189,7 @@ export function parseGmailMessage(message: GmailMessage): ParsedEmail {
     html: ''
   };
 
-  const extractBody = (part: GmailMessagePart) => {
+  const extractBody = (part: GmailMessagePart | undefined) => {
     if (!part) return;
 
     if (part.mimeType === 'text/plain' && part.body?.data) {

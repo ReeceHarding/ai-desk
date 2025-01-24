@@ -1,3 +1,4 @@
+import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
@@ -122,90 +123,91 @@ export default function KnowledgeBaseUpload() {
   };
 
   return (
-    <div className="container mx-auto py-8">
-      <h1 className="text-3xl font-bold mb-8">Knowledge Base Upload</h1>
-      
-      <Card className="p-6">
-        <div
-          {...getRootProps()}
-          className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
-            ${isDragActive ? 'border-primary bg-primary/5' : 'border-gray-300 hover:border-primary'}
-            ${uploadState.status === 'success' ? 'border-green-500 bg-green-50' : ''}
-            ${uploadState.status === 'error' ? 'border-red-500 bg-red-50' : ''}`}
-        >
-          <input {...getInputProps()} />
-          
-          <div className="flex flex-col items-center gap-4">
-            {uploadState.status === 'success' ? (
-              <CheckCircle2 className="w-12 h-12 text-green-500" />
-            ) : uploadState.status === 'error' ? (
-              <AlertCircle className="w-12 h-12 text-red-500" />
-            ) : uploadState.file ? (
-              <File className="w-12 h-12 text-primary" />
-            ) : (
-              <Upload className="w-12 h-12 text-gray-400" />
-            )}
+    <AppLayout>
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-2xl font-semibold text-gray-900 mb-6">Knowledge Base Upload</h1>
+        <Card className="p-6">
+          <div
+            {...getRootProps()}
+            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
+              ${isDragActive ? 'border-primary bg-primary/5' : 'border-gray-300 hover:border-primary'}
+              ${uploadState.status === 'success' ? 'border-green-500 bg-green-50' : ''}
+              ${uploadState.status === 'error' ? 'border-red-500 bg-red-50' : ''}`}
+          >
+            <input {...getInputProps()} />
             
-            <div className="space-y-2">
-              {uploadState.file ? (
-                <>
-                  <p className="text-sm font-medium">{uploadState.file.name}</p>
-                  <p className="text-xs text-gray-500">
-                    {(uploadState.file.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
-                </>
+            <div className="flex flex-col items-center gap-4">
+              {uploadState.status === 'success' ? (
+                <CheckCircle2 className="w-12 h-12 text-green-500" />
+              ) : uploadState.status === 'error' ? (
+                <AlertCircle className="w-12 h-12 text-red-500" />
+              ) : uploadState.file ? (
+                <File className="w-12 h-12 text-primary" />
               ) : (
-                <>
-                  <p className="font-medium">
-                    {isDragActive
-                      ? 'Drop your file here'
-                      : 'Drag and drop your file here'}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    or click to select a file
-                  </p>
-                </>
+                <Upload className="w-12 h-12 text-gray-400" />
               )}
+              
+              <div className="space-y-2">
+                {uploadState.file ? (
+                  <>
+                    <p className="text-sm font-medium">{uploadState.file.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {(uploadState.file.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium">
+                      {isDragActive
+                        ? 'Drop your file here'
+                        : 'Drag and drop your file here'}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      or click to select a file
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {uploadState.status === 'uploading' && (
-          <div className="mt-4 space-y-2">
-            <Progress value={uploadState.progress} />
-            <p className="text-sm text-center text-gray-500">
-              Processing document...
-            </p>
-          </div>
-        )}
+          {uploadState.status === 'uploading' && (
+            <div className="mt-4 space-y-2">
+              <Progress value={uploadState.progress} />
+              <p className="text-sm text-center text-gray-500">
+                Processing document...
+              </p>
+            </div>
+          )}
 
-        {uploadState.file && uploadState.status !== 'success' && (
-          <div className="mt-6 flex justify-end">
-            <Button
-              onClick={handleUpload}
-              disabled={uploadState.status === 'uploading'}
-            >
-              {uploadState.status === 'uploading' ? 'Uploading...' : 'Upload'}
-            </Button>
-          </div>
-        )}
+          {uploadState.file && uploadState.status !== 'success' && (
+            <div className="mt-6 flex justify-end">
+              <Button
+                onClick={handleUpload}
+                disabled={uploadState.status === 'uploading'}
+              >
+                {uploadState.status === 'uploading' ? 'Uploading...' : 'Upload'}
+              </Button>
+            </div>
+          )}
 
-        {uploadState.status === 'success' && (
-          <div className="mt-4">
-            <p className="text-sm text-center text-green-600">
-              Document uploaded and processed successfully!
-            </p>
-          </div>
-        )}
+          {uploadState.status === 'success' && (
+            <div className="mt-4">
+              <p className="text-sm text-center text-green-600">
+                Document uploaded and processed successfully!
+              </p>
+            </div>
+          )}
 
-        {uploadState.status === 'error' && (
-          <div className="mt-4">
-            <p className="text-sm text-center text-red-600">
-              {uploadState.error || 'An error occurred during upload'}
-            </p>
-          </div>
-        )}
-      </Card>
-    </div>
+          {uploadState.status === 'error' && (
+            <div className="mt-4">
+              <p className="text-sm text-center text-red-600">
+                {uploadState.error || 'An error occurred during upload'}
+              </p>
+            </div>
+          )}
+        </Card>
+      </div>
+    </AppLayout>
   );
 } 

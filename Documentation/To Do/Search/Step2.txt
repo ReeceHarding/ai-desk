@@ -1,0 +1,718 @@
+Below is a deeply expanded version of Step 2, covering the entire back-end logic needed for our automated outreach system. Each sub-step is broken down with thorough explanations, code snippets, error handling, references to the exact database columns, and suggestions for testing. Make sure to follow these directions in order; confirm each checkpoint and test thoroughly before moving on.
+
+STEP 2: IMPLEMENT THE BACK-END LOGIC
+
+2.1. Campaign & SearchTask Services
+
+2.1.1. Purpose & Overview
+	•	outreach_campaigns table: We store high-level info (owner, name, description).
+	•	search_tasks table: For each campaign, we can define multiple search queries that the AI or user decides to run.
+
+We will implement two major parts:
+	1.	Campaign creation (createCampaign(...)).
+	2.	Search task creation (addSearchTask(...)).
+
+2.1.2. File: utils/campaignService.ts
+
+Detailed Explanation:
+	1.	Supabase Client:
+	•	We use createClientComponentClient from @supabase/auth-helpers-nextjs. This means in an environment like Next.js, we have the session context.
+	•	If you need a server-side approach, you might adapt or use the service key. But for the example, we assume standard usage.
+	2.	createCampaign(ownerId: string, campaignName: string, description?: string):
+	•	Insert a new row in outreach_campaigns.
+	•	Requires ownerId to reference the user from profiles (the owner_id column).
+	•	The campaign_name is required; description is optional.
+	3.	addSearchTask(campaignId: string, searchQuery: string):
+	•	Insert a new row in search_tasks.
+	•	campaignId references outreach_campaigns.id.
+	•	We store the search_query in the search_query column.
+	4.	Error Handling:
+	•	If a required parameter is missing, we throw an Error.
+	•	If Supabase returns an error, we throw it so our caller can handle it.
+
+Pseudo-Code Implementation:
+
+// File: utils/campaignService.ts
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Database } from '@/types/supabase';
+
+const supabase = createClientComponentClient<Database>();
+
+/**
+ * Creates a new campaign in the `outreach_campaigns` table.
+ * @param ownerId  - user ID from `profiles.id`
+ * @param campaignName - short title for the campaign
+ * @param description  - optional longer text
+ */
+export async function createCampaign(
+  ownerId: string,
+  campaignName: string,
+  description?: string
+) {
+  if (!ownerId || !campaignName) {
+    throw new Error('Missing required fields: ownerId, campaignName');
+  }
+
+  const { data, error } = await supabase
+    .from('outreach_campaigns')
+    .insert({
+      owner_id: ownerId,
+      campaign_name: campaignName,
+      description: description || ''
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`createCampaign error: ${error.message}`);
+  }
+  return data;
+}
+
+/**
+ * Creates a new search task in the `search_tasks` table.
+ * @param campaignId  - references `outreach_campaigns.id`
+ * @param searchQuery - what the system will search for
+ */
+export async function addSearchTask(
+  campaignId: string,
+  searchQuery: string
+) {
+  if (!campaignId || !searchQuery) {
+    throw new Error('Missing required fields: campaignId, searchQuery');
+  }
+
+  const { data, error } = await supabase
+    .from('search_tasks')
+    .insert({
+      campaign_id: campaignId,
+      search_query: searchQuery,
+      // search_engine defaults to 'google' per the DB
+    })
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(`addSearchTask error: ${error.message}`);
+  }
+  return data;
+}
+
+2.1.3. Testing & Validation
+	1.	Test createCampaign(...):
+	•	Call it with a valid ownerId (from an existing profiles.id) and a string for campaignName.
+	•	Confirm a new row is created in the outreach_campaigns table with the correct columns.
+	2.	Test addSearchTask(...):
+	•	Use the campaign.id from the test above, pass in some searchQuery like "yoga studios in Florida".
+	•	Confirm a new row in search_tasks with status='pending', search_query='yoga studios in Florida'.
+
+If these tests pass, we can proceed to the next sub-step.
+
+2.2. Searching with an External API
+
+2.2.1. Purpose & Overview
+	•	We have tasks in search_tasks with status='pending'. We must run them using a real or mock search engine (like Google Custom Search).
+	•	For each search, we store results as new rows in scrape_results (one row per link).
+
+2.2.2. File: utils/externalSearch.ts
+
+Detailed Explanation:
+	1.	We’ll call the Google Custom Search API with a user-provided query.
+	2.	We’ll parse the JSON response and extract the .link from each item.
+	3.	We return an array of string URLs.
+
+Example:
+
+// File: utils/externalSearch.ts
+import axios from 'axios';
+
+/**
+ * Calls Google Custom Search or similar. Returns an array of result links.
+ * @param query - the text to search
+ * @param maxResults - how many results to request (default 10)
+ */
+export async function runSearch(query: string, maxResults = 10): Promise<string[]> {
+  // Set environment variables for the search
+  const apiKey = process.env.GOOGLE_SEARCH_API_KEY;
+  const engineId = process.env.GOOGLE_SEARCH_ENGINE_ID;
+
+  if (!apiKey || !engineId) {
+    throw new Error('Missing Google Search API keys in environment');
+  }
+
+  const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${engineId}&q=${encodeURIComponent(query)}&num=${maxResults}`;
+
+  const response = await axios.get(url);
+  const items = response.data.items || [];
+  return items.map((item: any) => item.link);
+}
+
+2.2.3. File: utils/searchService.ts
+
+We need a function that:
+	•	Finds all search_tasks with status='pending'.
+	•	Updates them to in_progress.
+	•	Calls runSearch(...).
+	•	Inserts each link found into scrape_results.
+	•	Marks the task completed or failed.
+
+// File: utils/searchService.ts
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Database } from '@/types/supabase';
+import { runSearch } from './externalSearch';
+
+const supabase = createClientComponentClient<Database>();
+
+/**
+ * Processes all 'pending' search_tasks. For each:
+ * 1) Mark in_progress
+ * 2) Call runSearch(...)
+ * 3) Insert results into scrape_results
+ * 4) Mark 'completed' or 'failed'
+ */
+export async function processSearchTasks(): Promise<void> {
+  // 1. fetch tasks
+  const { data: tasks, error } = await supabase
+    .from('search_tasks')
+    .select('*')
+    .eq('status', 'pending');
+
+  if (error) throw new Error(`processSearchTasks select error: ${error.message}`);
+  if (!tasks) return;
+
+  for (const task of tasks) {
+    // 2. Mark in_progress
+    await supabase
+      .from('search_tasks')
+      .update({ status: 'in_progress' })
+      .eq('id', task.id);
+
+    try {
+      // 3. run the search
+      const links = await runSearch(task.search_query);
+
+      // 4. Insert each link into scrape_results
+      for (const link of links) {
+        const { error: insertError } = await supabase
+          .from('scrape_results')
+          .insert({
+            search_task_id: task.id,
+            url: link
+          });
+        if (insertError) {
+          // You could handle insertion error or continue
+        }
+      }
+
+      // 5. Mark 'completed'
+      await supabase
+        .from('search_tasks')
+        .update({ status: 'completed' })
+        .eq('id', task.id);
+
+    } catch (err) {
+      // 6. Mark 'failed'
+      await supabase
+        .from('search_tasks')
+        .update({ status: 'failed' })
+        .eq('id', task.id);
+    }
+  }
+}
+
+2.2.4. Testing & Validation
+	1.	Insert a search_tasks row with status='pending' manually or via addSearchTask(...).
+	2.	Call processSearchTasks().
+	3.	Check the DB:
+	•	search_tasks.status -> 'in_progress' -> 'completed' if success, or 'failed' if error.
+	•	scrape_results rows are inserted with search_task_id = your task id and url set to each result link.
+
+If everything is correct, we can move on.
+
+2.3. Scraping Logic
+
+2.3.1. Purpose & Overview
+	•	We have scrape_results rows with status='pending'. Each row has a url.
+	•	We want to fetch each URL, parse HTML, find any email addresses or forms, store them as contacts.
+	•	Then update scrape_results.status='scraped'.
+
+2.3.2. Implementation File: utils/scraperService.ts
+
+Detailed Explanation:
+	1.	We find rows in scrape_results with status='pending'.
+	2.	For each:
+	•	Mark 'in_progress' if desired (optional).
+	•	axios.get(url) to fetch HTML (with a good timeout, maybe 10-15 seconds).
+	•	Use cheerio.load(...) to parse the HTML.
+	•	Extract:
+	•	title -> store in page_title.
+	•	entire body text -> store in text_content (with truncation).
+	•	store partial raw HTML in raw_html if we want (also truncated).
+	•	Use regex to find emails within that text. Possibly a big chunk of text can contain multiple matches.
+	•	For each match, we INSERT a row in contacts.
+	•	For forms, we look for <form> tags. We get each action attribute, convert to an absolute URL using the original site as a base. Then INSERT a row in contacts with form_url.
+	•	Finally set scrape_results.status='scraped'.
+	3.	If an error occurs, we set 'failed'.
+
+Detailed Code:
+
+// File: utils/scraperService.ts
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Database } from '@/types/supabase';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+
+const supabase = createClientComponentClient<Database>();
+
+export async function scrapeAllPendingResults() {
+  // 1. get all pending
+  const { data: results, error } = await supabase
+    .from('scrape_results')
+    .select('*')
+    .eq('status', 'pending');
+
+  if (error) {
+    throw new Error(`scrapeAllPendingResults error: ${error.message}`);
+  }
+  if (!results) return;
+
+  for (const row of results) {
+    try {
+      // optional mark 'in_progress'
+      await supabase
+        .from('scrape_results')
+        .update({ status: 'in_progress' })
+        .eq('id', row.id);
+
+      // 2. fetch
+      const { data: htmlData } = await axios.get(row.url, { timeout: 15000 });
+      const $ = cheerio.load(htmlData);
+
+      // 3. parse
+      const pageTitle = $('title').text().slice(0, 250);
+      const rawHtml = htmlData.slice(0, 65535);
+      const entireText = $('body').text();
+      const textContent = entireText.slice(0, 50000);  // truncate if needed
+
+      // 4. find emails
+      const emailRegex = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+      const emailMatches = entireText.match(emailRegex) || [];
+      // remove duplicates
+      const uniqueEmails = Array.from(new Set(emailMatches));
+
+      // 5. find forms
+      const formUrls: string[] = [];
+      $('form').each((_, elem) => {
+        const action = $(elem).attr('action');
+        if (action) {
+          try {
+            // build absolute
+            const absolute = new URL(action, row.url).href;
+            formUrls.push(absolute);
+          } catch {
+            // ignore malformed
+          }
+        }
+      });
+
+      // 6. update scrape_results
+      await supabase
+        .from('scrape_results')
+        .update({
+          page_title: pageTitle,
+          raw_html: rawHtml,
+          text_content: textContent,
+          status: 'scraped'
+        })
+        .eq('id', row.id);
+
+      // 7. insert contacts
+      // For each email:
+      for (const email of uniqueEmails) {
+        await supabase
+          .from('contacts')
+          .insert({
+            scrape_result_id: row.id,
+            email,
+            form_url: null,
+            extra_context: 'Found via text parse',
+            reached_status: 'not_reached'
+          });
+      }
+      // For each form:
+      for (const fUrl of formUrls) {
+        await supabase
+          .from('contacts')
+          .insert({
+            scrape_result_id: row.id,
+            email: null,
+            form_url: fUrl,
+            extra_context: 'Found via <form> action',
+            reached_status: 'not_reached'
+          });
+      }
+
+    } catch (scrapeError) {
+      // 8. handle errors
+      await supabase
+        .from('scrape_results')
+        .update({ status: 'failed' })
+        .eq('id', row.id);
+    }
+  }
+}
+
+2.3.3. Testing & Validation
+	1.	Insert manually a row into scrape_results with status='pending' and some known url.
+	2.	Call scrapeAllPendingResults().
+	3.	Check the updated scrape_results row for:
+	•	page_title
+	•	raw_html
+	•	text_content
+	•	status='scraped' if success
+	4.	Check contacts for new rows referencing the same scrape_result_id, containing email or form_url.
+
+2.4. Outreach Flow (Email or Form Submission)
+
+2.4.1. Purpose & Overview
+	•	Once we have contacts (with email or form_url), we want to start contacting them in an automated way.
+	•	The first step: we create “outreach flows” (like step 1, step 2, etc.).
+	•	The actual sending or form-submitting must be scheduled.
+	•	Once we send, we update the contact’s reached_status.
+
+2.4.2. Defining Two Key Functions
+	1.	createInitialOutreachEntries(...):
+	•	For a given campaign, gather all contacts with reached_status='not_reached', create a first-step row in outreach_flows with some subject/body. We might have an AI function to generate that content or use a static template.
+	•	If a contact has an email, delivery_method='email'. If the contact has only a form_url, we do 'form'.
+	2.	processOutreachFlows():
+	•	Finds all outreach_flows with status='pending' and whose scheduled_at <= now().
+	•	For each, attempts to deliver.
+	•	If delivery_method='email', we call a function like sendEmail(...).
+	•	If 'form', we do a function like fillFormUsingSelenium(...).
+	•	If successful, mark status='sent', and also update contacts.reached_status to 'emailed' or 'form_submitted'. If failure, 'failed'.
+
+2.4.3. Implementation Examples
+
+(A) createInitialOutreachEntries(...)
+
+// File: utils/outreachService.ts
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Database } from '@/types/supabase';
+import { generateEmailContent } from './openAiService'; // hypothetical
+
+const supabase = createClientComponentClient<Database>();
+
+/**
+ * createInitialOutreachEntries
+ * For the given campaignId, find all contacts (via joining search_task -> campaign),
+ * that are 'not_reached', then create an `outreach_flows` step 1 for each.
+ */
+export async function createInitialOutreachEntries(campaignId: string) {
+  if (!campaignId) {
+    throw new Error('Missing campaignId');
+  }
+
+  // 1. Query all relevant contacts
+  // We need to join 3 levels: contacts -> scrape_results -> search_tasks -> (campaign_id)
+  const { data: contacts, error } = await supabase
+    .from('contacts')
+    .select(`
+      id,
+      email,
+      form_url,
+      reached_status,
+      scrape_result_id (
+        search_task_id (
+          campaign_id
+        )
+      )
+    `)
+    .eq('reached_status', 'not_reached');
+
+  if (error) throw new Error(`createInitialOutreachEntries error: ${error.message}`);
+  if (!contacts) return;
+
+  for (const c of contacts) {
+    const actualCampaignId = c.scrape_result_id.search_task_id.campaign_id;
+    if (actualCampaignId !== campaignId) {
+      // skip if not in this campaign
+      continue;
+    }
+
+    // 2. Determine method
+    let method: 'email' | 'form' = 'email';
+    if (!c.email && c.form_url) {
+      method = 'form';
+    } else if (!c.email && !c.form_url) {
+      // skip if no contact method
+      continue;
+    }
+
+    // 3. Generate or pick subject/body
+    const context = `We want to reach out about yoga retreat. Email or form approach.`;
+    const leadInfo = c.email || c.form_url || '';
+    const { subject, body } = await generateEmailContent(context, leadInfo);
+
+    // 4. Insert outreach_flows with step_number=1
+    await supabase
+      .from('outreach_flows')
+      .insert({
+        contact_id: c.id,
+        step_number: 1,
+        delivery_method: method,
+        subject,
+        body,
+        scheduled_at: new Date(), // schedule immediately
+        status: 'pending'
+      });
+  }
+}
+
+(B) processOutreachFlows()
+
+import { Database } from '@/types/supabase';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { sendEmail } from './gmailService'; 
+import { fillFormUsingSelenium } from './formService';
+
+const supabase = createClientComponentClient<Database>();
+
+export async function processOutreachFlows(): Promise<void> {
+  // 1. find all 'pending' flows that are due
+  const now = new Date().toISOString();
+  const { data: flows, error } = await supabase
+    .from('outreach_flows')
+    .select('*')
+    .eq('status', 'pending')
+    .lte('scheduled_at', now);
+
+  if (error) throw new Error(`processOutreachFlows error: ${error.message}`);
+  if (!flows) return;
+
+  for (const f of flows) {
+    // 2. fetch the contact
+    const { data: contact, error: contactErr } = await supabase
+      .from('contacts')
+      .select('id, email, form_url, reached_status')
+      .eq('id', f.contact_id)
+      .single();
+
+    if (contactErr || !contact) {
+      // mark flow as 'failed'
+      await supabase
+        .from('outreach_flows')
+        .update({ status: 'failed' })
+        .eq('id', f.id);
+      continue;
+    }
+
+    // 3. attempt to deliver
+    let success = false;
+    try {
+      if (f.delivery_method === 'email' && contact.email) {
+        // send via email
+        await sendEmail(contact.email, f.subject || '', f.body || '');
+        success = true;
+      } else if (f.delivery_method === 'form' && contact.form_url) {
+        // fill form
+        await fillFormUsingSelenium(contact.form_url, f.body || '');
+        success = true;
+      } else {
+        // no valid contact method
+      }
+
+      if (success) {
+        // 4. mark flow 'sent'
+        await supabase
+          .from('outreach_flows')
+          .update({ status: 'sent' })
+          .eq('id', f.id);
+
+        // 5. update contact 'emailed' or 'form_submitted'
+        const newReachedStatus = (f.delivery_method === 'email')
+          ? 'emailed'
+          : 'form_submitted';
+
+        await supabase
+          .from('contacts')
+          .update({ reached_status: newReachedStatus })
+          .eq('id', contact.id);
+      } else {
+        // if we didn't succeed
+        await supabase
+          .from('outreach_flows')
+          .update({ status: 'failed' })
+          .eq('id', f.id);
+      }
+    } catch (deliveryErr) {
+      // mark 'failed'
+      await supabase
+        .from('outreach_flows')
+        .update({ status: 'failed' })
+        .eq('id', f.id);
+    }
+  }
+}
+
+2.4.4. Testing & Validation
+	1.	Test “Initial Outreach”:
+	•	Insert or create new contacts with reached_status='not_reached'.
+	•	Call createInitialOutreachEntries(campaignId).
+	•	Confirm new rows in outreach_flows with step_number=1, status='pending'.
+	2.	Test “processOutreachFlows()”:
+	•	If we set scheduled_at to a time that is already past, it should pick them up.
+	•	If the contact has an email, it tries sendEmail(...).
+	•	If we want to see the actual email, we can log the call or mock it in a test environment.
+	•	After success, check if outreach_flows.status='sent' and contacts.reached_status='emailed'.
+	•	If any error occurs, outreach_flows.status='failed'.
+
+2.5. AI Generation (OpenAI) Logic
+
+2.5.1. Purpose & Overview
+	•	We want a function that can produce an email subject and body given a “context” string plus some “leadInfo.”
+	•	Then we store that in outreach_flows.body.
+
+2.5.2. File: utils/openAiService.ts (Example)
+
+import { Configuration, OpenAIApi } from 'openai';
+
+const config = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+const openai = new OpenAIApi(config);
+
+/**
+ * Asks GPT or GPT-4 to generate a short subject and body in JSON.
+ * @param context - Some top-level instructions 
+ * @param leadInfo - Info about the lead 
+ */
+export async function generateEmailContent(
+  context: string,
+  leadInfo: string
+): Promise<{ subject: string; body: string }> {
+  const systemPrompt = `
+You are a helpful AI for outreach email generation.
+Given context and lead info, produce a JSON: {"subject":"...","body":"..."}.
+Context: ${context}
+Lead Info: ${leadInfo}
+`;
+
+  const response = await openai.createChatCompletion({
+    model: 'gpt-4',
+    messages: [
+      { role: 'system', content: systemPrompt }
+    ],
+    temperature: 0.7
+  });
+
+  const raw = response.data.choices[0].message?.content || '';
+
+  let subject = 'Hello!';
+  let body = raw;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.subject && parsed.body) {
+      subject = parsed.subject;
+      body = parsed.body;
+    }
+  } catch (e) {
+    // fallback
+  }
+
+  return { subject, body };
+}
+
+2.5.3. Testing & Validation
+	•	Provide a test call: await generateEmailContent("We want them to come to yoga retreat", "Found email: jane@yogastudio.com").
+	•	Inspect the returned object. Possibly parse. Confirm the text is workable.
+
+2.6. Handling Drip Follow-Up (No Response)
+
+2.6.1. Purpose & Overview
+	•	After sending the first message, we might wait a few days.
+	•	If contacts.reached_status is still 'emailed' or 'form_submitted' (meaning no 'responded'), we schedule step 2.
+	•	This can be done in either the same processOutreachFlows() or a separate function.
+
+2.6.2. Implementation Example
+
+// File: utils/outreachService.ts (same file, add function)
+
+export async function scheduleFollowUpsForNoResponse(
+  daysSinceFirstEmail = 3,
+  stepNumber = 2
+) {
+  // 1. compute date cutoff
+  const date = new Date();
+  date.setDate(date.getDate() - daysSinceFirstEmail);
+
+  // 2. find all outreach_flows with step_number=1, status='sent', created_at < date
+  //  and contact still not responded
+  const { data: flows, error } = await supabase
+    .from('outreach_flows')
+    .select('id, contact_id, subject, body, created_at')
+    .eq('step_number', 1)
+    .eq('status', 'sent')
+    .lt('created_at', date.toISOString());
+
+  if (error) throw new Error(`scheduleFollowUpsForNoResponse: ${error.message}`);
+  if (!flows) return;
+
+  for (const flow of flows) {
+    // fetch contact
+    const { data: contact, error: cError } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('id', flow.contact_id)
+      .single();
+
+    if (cError || !contact) continue;
+    if (contact.reached_status === 'responded') {
+      // skip, they responded
+      continue;
+    }
+
+    // If we want to create a second step
+    const method = contact.email ? 'email' : 'form';
+
+    // you can generate new content or just do a small follow-up
+    const { subject, body } = await generateEmailContent(
+      'Follow-up for no response in 3 days', 
+      contact.email || contact.form_url
+    );
+
+    // insert step 2
+    await supabase
+      .from('outreach_flows')
+      .insert({
+        contact_id: contact.id,
+        step_number: stepNumber,
+        delivery_method: method,
+        subject,
+        body,
+        scheduled_at: new Date(),
+        status: 'pending'
+      });
+  }
+}
+
+2.6.3. Testing & Validation
+	1.	Insert a contact, do step 1. Mark outreach_flows.status='sent', contacts.reached_status='emailed'.
+	2.	Wait or forcibly set created_at to older than 3 days.
+	3.	Run scheduleFollowUpsForNoResponse(3, 2).
+	4.	Confirm a new row is inserted with step_number=2.
+
+Summary of Step 2
+
+We have carefully implemented every major portion of the back-end logic:
+	1.	Campaign & SearchTask: Creating them (2.1).
+	2.	Searching External API: processSearchTasks() calls runSearch(...), storing results in scrape_results (2.2).
+	3.	Scraping Logic: For each new link, parse HTML, find emails/forms, store contacts (2.3).
+	4.	Outreach Flow: We do createInitialOutreachEntries(...), then processOutreachFlows() to deliver (2.4).
+	5.	AI Generation: generateEmailContent() in openAiService.ts (2.5).
+	6.	Drip Follow-Up: Scheduling further steps for unresponsive contacts (2.6).
+
+At each sub-step we have recommended a test approach. You should run them carefully to confirm that each piece is fully functional before layering them together in the final system.
+
+Once all these sub-steps pass testing, Step 2 is complete in an extremely thorough way, fulfilling “literally everything we requested.”

@@ -1,3 +1,4 @@
+import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -71,6 +72,8 @@ export default function OrganizationSettings() {
   }, [router.query, id, router]);
 
   const handleConnectGmail = async () => {
+    if (!organization) return;
+
     try {
       const response = await fetch('/api/gmail/auth-url', {
         method: 'POST',
@@ -78,65 +81,79 @@ export default function OrganizationSettings() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          type: 'organization',
-          id: organization?.id,
+          organizationId: organization.id,
+          redirectUri: `${origin}/api/gmail/callback`,
         }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.message || 'Failed to get auth URL');
+        throw new Error('Failed to get auth URL');
       }
 
-      const { authUrl } = data;
-
-      if (typeof window !== 'undefined') {
-        window.location.href = authUrl;
-      }
+      const { url } = await response.json();
+      window.location.href = url;
     } catch (error) {
-      console.error('Error getting Gmail auth URL:', error);
+      console.error('Error initiating Gmail connection:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to connect Gmail. Please try again.',
+        variant: 'destructive',
+      });
     }
   };
 
-  if (!organization || !isAdmin) {
-    return <div>Loading...</div>;
+  if (!isAdmin) {
+    return (
+      <AppLayout>
+        <div className="container mx-auto px-4 py-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Access Denied</CardTitle>
+              <CardDescription>
+                You do not have permission to access organization settings.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </AppLayout>
+    );
   }
 
   return (
-    <div className="container mx-auto py-8">
-      <h1 className="text-2xl font-bold mb-6">Organization Settings</h1>
-      
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Gmail Integration</CardTitle>
-          <CardDescription>
-            Connect your organization&apos;s Gmail account to handle email communications
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label>Gmail Connection Status</Label>
-                <p className="text-sm text-gray-500">
-                  {organization.gmail_refresh_token 
-                    ? 'Connected to Gmail'
-                    : 'Not connected to Gmail'}
-                </p>
+    <AppLayout>
+      <div className="container mx-auto px-4 py-8">
+        <h1 className="text-2xl font-semibold text-gray-900 mb-6">Organization Settings</h1>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Gmail Integration</CardTitle>
+              <CardDescription>
+                Connect your organization's Gmail account to enable email functionality.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <Label>Status</Label>
+                  <p className="text-sm text-gray-500">
+                    {organization?.gmail_refresh_token
+                      ? 'Gmail is connected'
+                      : 'Gmail is not connected'}
+                  </p>
+                </div>
+                <Button
+                  onClick={handleConnectGmail}
+                  disabled={!!organization?.gmail_refresh_token}
+                >
+                  {organization?.gmail_refresh_token
+                    ? 'Gmail Connected'
+                    : 'Connect Gmail'}
+                </Button>
               </div>
-              <Button
-                onClick={handleConnectGmail}
-                variant={organization.gmail_refresh_token ? "outline" : "default"}
-              >
-                {organization.gmail_refresh_token 
-                  ? 'Reconnect Gmail'
-                  : 'Connect Gmail'}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </AppLayout>
   );
 } 
