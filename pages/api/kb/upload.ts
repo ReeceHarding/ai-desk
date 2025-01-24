@@ -135,6 +135,7 @@ export default async function handler(
           orgId,
           chunkIndex: record.chunk_index,
           tokenLength: record.token_length,
+          text: record.chunk_content,
         },
       }));
 
