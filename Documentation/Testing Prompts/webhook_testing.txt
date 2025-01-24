@@ -1,0 +1,151 @@
+I'll provide specific commands and steps for each part of the testing process:
+
+1. **Environment Setup Verification**
+```bash
+# Check environment variables
+cat .env | grep GMAIL
+cat .env | grep GOOGLE
+
+# Verify Supabase connection
+curl http://localhost:3000/api/health
+```
+
+2. **Database Reset Testing**
+```bash
+# Save current Gmail tokens and reset database
+npm run db:reset
+
+# Verify tokens were restored
+curl -X GET http://localhost:3000/api/organizations \
+  -H "Content-Type: application/json"
+```
+
+3. **Gmail Connection Testing**
+```bash
+# 1. First disconnect Gmail
+curl -X POST http://localhost:3000/api/integrations/gmail/disconnect \
+  -H "Content-Type: application/json"
+
+# 2. Connect Gmail (open in browser)
+open http://localhost:3000/settings
+
+# 3. Verify tokens after connection
+curl -X GET http://localhost:3000/api/organizations \
+  -H "Content-Type: application/json"
+```
+
+4. **Webhook Processing Testing**
+```bash
+# Test webhook with simulated notification
+curl -X POST http://localhost:3000/api/gmail/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": {
+      "data": "eyJlbWFpbFJlY2VpdmVkIjp0cnVlLCJoaXN0b3J5SWQiOiIyMTgwNjg0In0="
+    }
+  }'
+
+# Check logs
+curl http://localhost:3000/api/logs
+
+# Check webhook metrics
+curl -X GET http://localhost:3000/api/gmail/metrics
+```
+
+5. **End-to-End Email Testing**
+```bash
+# Send test email
+curl -X POST http://localhost:3000/api/gmail/send-test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "Test Email",
+    "body": "This is a test email"
+  }'
+
+# Check if email was processed
+curl http://localhost:3000/api/logs | grep "Processing message"
+
+# Verify ticket creation
+curl -X GET http://localhost:3000/api/tickets \
+  -H "Content-Type: application/json"
+```
+
+6. **Real-time UI Updates Testing**
+```bash
+# 1. Open tickets page in browser
+open http://localhost:3000/tickets
+
+# 2. Send test email while watching UI
+curl -X POST http://localhost:3000/api/gmail/send-test \
+  -H "Content-Type: application/json" \
+  -d '{
+    "subject": "Real-time Test",
+    "body": "Testing real-time updates"
+  }'
+
+# 3. Verify subscription status
+curl http://localhost:3000/api/tickets/subscription-status
+```
+
+7. **Error Cases Testing**
+```bash
+# Test invalid email format
+curl -X POST http://localhost:3000/api/gmail/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": {
+      "data": "invalid_base64"
+    }
+  }'
+
+# Test missing thread ID
+curl -X POST http://localhost:3000/api/gmail/webhook \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": {
+      "data": "eyJlbWFpbFJlY2VpdmVkIjp0cnVlLCJtZXNzYWdlSWQiOiJ0ZXN0In0="
+    }
+  }'
+
+# Test expired token
+curl -X POST http://localhost:3000/api/gmail/test-token-expired
+```
+
+8. **Logging Verification**
+```bash
+# View all logs
+curl http://localhost:3000/api/logs
+
+# Filter logs by level
+curl "http://localhost:3000/api/logs?level=error"
+
+# Filter logs by time range
+curl "http://localhost:3000/api/logs?start=$(date -v-1H +%s)000"
+
+# Check specific message processing
+curl "http://localhost:3000/api/logs?search=messageId:your_message_id"
+```
+
+Additional Useful Commands:
+```bash
+# Reset just the database without token preservation
+npx supabase db reset
+
+# Check Gmail watch status
+curl http://localhost:3000/api/gmail/watch-status
+
+# Force refresh Gmail tokens
+curl -X POST http://localhost:3000/api/gmail/refresh-tokens
+
+# Clear all logs
+curl -X DELETE http://localhost:3000/api/logs
+```
+
+Monitoring Commands:
+```bash
+# Watch logs in real-time
+watch -n 1 'curl -s http://localhost:3000/api/logs | tail -n 10'
+
+# Monitor webhook metrics
+watch -n 5 'curl -s http://localhost:3000/api/gmail/metrics'
+```

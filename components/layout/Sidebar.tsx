@@ -18,22 +18,38 @@ export default function Sidebar() {
 
   useEffect(() => {
     const getOrgId = async () => {
+      console.log('Sidebar - Current role:', role);
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const { data } = await supabase
-          .from('org_members')
-          .select('org_id')
-          .eq('user_id', user.id)
-          .single();
-        
-        if (data) {
-          setOrgId(data.org_id);
+        console.log('Sidebar - Fetching org_id for user:', user.id);
+        try {
+          const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('org_id')
+            .eq('id', user.id)
+            .single();
+          
+          if (profileError) {
+            console.log('Sidebar - Error fetching profile:', profileError);
+            return;
+          }
+          
+          if (profileData) {
+            console.log('Sidebar - Found org_id:', profileData.org_id);
+            setOrgId(profileData.org_id);
+          } else {
+            console.log('Sidebar - No org_id found for user');
+          }
+        } catch (error) {
+          console.error('Sidebar - Error:', error);
         }
       }
     };
 
     getOrgId();
-  }, [supabase]);
+  }, [supabase, role]);
+
+  console.log('Sidebar - Render state:', { isAdmin, orgId, role });
 
   return (
     <aside className="w-64 bg-white shadow-lg h-screen flex flex-col">
@@ -52,13 +68,22 @@ export default function Sidebar() {
             Tickets
           </Link>
           
-          {isAdmin && orgId && (
-            <Link
-              href={`/organizations/${orgId}/settings`}
-              className="block text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium"
-            >
-              Organization Settings
-            </Link>
+          {isAdmin && (
+            <>
+              <Link
+                href={`/organizations/${orgId}/settings`}
+                className="block text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium"
+              >
+                Organization Settings
+              </Link>
+              
+              <Link
+                href={`/organizations/${orgId}/kb`}
+                className="block text-gray-700 hover:text-gray-900 hover:bg-gray-50 px-3 py-2 rounded-md text-sm font-medium"
+              >
+                Knowledge Base
+              </Link>
+            </>
           )}
           
           <Link

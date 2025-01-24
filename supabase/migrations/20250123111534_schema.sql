@@ -382,6 +382,57 @@ CREATE TABLE public.reports (
 );
 
 -- =========================================
+-- RAG KNOWLEDGE BASE
+-- =========================================
+
+-- Table to store high-level knowledge documents that a user uploads
+CREATE TABLE IF NOT EXISTS public.knowledge_docs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  org_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  description text,
+  file_path text,
+  source_url text,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Trigger for update timestamp
+CREATE TRIGGER tr_knowledge_docs_update_timestamp
+BEFORE UPDATE ON public.knowledge_docs
+FOR EACH ROW
+EXECUTE PROCEDURE public.fn_auto_update_timestamp();
+
+-- Table to store the chunked segments from each doc
+CREATE TABLE IF NOT EXISTS public.knowledge_doc_chunks (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  doc_id uuid NOT NULL REFERENCES public.knowledge_docs(id) ON DELETE CASCADE,
+  chunk_index integer NOT NULL,
+  chunk_content text NOT NULL,
+  embedding vector(1536),
+  token_length integer NOT NULL DEFAULT 0,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Trigger for update timestamp
+CREATE TRIGGER tr_knowledge_doc_chunks_update_timestamp
+BEFORE UPDATE ON public.knowledge_doc_chunks
+FOR EACH ROW
+EXECUTE PROCEDURE public.fn_auto_update_timestamp();
+
+-- Indexes for knowledge base tables
+CREATE INDEX IF NOT EXISTS idx_knowledge_doc_chunks_doc_id
+  ON public.knowledge_doc_chunks(doc_id);
+
+CREATE INDEX IF NOT EXISTS knowledge_doc_chunks_embedding_vector_idx
+  ON public.knowledge_doc_chunks
+  USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 100);
+
+-- =========================================
 -- 5. CREATE TIMESTAMP-UPDATE TRIGGERS
 -- =========================================
 
@@ -592,86 +643,186 @@ ALTER TABLE public.profiles
 -- CREATE FUNCTION FOR NEW USER SIGNUP
 -- =========================================
 
+-- Remove old triggers first
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP TRIGGER IF EXISTS tr_create_personal_organization ON auth.users;
+
+-- Combined robust handler
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 DECLARE
-  default_org_id uuid;
-  existing_profile_id uuid;
+  v_org_id uuid;
+  v_org_name text;
+  v_existing_org_id uuid;
+  v_attempt int := 0;
 BEGIN
   -- Logging
-  RAISE LOG '[PROFILE_CREATION] START - handle_new_user() called for:';
-  RAISE LOG '[PROFILE_CREATION] User ID: %', NEW.id;
-  RAISE LOG '[PROFILE_CREATION] Email: %', NEW.email;
-  RAISE LOG '[PROFILE_CREATION] Role: %', NEW.role;
-  
-  SELECT id INTO existing_profile_id FROM public.profiles WHERE id = NEW.id;
-  
-  IF existing_profile_id IS NULL THEN
-    RAISE LOG '[PROFILE_CREATION] No existing profile found for user_id: %', NEW.id;
-  ELSE
-    RAISE LOG '[PROFILE_CREATION] Found existing profile with id: %', existing_profile_id;
+  INSERT INTO public.logs (level, message, metadata)
+  VALUES (
+    'info',
+    'Starting new user signup process',
+    jsonb_build_object(
+      'user_id', NEW.id,
+      'email', NEW.email,
+      'metadata', NEW.raw_user_meta_data
+    )
+  );
+
+  -- Check if user already has a profile
+  IF EXISTS (SELECT 1 FROM public.profiles WHERE id = NEW.id) THEN
+    INSERT INTO public.logs (level, message, metadata)
+    VALUES ('info', 'User already has a profile, skipping', jsonb_build_object('user_id', NEW.id));
     RETURN NEW;
   END IF;
-  
-  IF existing_profile_id IS NULL THEN
+
+  -- Check if user already has an organization membership
+  SELECT organization_id INTO v_existing_org_id
+  FROM public.organization_members
+  WHERE user_id = NEW.id
+  LIMIT 1;
+
+  IF v_existing_org_id IS NOT NULL THEN
+    INSERT INTO public.logs (level, message, metadata)
+    VALUES (
+      'info', 
+      'User already has organization membership',
+      jsonb_build_object('user_id', NEW.id, 'org_id', v_existing_org_id)
+    );
+    
+    -- Create profile with existing org
+    INSERT INTO public.profiles (
+      id,
+      email,
+      org_id,
+      role,
+      display_name,
+      avatar_url
+    )
+    VALUES (
+      NEW.id,
+      NEW.email,
+      v_existing_org_id,
+      'customer'::public.user_role,
+      COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
+      'https://ucbtpddvvbsrqroqhvev.supabase.co/storage/v1/object/public/avatars/profile-circle-icon-256x256-cm91gqm2.png'
+    );
+
+    RETURN NEW;
+  END IF;
+
+  -- Create organization name with uniqueness retry logic
+  LOOP
+    v_org_name := CASE 
+      WHEN NEW.raw_user_meta_data->>'full_name' IS NOT NULL THEN 
+        CASE 
+          WHEN v_attempt = 0 THEN (NEW.raw_user_meta_data->>'full_name') || '''s Organization'
+          ELSE (NEW.raw_user_meta_data->>'full_name') || '''s Organization ' || v_attempt
+        END
+      ELSE 
+        'Personal Organization ' || substring(NEW.id::text, 1, 8) || CASE 
+          WHEN v_attempt = 0 THEN ''
+          ELSE ' ' || v_attempt
+        END
+    END;
+
     BEGIN
-      -- Create/get default organization
-      INSERT INTO public.organizations (name, sla_tier)
-      VALUES ('Default Organization', 'basic')
-      ON CONFLICT (name) DO UPDATE
-        SET name = EXCLUDED.name
-      RETURNING id INTO default_org_id;
-      
-      RAISE LOG '[PROFILE_CREATION] Using organization with ID: %', default_org_id;
-      
-      IF default_org_id IS NULL THEN
-        RAISE EXCEPTION 'Failed to create or get default organization';
-      END IF;
-      
-      INSERT INTO public.profiles (
-        id,
+      -- Create personal organization
+      INSERT INTO public.organizations (
+        name,
+        created_by,
         email,
-        org_id,
-        role,
-        display_name,
-        avatar_url
-      )
-      VALUES (
+        config
+      ) VALUES (
+        v_org_name,
         NEW.id,
         NEW.email,
-        default_org_id,
-        'customer'::public.user_role,
-        split_part(NEW.email, '@', 1),
-        'https://ucbtpddvvbsrqroqhvev.supabase.co/storage/v1/object/public/avatars/profile-circle-icon-256x256-cm91gqm2.png'
-      );
+        jsonb_build_object(
+          'is_personal', true,
+          'created_at_timestamp', now()
+        )
+      ) RETURNING id INTO v_org_id;
       
-      RAISE LOG '[PROFILE_CREATION] Successfully created profile for user_id: % with org_id: %', NEW.id, default_org_id;
-      
-      -- Also create the membership entry
-      INSERT INTO public.organization_members (organization_id, user_id, role)
-      VALUES (default_org_id, NEW.id, 'admin');
-      
-      RAISE LOG '[PROFILE_CREATION] Successfully created organization member entry';
-      
-      RETURN NEW;
-    EXCEPTION WHEN OTHERS THEN
-      RAISE LOG '[PROFILE_CREATION] Error in transaction:';
-      RAISE LOG '[PROFILE_CREATION] Error State: %', SQLSTATE;
-      RAISE LOG '[PROFILE_CREATION] Error Message: %', SQLERRM;
-      RAISE;
+      -- If we get here, the insert succeeded
+      EXIT;
+    EXCEPTION 
+      WHEN unique_violation THEN
+        v_attempt := v_attempt + 1;
+        IF v_attempt > 5 THEN
+          INSERT INTO public.logs (level, message, metadata)
+          VALUES (
+            'error',
+            'Failed to create unique organization name after 5 attempts',
+            jsonb_build_object('user_id', NEW.id, 'last_attempt', v_org_name)
+          );
+          RAISE EXCEPTION 'Failed to create unique organization name after 5 attempts';
+        END IF;
+        -- Continue to next iteration of loop
     END;
-  END IF;
-  
-  RAISE LOG '[PROFILE_CREATION] END - handle_new_user() completed successfully';
+  END LOOP;
+
+  -- Create profile
+  INSERT INTO public.profiles (
+    id,
+    email,
+    org_id,
+    role,
+    display_name,
+    avatar_url
+  )
+  VALUES (
+    NEW.id,
+    NEW.email,
+    v_org_id,
+    'customer'::public.user_role,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
+    'https://ucbtpddvvbsrqroqhvev.supabase.co/storage/v1/object/public/avatars/profile-circle-icon-256x256-cm91gqm2.png'
+  );
+
+  -- Create organization membership
+  INSERT INTO public.organization_members (
+    organization_id,
+    user_id,
+    role
+  ) VALUES (
+    v_org_id,
+    NEW.id,
+    'admin'
+  );
+
+  -- Log successful completion
+  INSERT INTO public.logs (level, message, metadata)
+  VALUES (
+    'info',
+    'Successfully completed new user signup process',
+    jsonb_build_object(
+      'user_id', NEW.id,
+      'org_id', v_org_id,
+      'org_name', v_org_name
+    )
+  );
+
   RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  -- Log any errors
+  INSERT INTO public.logs (level, message, metadata)
+  VALUES (
+    'error',
+    'Error in handle_new_user()',
+    jsonb_build_object(
+      'user_id', NEW.id,
+      'error', SQLERRM,
+      'state', SQLSTATE
+    )
+  );
+  RAISE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+-- Create single trigger for user creation
 CREATE TRIGGER on_auth_user_created
-AFTER INSERT ON auth.users
-FOR EACH ROW
-EXECUTE FUNCTION public.handle_new_user();
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
 
 -- =========================================
 -- STORAGE BUCKET & POLICIES FOR AVATARS
@@ -830,9 +981,8 @@ CREATE INDEX IF NOT EXISTS idx_profiles_gmail_watch_expiration
   ON public.profiles(gmail_watch_expiration);
 
 -- =========================================
--- CREATE TICKET_EMAIL_CHATS (FIRST ATTEMPT)
+-- EMAIL CHAT TABLES
 -- =========================================
--- (You have an initial create, then a drop/recreate below.)
 
 CREATE TABLE public.ticket_email_chats (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -848,6 +998,10 @@ CREATE TABLE public.ticket_email_chats (
   attachments jsonb NOT NULL DEFAULT '{}'::jsonb,
   gmail_date timestamptz,
   org_id uuid NOT NULL REFERENCES public.organizations (id) ON DELETE CASCADE,
+  ai_classification text CHECK (ai_classification IN ('should_respond','no_response','unknown')) DEFAULT 'unknown',
+  ai_confidence numeric(5,2) DEFAULT 0.00,
+  ai_auto_responded boolean DEFAULT false,
+  ai_draft_response text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -863,47 +1017,8 @@ CREATE INDEX ticket_email_chats_thread_idx ON public.ticket_email_chats (thread_
 CREATE INDEX ticket_email_chats_org_idx ON public.ticket_email_chats (org_id);
 
 -- =========================================
--- DROP / RECREATE TICKET_EMAIL_CHATS (FINAL)
+-- LOGS TABLE
 -- =========================================
-
-DROP TABLE IF EXISTS public.ticket_email_chats;
-
-CREATE TABLE public.ticket_email_chats (
-  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  ticket_id uuid NOT NULL
-    REFERENCES public.tickets (id) ON DELETE CASCADE,
-  message_id text NOT NULL,
-  thread_id text NOT NULL,
-  from_address text NOT NULL,
-  to_address text[] NOT NULL,
-  cc_address text[] NOT NULL DEFAULT '{}',
-  bcc_address text[] NOT NULL DEFAULT '{}',
-  subject text,
-  body text NOT NULL,
-  attachments jsonb NOT NULL DEFAULT '{}'::jsonb,
-  gmail_date timestamptz NOT NULL,
-  org_id uuid NOT NULL
-    REFERENCES public.organizations (id) ON DELETE CASCADE,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX ticket_email_chats_ticket_idx
-  ON public.ticket_email_chats (ticket_id);
-
-CREATE INDEX ticket_email_chats_message_idx
-  ON public.ticket_email_chats (message_id);
-
-CREATE INDEX ticket_email_chats_thread_idx
-  ON public.ticket_email_chats (thread_id);
-
-CREATE INDEX ticket_email_chats_org_idx
-  ON public.ticket_email_chats (org_id);
-
-CREATE TRIGGER tr_ticket_email_chats_update_timestamp
-BEFORE UPDATE ON public.ticket_email_chats
-FOR EACH ROW
-EXECUTE PROCEDURE public.fn_auto_update_timestamp();
 
 -- Create logs table for application logging
 CREATE TABLE IF NOT EXISTS public.logs (
@@ -935,3 +1050,120 @@ FOR ALL
 TO service_role
 USING (true)
 WITH CHECK (true);
+
+-- Add function to create personal organization
+CREATE OR REPLACE FUNCTION public.fn_create_personal_organization()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_org_id uuid;
+  v_org_name text;
+  v_attempt int := 0;
+BEGIN
+  -- Create organization name with uniqueness retry logic
+  LOOP
+    v_org_name := CASE 
+      WHEN NEW.raw_user_meta_data->>'full_name' IS NOT NULL THEN 
+        CASE 
+          WHEN v_attempt = 0 THEN (NEW.raw_user_meta_data->>'full_name') || '''s Organization'
+          ELSE (NEW.raw_user_meta_data->>'full_name') || '''s Organization ' || v_attempt
+        END
+      ELSE 
+        'Personal Organization ' || substring(NEW.id::text, 1, 8) || CASE 
+          WHEN v_attempt = 0 THEN ''
+          ELSE ' ' || v_attempt
+        END
+    END;
+
+    BEGIN
+      -- Create personal organization
+      INSERT INTO public.organizations (
+        name,
+        created_by,
+        email,
+        config
+      ) VALUES (
+        v_org_name,
+        NEW.id,
+        NEW.email,
+        jsonb_build_object(
+          'is_personal', true,
+          'created_at_timestamp', now()
+        )
+      ) RETURNING id INTO v_org_id;
+      
+      -- If we get here, the insert succeeded
+      EXIT;
+    EXCEPTION 
+      WHEN unique_violation THEN
+        v_attempt := v_attempt + 1;
+        IF v_attempt > 5 THEN
+          RAISE EXCEPTION 'Failed to create unique organization name after 5 attempts';
+        END IF;
+        -- Continue to next iteration of loop
+    END;
+  END LOOP;
+
+  -- Add user as admin of organization
+  INSERT INTO public.organization_members (
+    organization_id,
+    user_id,
+    role
+  ) VALUES (
+    v_org_id,
+    NEW.id,
+    'admin'
+  );
+
+  -- Create or update profile
+  INSERT INTO public.profiles (
+    id,
+    role,
+    email,
+    display_name,
+    org_id
+  ) VALUES (
+    NEW.id,
+    'customer',
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email),
+    v_org_id
+  )
+  ON CONFLICT (id) DO UPDATE
+  SET org_id = v_org_id
+  WHERE profiles.id = NEW.id;
+
+  -- Log the operation
+  INSERT INTO public.logs (level, message, metadata)
+  VALUES (
+    'info',
+    'Created personal organization for new user',
+    jsonb_build_object(
+      'org_id', v_org_id,
+      'user_id', NEW.id,
+      'org_name', v_org_name
+    )
+  );
+
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  -- Log any errors
+  INSERT INTO public.logs (level, message, metadata)
+  VALUES (
+    'error',
+    'Failed to create personal organization',
+    jsonb_build_object(
+      'user_id', NEW.id,
+      'error', SQLERRM,
+      'state', SQLSTATE
+    )
+  );
+  RAISE;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger to create personal organization on user signup
+DROP TRIGGER IF EXISTS tr_create_personal_organization ON auth.users;
+CREATE TRIGGER tr_create_personal_organization
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_create_personal_organization();

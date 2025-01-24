@@ -1,4 +1,3 @@
-
 export type EmailDirection = 'inbound' | 'outbound';
 
 export interface EmailLog {
@@ -38,42 +37,42 @@ export interface GmailProfile {
 export interface GmailMessage {
   id: string;
   threadId: string;
-  labelIds: string[];
   snippet?: string;
-  subject?: string;
-  from: string;
-  to: string | string[];
-  date: string | number;
-  body?: {
-    text?: string;
-    html?: string;
+  payload?: {
+    headers?: Array<{
+      name: string;
+      value: string;
+    }>;
+    mimeType?: string;
+    body?: {
+      data?: string;
+    };
+    parts?: Array<{
+      mimeType?: string;
+      body?: {
+        data?: string;
+      };
+      parts?: any[];
+    }>;
   };
-  labels?: string[];
-  attachments?: Array<{
-    filename: string;
-    mimeType: string;
-    data: string;
-  }>;
+  labelIds?: string[];
 }
 
 export interface ParsedEmail {
   messageId: string;
   threadId: string;
-  subject: string;
   from: string;
-  to: string;
-  date: Date;
-  body: {
-    text?: string;
-    html?: string;
-  };
+  to: string | string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
   snippet: string;
-  labels: string[];
-  attachments: Array<{
-    filename: string;
-    mimeType: string;
-    data: string;
-  }>;
+  body: {
+    text: string;
+    html: string;
+  };
+  date: Date;
+  attachments?: any;
 }
 
 export interface EmailLogParams {
