@@ -1,0 +1,253 @@
+Implementation Steps for Automatic RAG Email Handling and Knowledge Base Upload
+
+Below is a comprehensive, step-by-step plan. Follow each step in order, pausing at each checkpoint to validate your work and run basic tests. This ensures we maintain a stable, robust system as we add the new “Retrieval Augmented Generation” (RAG) functionality, the “Should Respond vs. No Respond” classification, and the automated reply/draft pipeline.
+
+1. Add Database Structures for Knowledge Base Management
+
+Goal: Provide a place to store knowledge documents that we will embed and index in Pinecone. We also need a record of chunked data for referencing. We will build on top of your existing Supabase migrations, specifically in your main migration file 20250123111534_schema.sql (or whichever file is the main large schema definition file). We do not create new migration files; we simply add the new table definitions and columns there.
+	1.	Open the existing migration file 20250123111534_schema.sql.
+	2.	Scroll to the appropriate section where other tables are defined.
+	3.	Add the following new table definitions at the bottom:
+
+-- =========================================
+-- RAG KNOWLEDGE BASE
+-- =========================================
+
+-- (1) Table to store high-level knowledge documents that a user uploads
+-- “knowledge_docs” = top-level docs (PDF, text, docx).
+-- This references organizations for multi-tenant usage
+CREATE TABLE IF NOT EXISTS public.knowledge_docs (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  org_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  description text,
+  file_path text,                  -- location in Supabase storage if we want
+  source_url text,                 -- if doc is from a web link
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Trigger for update timestamp
+CREATE TRIGGER tr_knowledge_docs_update_timestamp
+BEFORE UPDATE ON public.knowledge_docs
+FOR EACH ROW
+EXECUTE PROCEDURE public.fn_auto_update_timestamp();
+
+-- (2) Table to store the chunked segments from each doc
+CREATE TABLE IF NOT EXISTS public.knowledge_doc_chunks (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  doc_id uuid NOT NULL REFERENCES public.knowledge_docs(id) ON DELETE CASCADE,
+  chunk_index integer NOT NULL,
+  chunk_content text NOT NULL,
+  embedding vector(1536),       -- We'll store text-embedding-ada-002 dimension size
+  token_length integer NOT NULL DEFAULT 0,
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Trigger for update timestamp
+CREATE TRIGGER tr_knowledge_doc_chunks_update_timestamp
+BEFORE UPDATE ON public.knowledge_doc_chunks
+FOR EACH ROW
+EXECUTE PROCEDURE public.fn_auto_update_timestamp();
+
+	4.	Add the new indexes to speed up searching by doc or text:
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_doc_chunks_doc_id
+  ON public.knowledge_doc_chunks(doc_id);
+
+-- Optionally create a trigram index for chunk_content if you want local text queries
+-- But we mostly do retrieval via Pinecone, so might not be strictly required:
+-- CREATE INDEX knowledge_doc_chunks_content_trgm_idx
+-- ON public.knowledge_doc_chunks
+-- USING GIN (chunk_content gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS knowledge_doc_chunks_embedding_vector_idx
+  ON public.knowledge_doc_chunks
+  USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 100);
+
+	5.	Checkpoint: Save changes and confirm the new table definitions compile without error.
+	•	Test by running your local Supabase migrations or verifying them in your environment.
+	•	Ensure knowledge_docs and knowledge_doc_chunks are created with the columns specified.
+
+2. Add Columns to Ticket Email Chats for AI Classification & Auto-Reply
+
+We need to classify each inbound email as “should respond” or “no response needed,” plus track whether the AI has auto-replied or only drafted. We also want to store the confidence score.
+	1.	Within the same migration file 20250123111534_schema.sql (or whichever holds the ticket_email_chats table definition), locate the ticket_email_chats table creation statement.
+	2.	Add these columns to ticket_email_chats (inside the table definition if you prefer or via an ALTER TABLE statement):
+
+-- In the 'ticket_email_chats' definition or as an ALTER TABLE:
+ALTER TABLE public.ticket_email_chats
+  ADD COLUMN IF NOT EXISTS ai_classification text CHECK (ai_classification IN ('should_respond','no_response','unknown')) DEFAULT 'unknown',
+  ADD COLUMN IF NOT EXISTS ai_confidence numeric(5,2) DEFAULT 0.00,  -- store e.g., 85.00 for 85%
+  ADD COLUMN IF NOT EXISTS ai_auto_responded boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS ai_draft_response text;
+
+	•	ai_classification: 'should_respond','no_response','unknown'
+	•	ai_confidence: numeric with 2 decimals
+	•	ai_auto_responded: boolean to mark if the system already sent an auto-reply
+	•	ai_draft_response: text if we created a response but have not auto-sent.
+
+	3.	Checkpoint: Re-run migrations locally or in a dev environment to confirm that these columns now appear in the ticket_email_chats table.
+	•	Test each column by inserting a sample record and reading it back to ensure no constraints break.
+
+3. Set Up Pinecone and Utility Modules for RAG
+
+Your application will rely on chunking documents, embedding them using text-embedding-ada-002, and storing the embeddings in Pinecone. We keep chunk metadata in the knowledge_doc_chunks table.
+Below is how to structure it:
+	1.	Install the necessary node modules for your Next.js or Node-based project:
+
+npm install openai pinecone-client pdf-parse @types/pdf-parse --save
+# Or yarn add ...
+
+
+	2.	Create a new utility file, e.g. utils/rag.ts (or lib/rag.ts), that holds:
+	•	A function to chunk text
+	•	A function to embed text using text-embedding-ada-002
+	•	A function to upsert into Pinecone
+	•	A function to query Pinecone for top-K results
+Pseudocode for chunking text (the simplest approach):
+
+export function splitIntoChunks(text: string, chunkSize: number = 1000): string[] {
+  const chunks: string[] = [];
+  let startIndex = 0;
+  while (startIndex < text.length) {
+    const endIndex = startIndex + chunkSize;
+    chunks.push(text.slice(startIndex, endIndex));
+    startIndex = endIndex;
+  }
+  return chunks;
+}
+
+For each chunk, you embed and upsert to Pinecone. Store chunk text + metadata in knowledge_doc_chunks.
+
+	3.	Checkpoint: Before wiring the code to Supabase, write a small local test that:
+	•	Calls splitIntoChunks("some large text", 500), ensuring you get correct chunk arrays
+	•	Prints out chunk lengths
+
+4. Implement Knowledge Base Upload Flow
+
+Now we allow users to upload docs (PDF, text, etc.) from the front end, parse them, chunk them, embed, and store them in Pinecone. We store the doc info in knowledge_docs and each chunk in knowledge_doc_chunks (with no embedding stored in the table or store partial local embedding – up to you. In the instructions, we store the vector in the embedding column as well for local fallback, plus push it to Pinecone).
+	1.	Create a Next.js route (or an API route) e.g. pages/api/kb/upload.ts that:
+	•	Receives the file (via formidable or some Nextjs file parsing).
+	•	Inserts a record into knowledge_docs for the new doc (title, org_id, etc.).
+	•	Reads the file’s text (if PDF, use pdf-parse; if .docx, parse accordingly).
+	•	Splits text into chunks using splitIntoChunks.
+	•	For each chunk:
+	•	Insert a new row into knowledge_doc_chunks with the chunk_content.
+	•	Call OpenAI to embed the chunk’s text (or do that in parallel).
+	•	Insert the embedding into the embedding column of that chunk row.
+	•	Upsert that chunk to Pinecone.
+	2.	Add a front-end page pages/organization/[orgId]/kb/index.tsx with an upload button that calls the api/kb/upload.ts. Mark the doc with the orgId in knowledge_docs.
+	•	If you want to handle multiple files at once, parse them in the same route in a loop.
+	3.	Checkpoint:
+	•	Test by uploading a small test PDF.
+	•	Confirm the doc row is created in knowledge_docs.
+	•	Confirm chunk rows are created in knowledge_doc_chunks.
+	•	Confirm each chunk has an embedding or at least a placeholder.
+	•	Confirm Pinecone has those vectors.
+
+5. Add Classification Step for Inbound Emails
+
+We want to check if an inbound email “should_respond” or “no_response.” This is a small function that calls GPT 3.5 or 4.0 with a short system prompt. Something like:
+
+	“You are a classifier for inbound emails. Return ‘should_respond’ if the email is a real user question. Return ‘no_response’ if it’s marketing or system spam or some thing that doesn’t require a reply. Return ‘unknown’ if uncertain.”
+
+	1.	Open your existing email ingestion code (where we process inbound emails from Gmail). This might be in utils/gmail.ts or pages/api/integrations/gmail/notify.ts or pages/api/gmail/webhook.ts.
+	2.	Add a classification function. Example pseudocode:
+
+async function classifyInboundEmail(emailText: string): Promise<{classification: string, confidence: number}> {
+  // Use openai completion
+  // system prompt: "You are an email classifier. Return JSON: { classification: 'should_respond' or 'no_response', confidence: 0-100 }"
+  // user prompt: emailText
+  // parse the JSON
+  return { classification: 'should_respond', confidence: 90 };
+}
+
+
+	3.	After you parse the inbound email’s text, call classifyInboundEmail(emailBody).
+	4.	Then update ticket_email_chats row with ai_classification = result.classification and ai_confidence = result.confidence.
+	•	If classification === 'should_respond', we proceed. If no_response, we do nothing. If unknown, default to “no response” or agent review.
+	5.	Checkpoint:
+	•	Test by pushing a sample inbound email, ensuring the new columns get updated.
+	•	Write a small test verifying the function outputs the expected classification for some known subject lines (like “Here’s your Black Friday sale” → no_response).
+
+6. RAG Retrieval for Email Reply
+
+For those messages that “should_respond,” we want to do retrieval from Pinecone to generate an answer. Then we check the confidence of the final generation. If above a certain threshold (like 85%), we auto-send. Otherwise, we store it in ai_draft_response.
+	1.	Write a new function e.g. generateAutoResponse(emailText: string, orgId: string): { response: string, confidence: number }. Steps:
+	•	Query Pinecone with the email’s text to fetch top k relevant chunks.
+	•	Pass those relevant chunk texts + user’s question into GPT 3.5 or 4.0 to craft an answer.
+	•	The prompt can look like:
+
+System: You are a helpful support assistant with knowledge from the following context:
+  1) chunk 1
+  2) chunk 2
+  ...
+User's question: ${emailText}
+
+
+	•	Parse the final answer, and attempt to get a numeric confidence (like 1.0 or 0.85). If the LLM can’t produce a numeric confidence, assume a fixed or guess.
+	•	Return response plus confidence.
+
+	2.	In the inbound email flow (where you see classifyInboundEmail):
+
+if (classification === 'should_respond') {
+  const { response, confidence:ragConfidence } = await generateAutoResponse(emailBody, orgId);
+  if (ragConfidence > 85) {
+    // auto send the email
+    sendGmailReply(threadId, fromAddress, response, ticketId /* etc. */);
+    await supabase.from('ticket_email_chats').update({
+      ai_auto_responded: true,
+      ai_draft_response: response
+    }).eq('id', emailRowId);
+  } else {
+    // store draft
+    await supabase.from('ticket_email_chats').update({
+      ai_auto_responded: false,
+      ai_draft_response: response
+    }).eq('id', emailRowId);
+  }
+}
+
+
+	3.	Checkpoint:
+	•	Test with a known question that you have in your KB. See if your system extracts the chunk, crafts an answer, and auto-sends if the confidence is above your threshold.
+	•	Also test with random nonsense that yields a lower confidence, ensuring it remains a draft.
+
+7. UI Indicators for Drafted Responses
+
+In your agent UI (the place where staff sees the conversation):
+	1.	Extend your conversation panel or details panel to show a “Draft AI Response” if ai_draft_response is not null and ai_auto_responded is false.
+	2.	Add a button “Send This Draft” so the agent can confirm sending, or “Discard.”
+	3.	When the agent confirms, call the normal sendGmailReply() function and mark ai_auto_responded = true.
+	4.	Checkpoint:
+	•	Test by receiving an email that yields a low confidence.
+	•	Confirm the front end shows the AI’s draft.
+	•	Confirm clicking “Send This Draft” triggers the real send.
+
+8. Final QA and Edge Cases
+	1.	Edge Cases:
+	•	Very large PDF uploads. Make sure chunking is stable and doesn’t time out.
+	•	Emails from internal addresses. Possibly skip classification or treat them differently.
+	•	Emails from earlier threads that have multiple references. Ensure your GMail sending references the correct in-reply-to or threadId.
+	2.	Performance:
+	•	If you have many doc chunks, you can measure Pinecone query time. Possibly reduce chunk size or the number of top K matches.
+	3.	Security:
+	•	Make sure only the org’s doc embeddings are used for that org’s inbound emails.
+	•	The new columns do not contain sensitive data.
+	•	(No need for RLS disclaimers in your instructions.)
+	4.	Checkpoint:
+	•	Re-run your test suite.
+	•	Attempt real email flows end-to-end:
+	•	Ingest sample email → classify → generate response → auto send or draft → confirm in Gmail outbox → verify ticket conversation updated.
+
+9. Self-Critique
+	•	Confirm you placed each new table or column in the existing migrations rather than making new migrations, as requested.
+	•	Verify you have step-by-step local tests ensuring chunking, classification, RAG retrieval, and auto-sending all function as intended.
+	•	Confirm the top-level knowledge base upload page and the inbound email pipeline integrate seamlessly.
+
+Done. This completes the thorough instructions for implementing a retrieval-augmented generation system with automatic email classification, auto-response or drafted response, and knowledge base document uploads.

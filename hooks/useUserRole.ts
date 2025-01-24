@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { Database } from '@/types/supabase';
+import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
+import { useEffect, useState } from 'react';
 
 type UserRole = Database['public']['Enums']['user_role'];
 
@@ -11,7 +11,7 @@ export function useUserRole() {
   const user = useUser();
 
   useEffect(() => {
-    async function fetchUserRole() {
+    const fetchUserRole = async () => {
       if (!user) {
         console.log('useUserRole - No user found');
         setLoading(false);
@@ -20,6 +20,25 @@ export function useUserRole() {
 
       console.log('useUserRole - Fetching role for user:', user.id);
 
+      // Subscribe to role changes
+      const channel = supabase
+        .channel('role-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'profiles',
+            filter: `id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('useUserRole - Role changed:', payload.new.role);
+            setRole(payload.new.role);
+          }
+        )
+        .subscribe();
+
+      // Initial fetch
       const { data, error } = await supabase
         .from('profiles')
         .select('role')
@@ -35,9 +54,14 @@ export function useUserRole() {
       console.log('useUserRole - Fetched role:', data?.role);
       setRole(data?.role || 'customer');
       setLoading(false);
-    }
+    };
 
     fetchUserRole();
+
+    // Cleanup subscription
+    return () => {
+      supabase.channel('role-changes').unsubscribe();
+    };
   }, [user, supabase]);
 
   return { role, loading };

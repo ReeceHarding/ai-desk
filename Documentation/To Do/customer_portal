@@ -1,0 +1,277 @@
+Below is a step-by-step set of instructions for your junior developers to implement a customer-facing portal (the “Customer Portal”) for creating and managing tickets, along with agent/customer interactions. The instructions are broken down into clearly defined tasks, along with points at which they should stop and verify their work (the “Checkpoints”). All instructions assume the existing Supabase schema is located in /Users/reeceharding/Gauntlet/Zendesk/supabase/migrations, and that changes to the schema should be integrated into the existing migrations (specifically any relevant .sql files in migrations/)—rather than creating brand new migrations. Also, the instructions reference specific TypeScript/React files that already exist in the codebase.
+
+Overview
+
+We want a Customer Portal where:
+	1.	Customers can:
+	•	Create a new ticket for a chosen organization.
+	•	See only the tickets that they created or that are associated with their organization.
+	•	Interact with agent replies (i.e., see agent responses on the same ticket page).
+	•	Mark tickets as solved on their end (optional for them, since agent’s resolution is primary).
+	•	Filter or view all statuses.
+	2.	Agents can:
+	•	See these new tickets on their own dashboards.
+	•	Respond to them (the response appears on the customer’s portal).
+	•	Mark them as resolved or maintain them open or pending, etc.
+	3.	Organizations store these tickets, so any agent who is a member of an organization sees the newly created tickets from that organization.
+
+Because our app already has “tickets” and “organizations,” we must ensure:
+	•	A user can be recognized as a customer if their role is "customer".
+	•	A user can be recognized as an agent if their role is "agent", "admin", or "super_admin".
+	•	When a “customer” creates a ticket, the ticket’s customer_id is set to that user’s ID, and the org_id is set to the chosen organization.
+
+We also have to add a “search bar for organizations” on the portal side so that the customer can pick which organization the ticket is for. If the customer is not associated with any organization, they can either:
+	1.	Assign themselves to an existing organization if it is indeed the correct organization (this is a design choice).
+	2.	Or we allow them to create an organization on the spot (not essential if the environment is controlled, but we can do it if needed).
+
+Important Notice for Junior Devs
+	•	Stop at each Checkpoint and run tests.
+	•	Write small tests that ensure each function or step is not breaking existing code.
+	•	We do not create new migrations unless absolutely necessary—modify existing to maintain versioning.
+
+PART 1: Supabase Database Adjustments
+
+Step 1: Confirm Customer Roles
+
+We already have a role enum with values 'customer' | 'agent' | 'admin' | 'super_admin'. That’s good. Customers typically have role = 'customer'.
+
+Action:
+	1.	Check the table profiles in the Supabase schema (found in the existing .sql migrations). Confirm we have role public.user_role NOT NULL DEFAULT 'customer'.
+	2.	Confirm it includes 'customer' in the enum definition. It does.
+	3.	If 'customer' is missing from the user_role enum, add it there, but from the migration code we see it’s already present.
+
+Checkpoint: Validate that the user_role enum includes 'customer' or 'agent' or 'admin' or 'super_admin'.
+
+Step 2: Ensure Organization Membership Handling
+
+We want to confirm if a “customer” can see an organization. By default, if the user has profiles.org_id, that user belongs to an organization. Alternatively, if our schema references organization_members, we can rely on that.
+
+Actions:
+	1.	Open the relevant .sql migrations that define profiles and organization_members.
+	2.	Confirm that the schema and RLS (though we’re not writing about RLS in the instructions, just ensure the dev sees it) do not block customers from seeing or referencing the organizations.
+	3.	If needed, we should ensure the user can either pick from organizations.
+
+Checkpoint: Confirm that the dev can do a simple query from the front end:
+
+SELECT id, name
+FROM organizations
+
+… and that the user can pick from that list.
+
+Step 3: Confirm Ticket Columns
+
+We have tickets referencing:
+	•	customer_id: uuid references profiles(id).
+	•	org_id: references organizations(id).
+
+We want to ensure that customers see only their own tickets or tickets in their same organization. This logic is handled in the front end or the middleware. We do not require new columns. The existing structure is sufficient:
+	•	tickets(customer_id, org_id, subject, description, status, priority, etc.)
+
+Action:
+	1.	Inspect tickets table definition.
+	2.	Make sure customer_id is still referencing the profiles.id.
+	3.	Confirm that org_id references organizations.id.
+
+Checkpoint: Confirm no new columns or constraints needed.
+
+Step 4: Potential Additional Column: is_customer_visible
+
+If you want to let customers not see certain tickets, you might add a boolean column is_customer_visible in tickets. For the minimal approach, it’s not essential.
+We skip it, as the user story says they see the tickets they themselves created or that their org created.
+
+Action: Not essential. We skip.
+
+Step 5: Migrate
+
+If everything is consistent, no changes are required or we only do minimal modifications. If we find any minor column is missing, we add it in an existing migration that is appropriate or in the “latest” migration file. Usually we put the statement:
+
+ALTER TABLE public.tickets
+ADD COLUMN IF NOT EXISTS is_customer_visible boolean NOT NULL DEFAULT true;
+
+Only if we decided to have that. Not essential, so we skip if not wanted.
+
+Checkpoint: Confirm we do not want or need extra columns. All good.
+
+PART 2: Front-End Pages for Customer Portal
+
+We want a separate, simplified UI for customers. Possibly something like pages/customer/portal.tsx, or a flow under pages/customer/*.tsx. Let’s detail it:
+
+Step 1: Create or Modify a “Customer Portal” page
+
+We can add a directory:
+
+/Users/reeceharding/Gauntlet/Zendesk/pages/customer
+
+And a file named:
+
+portal.tsx
+
+If we prefer a dynamic route or multiple pages, that’s also fine. But we only need a single main page for listing tickets and a route for creating new ones. We also might want to show details of each ticket on a separate page.
+
+Actions:
+	1.	Create pages/customer/portal.tsx.
+	2.	Import the AppLayout or a simpler layout if we want the minimal layout. Possibly we can call it CustomerPortalLayout.
+
+Checkpoint: Create the page. Make sure it compiles with no errors.
+
+Step 2: “My Tickets” for the Customer
+
+Inside portal.tsx, we want to show the tickets that belong to the current user or to the user’s organization. Usually, we do:
+
+import { useEffect, useState } from 'react';
+import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
+import { Database } from '@/types/supabase'; // Our typed DB def
+
+export default function CustomerPortal() {
+  const supabase = useSupabaseClient<Database>();
+  const user = useUser();
+  const [myTickets, setMyTickets] = useState<Database['public']['Tables']['tickets']['Row'][]>([]);
+  
+  useEffect(() => {
+    if (!user) return;
+    // fetch tickets
+    // either we do: .eq('customer_id', user.id) or .eq('org_id', userOrgId)
+    // or we combine them with an "or"
+  }, [user]);
+
+  return ( ...some JSX... )
+}
+
+Actions:
+	1.	Query to get the user’s org_id from profiles. Then get all tickets with that org_id OR just that customer_id = user.id.
+	•	Example:
+
+const { data: profile } = await supabase
+  .from('profiles')
+  .select('org_id')
+  .eq('id', user.id)
+  .single();
+
+if (profile) {
+  const orgId = profile.org_id;
+  const { data: tickets } = await supabase
+    .from('tickets')
+    .select('*')
+    .or(`org_id.eq.${orgId},customer_id.eq.${user.id}`)
+    .order('created_at', { ascending: false });
+  setMyTickets(tickets || []);
+}
+
+
+	2.	Display these tickets in a table or list.
+
+Checkpoint: Test by logging in as a “customer” user and verifying the page lists their tickets.
+
+Step 3: “Create Ticket” for the Customer
+
+We add a button “+ New Ticket” on the top of portal.tsx. When clicked, it opens a simple form or navigates to a new page, e.g., pages/customer/new-ticket.tsx.
+
+We want:
+	•	A drop-down or search bar for the user’s “organization.” If the user is associated with only one org, skip it or default it. If we do want them to pick from all orgs, we do a select from organizations.
+	•	Subject, Description fields.
+	•	On submit:
+	1.	customer_id = user.id
+	2.	org_id = (whatever they selected if multiple or default to their existing one).
+	3.	status = 'open', priority = 'low' or so.
+
+Actions:
+	1.	Create pages/customer/new-ticket.tsx.
+	2.	Add a form for subject, description.
+	3.	Retrieve the user’s possible organizations. (If we want them to pick from all orgs, query organizations table. If we only want them to pick from the one they are in, skip the drop-down.)
+	4.	On form submit, do a supabase.from('tickets').insert(...).
+
+Sample:
+
+const { data, error } = await supabase
+  .from('tickets')
+  .insert({
+    subject,
+    description,
+    status: 'open',
+    priority: 'low',
+    customer_id: user.id,
+    org_id: selectedOrgId,
+  })
+  .select()
+  .single();
+
+Checkpoint: After implementing the form, do a test that you can create a ticket as a “customer.” Then check if it’s actually saved in DB.
+
+Step 4: Ticket Detail Page for Customer
+
+We want the customer to click a ticket row in portal.tsx => opens a detail page showing agent responses. This is basically the same UI we have for “ticket-interface” but simpler. We can reuse logic from ticket-conversation-panel.tsx or ticket-interface.tsx.
+
+Actions:
+	1.	Create pages/customer/tickets/[id].tsx, which fetches a single ticket.
+	2.	Query the comments or messages from that ticket.
+	3.	Display them.
+	4.	If we want the customer to also reply or comment, that might be a new row in the “comments” table with author_id = user.id.
+
+Checkpoint: Confirm the user sees their own conversation.
+
+Step 5: Mark Ticket as Resolved or Let the Agent Mark
+
+We only truly mark it “resolved” when an agent sets status = 'solved', but if we want the customer to also “close” it from their perspective, we could do an update:
+
+await supabase
+  .from('tickets')
+  .update({ status: 'solved' })
+  .eq('id', ticketId);
+
+But if the “customer” tries to do that and they do not have the role or policies, it might fail unless we allow it.
+
+Checkpoint: Decide final approach. For minimal approach, we let only agent do it. That’s fine.
+
+PART 3: Agents See the Tickets
+
+This part is mostly done: Agents see tickets in their normal “/tickets” or “/dashboard”. Because the org_id is the same, it’s automatically visible. We only confirm that the agent’s role is 'admin', 'agent', or 'super_admin'.
+
+Checkpoint: Make sure everything is consistent.
+
+PART 4: Additional Essentials
+	1.	Search/Filter
+	•	Customers can search their tickets by subject or description. They can do a .ilike('subject', '%whatever%').
+	2.	Restricted Access
+	•	If the user is 'customer', the site shows them the “customer portal.” If 'agent' | 'admin' | 'super_admin', show them the full agent UI. Possibly done in Next.js _app.tsx or a special route guard.
+
+No additional DB changes needed unless we need more advanced roles.
+
+Checkpoint: Confirm each step is tested, that no existing code is broken.
+
+PART 5: Detailed Implementation Steps for Junior Devs
+	1.	Update (or confirm) Database
+	•	In the latest migration file (the one with a big schema creation or modifications), confirm the profiles.role includes 'customer'.
+	•	Confirm no additional columns needed for the tickets.
+	•	If you do need a new column like is_customer_visible or deleted_at_customer, you add it to the same migration or an appropriate new line in the existing final migration.
+	2.	Create pages/customer/portal.tsx
+	•	Show a table of tickets.
+	•	Query from tickets table using a combination of .or('org_id.eq.{ORG_ID},customer_id.eq.{USER_ID}').
+	•	If you want a dynamic approach, you can do a separate call to get org_id from the user’s profile. Then do .or('org_id.eq.{orgId},customer_id.eq.{user.id}').
+	3.	Add “New Ticket” button
+	•	On click => navigate to pages/customer/new-ticket.tsx.
+	4.	Create pages/customer/new-ticket.tsx
+	•	Render a form.
+	•	If the user is in multiple orgs, do a dropdown. If not, skip.
+	•	On submit => call Supabase to insert. Then redirect the user back to portal.tsx.
+	5.	Create pages/customer/tickets/[id].tsx
+	•	Show the ticket detail, plus a list of comments.
+	•	Optionally allow the user to add a comment.
+	•	The agent side is already handled in the existing code.
+	6.	Test everything.
+
+Finally:
+	•	Agents can respond and mark statuses.
+	•	The “customer” sees the updated status in their portal’s list.
+	•	They can optionally filter or see “closed tickets.”
+
+Check logs to confirm everything is working.
+
+Conclusion
+
+With these steps, you have a minimal but functional “customer portal” that is integrated with your existing tickets system. The code changes revolve around creating a new front-end for the “customer” experience (with pages under pages/customer/…), ensuring that the existing DB schema is verified for minimal columns required, and reusing the logic from your existing “ticket-interface” for the agent side.
+
+All changes should be tested thoroughly:
+	•	Before each function, create a small test with a mock user or a test user with role = 'customer'.
+	•	Ensure they can see only their tickets.
+	•	Ensure no existing RLS or code is broken.
+	•	The rest of your system remains intact.

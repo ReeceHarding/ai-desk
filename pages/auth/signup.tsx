@@ -4,6 +4,126 @@ import { useRouter } from 'next/router';
 import React, { useEffect, useState } from 'react';
 import AuthLayout from '../../components/auth/AuthLayout';
 
+// Helper function to create organization and associate user
+async function createUserOrganization(supabase: any, userId: string, email: string) {
+  try {
+    if (!userId || !email) {
+      throw new Error('User ID and email are required');
+    }
+
+    console.log('[SIGNUP] Creating profile and organization for user:', { userId, email });
+    
+    // First, check if user already has an organization
+    const { data: existingMember } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .eq('user_id', userId)
+      .single();
+
+    if (existingMember?.organization_id) {
+      console.log('[SIGNUP] User already has an organization:', existingMember.organization_id);
+      return;
+    }
+
+    // Create or confirm profile exists
+    const { data: existingProfile, error: profileCheckError } = await supabase
+      .from('profiles')
+      .select('id, org_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileCheckError && profileCheckError.code !== 'PGRST116') {
+      console.error('[SIGNUP] Error checking profile:', profileCheckError);
+      throw profileCheckError;
+    }
+
+    if (existingProfile?.org_id) {
+      console.log('[SIGNUP] Profile already has an organization:', existingProfile.org_id);
+      return;
+    }
+
+    if (!existingProfile) {
+      const { data: newProfile, error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          email: email,
+          display_name: email.split('@')[0],
+          role: 'admin'
+        })
+        .select()
+        .single();
+
+      if (profileError) {
+        console.error('[SIGNUP] Error creating profile:', profileError);
+        throw profileError;
+      }
+      console.log('[SIGNUP] Created new profile:', newProfile);
+    }
+    
+    // Create organization with user's email domain as name
+    const emailPrefix = email.split('@')[0];
+    const orgName = `${emailPrefix}'s Organization`;
+    
+    // Create the organization
+    const { data: org, error: orgError } = await supabase
+      .from('organizations')
+      .insert({ 
+        name: orgName.slice(0, 100), // Ensure name isn't too long
+        email: email,
+        created_by: userId,
+        created_at: new Date().toISOString()
+      })
+      .select()
+      .single();
+
+    if (orgError) {
+      console.error('[SIGNUP] Error creating organization:', orgError);
+      throw orgError;
+    }
+
+    console.log('[SIGNUP] Organization created:', org);
+
+    // Associate user with organization
+    const { error: memberError } = await supabase
+      .from('organization_members')
+      .insert({ 
+        organization_id: org.id,
+        user_id: userId,
+        role: 'admin', // Make the creator an admin
+        created_at: new Date().toISOString()
+      });
+
+    if (memberError) {
+      console.error('[SIGNUP] Error creating organization member:', memberError);
+      // Clean up the organization if member association fails
+      await supabase.from('organizations').delete().eq('id', org.id);
+      throw memberError;
+    }
+
+    // Update profile with org_id
+    const { error: profileUpdateError } = await supabase
+      .from('profiles')
+      .update({ org_id: org.id })
+      .eq('id', userId);
+
+    if (profileUpdateError) {
+      console.error('[SIGNUP] Error updating profile with org_id:', profileUpdateError);
+      // Clean up the organization and member if profile update fails
+      await supabase.from('organization_members').delete().eq('organization_id', org.id);
+      await supabase.from('organizations').delete().eq('id', org.id);
+      throw profileUpdateError;
+    }
+
+    console.log('[SIGNUP] User associated with organization:', { userId, orgId: org.id });
+
+    return org;
+  } catch (error) {
+    console.error('[SIGNUP] Error in createUserOrganization:', error);
+    throw error;
+  }
+}
+
 export default function SignUp() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -55,6 +175,20 @@ export default function SignUp() {
       if (error) {
         console.error('[SIGNUP] Google sign-in error:', error);
         throw error;
+      }
+
+      // Get user data after successful sign-in
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user) {
+        try {
+          await createUserOrganization(supabase, user.id, user.email || '');
+          console.log('[SIGNUP] Organization created successfully for Google user');
+        } catch (orgError) {
+          console.error('[SIGNUP] Error creating organization:', orgError);
+          setError('Account created but failed to set up organization. Please contact support.');
+          return;
+        }
       }
       
       // Only redirect if we have a URL
@@ -117,10 +251,16 @@ export default function SignUp() {
         return;
       }
 
-      if (data?.session) {
-        // User is signed in immediately
-        console.log('Signup successful, redirecting to dashboard');
-        router.push('/dashboard');
+      if (data?.session && data?.user) {
+        // Create organization for the user
+        try {
+          await createUserOrganization(supabase, data.user.id, email);
+          console.log('Organization created successfully');
+          router.push('/dashboard');
+        } catch (orgError) {
+          console.error('Error creating organization:', orgError);
+          setError('Account created but failed to set up organization. Please contact support.');
+        }
       }
     } catch (err) {
       console.error('Unexpected error during signup:', err);
@@ -131,19 +271,60 @@ export default function SignUp() {
   };
 
   const handleGitHubSignIn = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'github',
-      options: {
-        redirectTo: `${origin}/auth/callback`,
-      },
-    });
+    try {
+      console.log('[SIGNUP] Starting GitHub sign-in flow');
+      setError(null);
+      setLoading(true);
 
-    if (error) {
-      console.error('Error signing in with GitHub:', error.message);
-      return;
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'github',
+        options: {
+          redirectTo: `${origin}/auth/callback`,
+        },
+      });
+
+      console.log('[SIGNUP] GitHub sign-in response:', {
+        success: !error,
+        error: error?.message,
+        hasUrl: !!data?.url,
+        url: data?.url
+      });
+
+      if (error) {
+        console.error('[SIGNUP] GitHub sign-in error:', error);
+        throw error;
+      }
+
+      // Get user data after successful sign-in
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user) {
+        try {
+          await createUserOrganization(supabase, user.id, user.email || '');
+          console.log('[SIGNUP] Organization created successfully for GitHub user');
+        } catch (orgError) {
+          console.error('[SIGNUP] Error creating organization:', orgError);
+          setError('Account created but failed to set up organization. Please contact support.');
+          return;
+        }
+      }
+
+      // Only redirect if we have a URL
+      if (data?.url) {
+        console.log('[SIGNUP] Redirecting to OAuth URL:', data.url);
+        if (typeof window !== 'undefined') {
+          window.location.href = data.url;
+        }
+      } else {
+        console.error('[SIGNUP] No OAuth URL received in response');
+        throw new Error('No OAuth URL received');
+      }
+    } catch (error: unknown) {
+      console.error('[SIGNUP] GitHub sign-in error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to start GitHub sign-in');
+    } finally {
+      setLoading(false);
     }
-
-    // Let Supabase handle the redirect
   };
 
   return (

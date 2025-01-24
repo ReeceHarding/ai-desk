@@ -167,28 +167,62 @@ export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[
 }
 
 export function parseGmailMessage(message: GmailMessage): ParsedEmail {
-  logger.info('Parsing message', { messageId: message.id });
+  const headers = message.payload?.headers || [];
+  const getHeader = (name: string) => headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
 
-  const parsedEmail: ParsedEmail = {
-    messageId: message.id,
-    threadId: message.threadId,
-    subject: message.subject || '(No Subject)',
-    from: Array.isArray(message.from) ? message.from[0] : (message.from || 'unknown@gmail.com'),
-    to: Array.isArray(message.to) ? message.to[0] : (message.to || 'unknown@gmail.com'),
-    date: message.date ? new Date(message.date) : new Date(),
-    body: message.body || { text: '', html: '' },
-    snippet: message.snippet || '',
-    labels: message.labelIds || [],
-    attachments: message.attachments || []
+  const from = getHeader('from');
+  const to = getHeader('to');
+  const cc = getHeader('cc');
+  const bcc = getHeader('bcc');
+  const subject = getHeader('subject');
+  const date = new Date(getHeader('date'));
+
+  // Extract body
+  const body = {
+    text: '',
+    html: ''
   };
 
-  logger.info('Successfully parsed message', { 
-    messageId: message.id,
-    from: parsedEmail.from,
-    to: parsedEmail.to,
-    subject: parsedEmail.subject
-  });
-  return parsedEmail;
+  const extractBody = (part: GmailMessagePart) => {
+    if (!part) return;
+
+    if (part.mimeType === 'text/plain' && part.body?.data) {
+      body.text = Buffer.from(part.body.data, 'base64').toString();
+    } else if (part.mimeType === 'text/html' && part.body?.data) {
+      body.html = Buffer.from(part.body.data, 'base64').toString();
+    }
+
+    if (part.parts) {
+      part.parts.forEach(extractBody);
+    }
+  };
+
+  extractBody(message.payload);
+
+  // If no body was found, use snippet
+  if (!body.text && !body.html) {
+    body.text = message.snippet || '';
+  }
+
+  // Parse email addresses
+  const parseAddresses = (addressStr: string): string[] => {
+    if (!addressStr) return [];
+    return addressStr.split(',').map(addr => addr.trim());
+  };
+
+  return {
+    messageId: message.id || '',
+    threadId: message.threadId || '',
+    from,
+    to: parseAddresses(to),
+    cc: parseAddresses(cc),
+    bcc: parseAddresses(bcc),
+    subject,
+    snippet: message.snippet || '',
+    body,
+    date,
+    attachments: {} // TODO: Implement attachment handling
+  };
 }
 
 export async function refreshGmailTokens(refreshToken: string): Promise<GmailTokens> {
@@ -354,15 +388,11 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       .single();
 
     if (error) {
-      logger.error('Failed to create ticket', { 
-        error,
-        emailId: parsedEmail.messageId,
-        subject: parsedEmail.subject
-      });
+      logger.error('Failed to create ticket', { error });
       throw error;
     }
 
-    // Store the email in ticket_email_chats
+    // Create ticket_email_chats record
     const { error: chatError } = await supabase
       .from('ticket_email_chats')
       .insert({
@@ -370,39 +400,31 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
         message_id: parsedEmail.messageId,
         thread_id: parsedEmail.threadId,
         from_address: parsedEmail.from,
-        to_address: [parsedEmail.to],
-        cc_address: [],
-        bcc_address: [],
-        subject: parsedEmail.subject || '(No Subject)',
-        body: parsedEmail.body.html || parsedEmail.body.text || '',
-        attachments: parsedEmail.attachments || {},
-        gmail_date: parsedEmail.date instanceof Date && !isNaN(parsedEmail.date.getTime()) 
-          ? parsedEmail.date.toISOString() 
-          : new Date().toISOString(),
+        to_address: Array.isArray(parsedEmail.to) ? parsedEmail.to : [parsedEmail.to],
+        cc_address: parsedEmail.cc || [],
+        bcc_address: parsedEmail.bcc || [],
+        subject: parsedEmail.subject,
+        body: parsedEmail.body.text || parsedEmail.body.html || parsedEmail.snippet || '',
+        gmail_date: parsedEmail.date,
         org_id: profile.org_id
-      } as any);
+      });
 
     if (chatError) {
-      logger.error('Failed to store email in ticket_email_chats', {
-        error: chatError,
-        ticketId: ticket.id,
-        emailId: parsedEmail.messageId
-      });
+      logger.error('Failed to create ticket_email_chats record', { error: chatError });
       // Don't throw here, as we still want to return the ticket
     }
 
-    logger.info(`Successfully created ticket from email`, { 
+    logger.info('Successfully created ticket from email', {
       ticketId: ticket.id,
       emailId: parsedEmail.messageId,
-      subject: ticket.subject
+      subject: parsedEmail.subject
     });
-    
+
     return ticket;
   } catch (error) {
     logger.error('Error in createTicketFromEmail', {
-      error: error instanceof Error ? error.message : String(error),
-      emailId: parsedEmail.messageId,
-      userId
+      error,
+      messageId: parsedEmail.messageId
     });
     throw error;
   }

@@ -150,6 +150,71 @@ export default function TicketList() {
     if (!roleLoading) {
       fetchTickets();
     }
+
+    // Set up real-time subscription
+    const subscription = supabase
+      .channel('tickets-channel')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tickets',
+        },
+        async (payload) => {
+          console.log('Real-time update received:', payload);
+          
+          // Fetch the complete ticket data including relations
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const { data: newTicket, error } = await supabase
+              .from('tickets')
+              .select(`
+                *,
+                customer:profiles!tickets_customer_id_fkey (
+                  display_name,
+                  email,
+                  avatar_url
+                ),
+                organization:organizations!tickets_org_id_fkey (
+                  name
+                )
+              `)
+              .eq('id', payload.new.id)
+              .single();
+
+            if (!error && newTicket) {
+              const typedTicket = {
+                ...newTicket,
+                customer: newTicket.customer as Profile,
+                organization: newTicket.organization as Organization,
+              };
+
+              setTickets(currentTickets => {
+                const ticketIndex = currentTickets.findIndex(t => t.id === typedTicket.id);
+                if (ticketIndex >= 0) {
+                  // Update existing ticket
+                  const updatedTickets = [...currentTickets];
+                  updatedTickets[ticketIndex] = typedTicket;
+                  return updatedTickets;
+                } else {
+                  // Add new ticket
+                  return [typedTicket, ...currentTickets];
+                }
+              });
+            }
+          } else if (payload.eventType === 'DELETE') {
+            setTickets(currentTickets => 
+              currentTickets.filter(ticket => ticket.id !== payload.old.id)
+            );
+          }
+        }
+      )
+      .subscribe();
+
+    // Cleanup subscription
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [user, supabase, role, roleLoading]);
 
   const filteredTickets = tickets
