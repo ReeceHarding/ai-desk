@@ -1,4 +1,10 @@
 {
+  "components/EmailComposer.tsx -> react-quill": {
+    "id": "components/EmailComposer.tsx -> react-quill",
+    "files": [
+      "static/chunks/node_modules_react-quill_lib_index_js.js"
+    ]
+  },
   "node_modules/@supabase/auth-js/dist/module/lib/helpers.js -> @supabase/node-fetch": {
     "id": "node_modules/@supabase/auth-js/dist/module/lib/helpers.js -> @supabase/node-fetch",
     "files": []

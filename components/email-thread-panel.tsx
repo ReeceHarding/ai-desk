@@ -35,6 +35,13 @@ interface EmailThreadPanelProps {
     id: string
     thread_id?: string | null
     message_id?: string | null
+    subject?: string | null
+    description?: string | null
+    customer?: {
+      display_name: string | null
+      email: string | null
+    } | null
+    created_at?: string | null
   } | null
 }
 
@@ -201,24 +208,24 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
           animate={{ x: 0 }}
           exit={{ x: "100%" }}
           transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-          className="absolute top-0 right-8 w-[600px] h-full bg-slate-900 border-l border-slate-800 flex flex-col rounded-l-xl shadow-2xl z-50"
+          className="absolute top-0 right-8 w-[600px] h-full bg-white border-l border-gray-200 flex flex-col rounded-l-xl shadow-lg z-50"
         >
           {/* Header */}
-          <div className="p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm flex items-center justify-between">
+          <div className="p-4 border-b border-gray-200 bg-white/50 backdrop-blur-sm flex items-center justify-between sticky top-0 z-10">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center">
-                <Mail className="h-5 w-5 text-slate-300" />
+              <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                <Mail className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-white">Email Thread</h2>
-                <p className="text-sm text-slate-400">Ticket #{ticket.id}</p>
+                <h2 className="text-lg font-semibold text-gray-900">Email Thread</h2>
+                <p className="text-sm text-gray-500">Ticket #{ticket.id}</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 pr-1">
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
+                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100">
                       <Reply className="h-5 w-5" />
                     </Button>
                   </TooltipTrigger>
@@ -226,7 +233,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
+                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100">
                       <Forward className="h-5 w-5" />
                     </Button>
                   </TooltipTrigger>
@@ -234,7 +241,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
+                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100">
                       <Star className="h-5 w-5" />
                     </Button>
                   </TooltipTrigger>
@@ -242,7 +249,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
+                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100">
                       <MoreHorizontal className="h-5 w-5" />
                     </Button>
                   </TooltipTrigger>
@@ -250,79 +257,113 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white" onClick={onClose}>
+                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100" onClick={onClose}>
                       <X className="h-5 w-5" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Close</TooltipContent>
+                  <TooltipContent>Close panel</TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </div>
           </div>
 
-          {/* Email Thread */}
-          <div className="flex-1 overflow-auto p-4 space-y-4 relative">
-            {messageList.map((msg) => {
-              const dateObj = msg.gmail_date ? new Date(msg.gmail_date) : new Date(msg.created_at)
-              const dateLabel = format(dateObj, "MMM d, yyyy h:mm a")
-              return (
-                <div
-                  key={msg.id}
-                  className="bg-slate-800/50 rounded-lg p-4 backdrop-blur-sm mb-2"
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <p className="text-slate-200 font-medium">{msg.from_address || "Unknown"}</p>
-                      <p className="text-sm text-slate-400">
-                        To: {(msg.to_address || []).join(", ")}
-                      </p>
+          {/* Message List */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {/* Initial Ticket Description */}
+            {ticket.description && (
+              <div className="mb-6 bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex-shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                      {ticket.customer?.display_name ? (
+                        <span className="text-blue-600 font-medium">
+                          {ticket.customer.display_name[0].toUpperCase()}
+                        </span>
+                      ) : (
+                        <span className="text-blue-600 font-medium">U</span>
+                      )}
                     </div>
-                    <span className="text-sm text-slate-400">
-                      {dateLabel}
-                    </span>
                   </div>
-                  <div
-                    className="prose prose-invert max-w-none text-sm"
-                    dangerouslySetInnerHTML={{ __html: msg.body || "" }}
-                  />
-                  {msg.attachments && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-slate-700">
-                      <p className="text-sm text-slate-400 mb-2">Attachments:</p>
-                      {(msg.attachments as Array<any>).map((att) => (
-                        <a
-                          key={att.name}
-                          href={att.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 mr-4"
-                        >
-                          <Paperclip className="h-4 w-4" />
-                          {att.name}
-                        </a>
-                      ))}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-gray-900">
+                        {ticket.customer?.display_name || ticket.customer?.email || 'Unknown User'}
+                      </p>
+                      {ticket.created_at && (
+                        <time className="text-xs text-gray-500">
+                          {format(new Date(ticket.created_at), 'MMM d, yyyy h:mm a')}
+                        </time>
+                      )}
                     </div>
-                  )}
+                    <p className="text-sm text-gray-500">Initial Request</p>
+                  </div>
                 </div>
-              )
-            })}
-
-            {/* Loading indicator */}
-            {isLoading && (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                <div className="pl-[52px]">
+                  <h3 className="text-base font-medium text-gray-900 mb-2">
+                    {ticket.subject}
+                  </h3>
+                  <div className="prose prose-sm max-w-none text-gray-600">
+                    {ticket.description}
+                  </div>
+                </div>
               </div>
             )}
 
-            {/* Intersection Observer sentinel */}
-            <div ref={ref} className="h-4" />
+            {/* Email Messages */}
+            <div className="space-y-6">
+              {messageList.map((message) => (
+                <div key={message.id} className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-medium text-gray-900">{message.from_address}</p>
+                      <div className="text-sm text-gray-500 space-x-2">
+                        <span>To: {message.to_address?.join(", ")}</span>
+                        {message.cc_address && message.cc_address.length > 0 && (
+                          <span>CC: {message.cc_address.join(", ")}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {message.gmail_date && format(new Date(message.gmail_date), "MMM d, yyyy h:mm a")}
+                    </div>
+                  </div>
+                  <div className="text-gray-700" dangerouslySetInnerHTML={{ __html: message.body || "" }} />
+                  {message.attachments && message.attachments.length > 0 && (
+                    <div className="border-t border-gray-200 pt-3 mt-3">
+                      <div className="text-sm font-medium text-gray-900 mb-2">Attachments</div>
+                      <div className="flex flex-wrap gap-2">
+                        {message.attachments.map((attachment: any, i: number) => (
+                          <div
+                            key={i}
+                            className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg text-sm text-gray-700"
+                          >
+                            <Paperclip className="h-4 w-4 text-gray-500" />
+                            <span>{attachment.filename}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Load More Trigger */}
+            {hasMore && (
+              <div ref={ref} className="py-4 flex justify-center">
+                {isLoading && (
+                  <div className="flex items-center gap-2 text-sm text-gray-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading more messages...
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Composer */}
-          <div className="p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm">
-            <EmailComposer
-              onSend={handleSendMessage}
-              loading={false}
-            />
+          <div className="border-t border-gray-200 p-4">
+            <EmailComposer onSend={handleSendMessage} />
           </div>
         </motion.div>
       )}

@@ -1,7 +1,13 @@
 {
   "/_app": "pages/_app.js",
-  "/_document": "pages/_document.js",
   "/_error": "pages/_error.js",
-  "/organizations/[id]/kb": "pages/organizations/[id]/kb.js",
-  "/dashboard": "pages/dashboard.js"
+  "/_document": "pages/_document.js",
+  "/[orgSlug]/new-ticket": "pages/[orgSlug]/new-ticket.js",
+  "/auth/signin": "pages/auth/signin.js",
+  "/dashboard": "pages/dashboard.js",
+  "/tickets": "pages/tickets.js",
+  "/auth/signup": "pages/auth/signup.js",
+  "/profile": "pages/profile.js",
+  "/404": "pages/404.js",
+  "/onboarding": "pages/onboarding.js"
 }

@@ -4,26 +4,64 @@ ALTER TABLE public.profiles ALTER COLUMN org_id DROP NOT NULL;
 -- Create function to handle new user creation
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+  v_email text;
+  v_display_name text;
 BEGIN
+  -- Get email from either direct field or metadata
+  v_email := COALESCE(
+    NEW.email,
+    NEW.raw_user_meta_data->>'email',
+    NEW.raw_user_meta_data->>'preferred_email'
+  );
+
+  IF v_email IS NULL THEN
+    RAISE EXCEPTION 'No email found for user';
+  END IF;
+
+  -- Get display name from metadata or fallback to email prefix
+  v_display_name := COALESCE(
+    NEW.raw_user_meta_data->>'full_name',
+    NEW.raw_user_meta_data->>'name',
+    split_part(v_email, '@', 1)
+  );
+
   INSERT INTO public.logs (level, message, metadata)
   VALUES (
     'info',
     'Creating profile for new user',
     jsonb_build_object(
       'user_id', NEW.id,
-      'email', NEW.email,
+      'email', v_email,
+      'display_name', v_display_name,
       'trigger', 'handle_new_user'
     )
   );
 
+  -- Create profile
   INSERT INTO public.profiles (id, email, display_name, role)
   VALUES (
     NEW.id,
-    NEW.email,
-    split_part(NEW.email, '@', 1),
+    v_email,
+    v_display_name,
     'customer'
   );
+
   RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  -- Log any errors
+  INSERT INTO public.logs (level, message, metadata)
+  VALUES (
+    'error',
+    'Error in handle_new_user',
+    jsonb_build_object(
+      'error', SQLERRM,
+      'user_id', NEW.id,
+      'email', v_email,
+      'trigger', 'handle_new_user'
+    )
+  );
+  RAISE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 

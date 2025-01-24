@@ -13,7 +13,27 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
 
     console.log('[SIGNUP] Creating profile and organization for user:', { userId, email });
     
-    // First, check if user already has an organization
+    // Wait a bit for the trigger to complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // First, check if user already has an organization through profile
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, org_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) {
+      console.error('[SIGNUP] Error checking profile:', profileError);
+      throw profileError;
+    }
+
+    if (profile?.org_id) {
+      console.log('[SIGNUP] Profile already has an organization:', profile.org_id);
+      return;
+    }
+
+    // Double check organization_members as well
     const { data: existingMember } = await supabase
       .from('organization_members')
       .select('organization_id')
@@ -22,43 +42,19 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
 
     if (existingMember?.organization_id) {
       console.log('[SIGNUP] User already has an organization:', existingMember.organization_id);
-      return;
-    }
-
-    // Create or confirm profile exists
-    const { data: existingProfile, error: profileCheckError } = await supabase
-      .from('profiles')
-      .select('id, org_id')
-      .eq('id', userId)
-      .single();
-
-    if (profileCheckError && profileCheckError.code !== 'PGRST116') {
-      console.error('[SIGNUP] Error checking profile:', profileCheckError);
-      throw profileCheckError;
-    }
-
-    if (existingProfile?.org_id) {
-      console.log('[SIGNUP] Profile already has an organization:', existingProfile.org_id);
-      return;
-    }
-
-    if (!existingProfile) {
-      const { data: newProfile, error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: userId,
-          email: email,
-          display_name: email.split('@')[0],
-          role: 'admin'
-        })
-        .select()
-        .single();
-
-      if (profileError) {
-        console.error('[SIGNUP] Error creating profile:', profileError);
-        throw profileError;
+      
+      // Update profile with org_id if needed
+      if (!profile?.org_id) {
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({ org_id: existingMember.organization_id })
+          .eq('id', userId);
+          
+        if (updateError) {
+          console.error('[SIGNUP] Error updating profile with org_id:', updateError);
+        }
       }
-      console.log('[SIGNUP] Created new profile:', newProfile);
+      return;
     }
     
     // Create organization with user's email domain as name
@@ -72,7 +68,8 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
         name: orgName.slice(0, 100), // Ensure name isn't too long
         email: email,
         created_by: userId,
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        owner_id: userId // Add owner_id as it's required
       })
       .select()
       .single();
@@ -235,7 +232,7 @@ export default function SignUp() {
       });
 
       if (error) {
-        console.error('Error signing up:', error.message);
+        console.error('[SIGNUP] Error signing up:', error.message);
         setError(error.message);
         return;
       }
@@ -247,20 +244,13 @@ export default function SignUp() {
 
       if (data?.user && !data.session) {
         // Email confirmation is required
-        setError('Please check your email for a confirmation link to complete your registration.');
+        router.push('/auth/verify-email');
         return;
       }
 
-      if (data?.session && data?.user) {
-        // Create organization for the user
-        try {
-          await createUserOrganization(supabase, data.user.id, email);
-          console.log('Organization created successfully');
-          router.push('/dashboard');
-        } catch (orgError) {
-          console.error('Error creating organization:', orgError);
-          setError('Account created but failed to set up organization. Please contact support.');
-        }
+      // If we have a session, redirect to onboarding
+      if (data?.session) {
+        router.push('/onboarding');
       }
     } catch (err) {
       console.error('Unexpected error during signup:', err);

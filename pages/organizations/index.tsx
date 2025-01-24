@@ -1,6 +1,7 @@
+import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
-import { Lock } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
 import { Database } from '../../types/supabase';
@@ -44,94 +45,84 @@ export default function OrganizationManagement() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Lock className="h-12 w-12 text-slate-400 mx-auto" />
-          <h1 className="text-2xl font-semibold">Please log in to view organizations</h1>
-          <Button
-            onClick={() => router.push('/auth/signin')}
-            className="inline-flex items-center gap-2"
-          >
-            Log In
-          </Button>
+      <AppLayout>
+        <div className="container mx-auto px-4 py-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Access Denied</CardTitle>
+              <CardDescription>
+                Please log in to view organizations
+              </CardDescription>
+            </CardHeader>
+          </Card>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
-  if (isLoading) {
-    return <div className="p-4">Loading organizations...</div>;
-  }
-
-  if (error) {
-    return <div className="p-4 text-red-500">Error: {error}</div>;
-  }
-
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="bg-gray-800 p-4 shadow-lg">
-        <div className="container mx-auto flex justify-between items-center">
-          <h1 className="text-xl font-bold">FlowSupport</h1>
-          <div className="flex items-center gap-4">
-            <span>{user.email}</span>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto p-4">
+    <AppLayout>
+      <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold">Organizations</h2>
-          <button 
-            className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg"
-          >
-            Create New Org
-          </button>
+          <h1 className="text-2xl font-semibold text-gray-900">Organizations</h1>
+          <Button onClick={() => router.push('/organizations/new')}>
+            Create Organization
+          </Button>
         </div>
 
-        {organizations.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
-            No organizations found.
+        {isLoading ? (
+          <div className="space-y-4">
+            {[...Array(3)].map((_, i) => (
+              <Card key={i} className="animate-pulse">
+                <CardHeader>
+                  <div className="h-6 bg-gray-200 rounded w-1/4"></div>
+                  <div className="h-4 bg-gray-200 rounded w-1/3 mt-2"></div>
+                </CardHeader>
+              </Card>
+            ))}
           </div>
+        ) : error ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Error</CardTitle>
+              <CardDescription>{error}</CardDescription>
+            </CardHeader>
+          </Card>
+        ) : organizations.length === 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>No Organizations</CardTitle>
+              <CardDescription>
+                Get started by creating your first organization
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button onClick={() => router.push('/organizations/new')}>
+                Create Organization
+              </Button>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="bg-gray-800 rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-700">
-                <tr>
-                  <th className="px-6 py-3 text-left">Name</th>
-                  <th className="px-6 py-3 text-left">SLA Tier</th>
-                  <th className="px-6 py-3 text-left">Created At</th>
-                  <th className="px-6 py-3 text-left">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {organizations.map((org) => (
-                  <tr key={org.id} className="border-t border-gray-700">
-                    <td className="px-6 py-4">{org.name}</td>
-                    <td className="px-6 py-4">{org.sla_tier}</td>
-                    <td className="px-6 py-4">
-                      {new Date(org.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4">
-                      <button 
-                        className="text-blue-400 hover:text-blue-300 mr-3"
-                      >
-                        Edit
-                      </button>
-                      <button 
-                        className="text-red-400 hover:text-red-300"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {organizations.map((org) => (
+              <Card key={org.id} className="hover:shadow-lg transition-shadow">
+                <CardHeader>
+                  <CardTitle>{org.name}</CardTitle>
+                  <CardDescription>Organization ID: {org.id}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button
+                    variant="outline"
+                    onClick={() => router.push(`/organizations/${org.id}/settings`)}
+                  >
+                    Manage Organization
+                  </Button>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         )}
-      </main>
-    </div>
+      </div>
+    </AppLayout>
   );
 } 

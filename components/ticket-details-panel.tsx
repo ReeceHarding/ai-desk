@@ -1,18 +1,18 @@
-import { motion } from 'framer-motion';
-import { Button } from '@/components/ui/button';
 import { Avatar } from '@/components/ui/avatar';
-import Image from 'next/image';
+import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import {
-  AlertCircle,
-  Building,
-  Clock,
-  EyeOff,
-  CheckCircle,
-  Lock,
-  Inbox,
-} from 'lucide-react';
 import { Database } from '@/types/supabase';
+import { motion } from 'framer-motion';
+import {
+    AlertCircle,
+    Building,
+    CheckCircle,
+    Clock,
+    EyeOff,
+    Inbox,
+    Lock,
+} from 'lucide-react';
+import Image from 'next/image';
 
 type Profile = {
   display_name: string | null;
@@ -75,26 +75,25 @@ export function TicketDetailsPanel({
     <motion.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
-      className="bg-slate-800/50 backdrop-blur-sm rounded-lg p-6 space-y-6"
+      className="bg-white rounded-lg border border-gray-200 p-6 space-y-6"
     >
       <div>
-        <h3 className="text-sm font-medium text-slate-400 mb-2">Status</h3>
+        <h3 className="text-sm font-medium text-gray-500 mb-2">Status</h3>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
-              className={`w-full justify-start hover:bg-slate-700/50 transition-colors ${statusColors[ticket.status]}`}
+              className="w-full justify-start"
             >
               <StatusIcon status={ticket.status} />
               <span className="ml-2 capitalize">{ticket.status}</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="bg-slate-800 border-slate-700">
+          <DropdownMenuContent align="end">
             {Object.keys(statusColors).map((status) => (
               <DropdownMenuItem
                 key={status}
                 onClick={() => onStatusChange(status as Ticket['status'])}
-                className={`${statusColors[status]} hover:bg-slate-700/50`}
               >
                 <StatusIcon status={status} />
                 <span className="ml-2 capitalize">{status}</span>
@@ -105,23 +104,22 @@ export function TicketDetailsPanel({
       </div>
 
       <div>
-        <h3 className="text-sm font-medium text-slate-400 mb-2">Priority</h3>
+        <h3 className="text-sm font-medium text-gray-500 mb-2">Priority</h3>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
-              className={`w-full justify-start hover:bg-slate-700/50 transition-colors ${priorityColors[ticket.priority]}`}
+              className="w-full justify-start"
             >
               <AlertCircle className="h-4 w-4" />
               <span className="ml-2 uppercase">{ticket.priority}</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent className="bg-slate-800 border-slate-700">
+          <DropdownMenuContent align="end">
             {Object.keys(priorityColors).map((priority) => (
               <DropdownMenuItem
                 key={priority}
                 onClick={() => onPriorityChange(priority as Ticket['priority'])}
-                className={`${priorityColors[priority]} hover:bg-slate-700/50`}
               >
                 <AlertCircle className="h-4 w-4" />
                 <span className="ml-2 uppercase">{priority}</span>
@@ -132,7 +130,7 @@ export function TicketDetailsPanel({
       </div>
 
       <div>
-        <h3 className="text-sm font-medium text-slate-400 mb-2">Customer</h3>
+        <h3 className="text-sm font-medium text-gray-500 mb-2">Customer</h3>
         <div className="flex items-center gap-3">
           <Avatar>
             <Image
@@ -144,10 +142,10 @@ export function TicketDetailsPanel({
             />
           </Avatar>
           <div>
-            <div className="font-medium">
+            <div className="font-medium text-gray-900">
               {ticket.customer?.display_name || 'Unknown Customer'}
             </div>
-            <div className="text-sm text-slate-400">
+            <div className="text-sm text-gray-500">
               {ticket.customer?.email || 'No email'}
             </div>
           </div>
@@ -156,12 +154,12 @@ export function TicketDetailsPanel({
 
       {ticket.organization && (
         <div>
-          <h3 className="text-sm font-medium text-slate-400 mb-2">Organization</h3>
+          <h3 className="text-sm font-medium text-gray-500 mb-2">Organization</h3>
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-slate-700 flex items-center justify-center">
-              <Building className="h-5 w-5 text-slate-400" />
+            <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center">
+              <Building className="h-5 w-5 text-gray-500" />
             </div>
-            <div className="font-medium">{ticket.organization.name}</div>
+            <div className="font-medium text-gray-900">{ticket.organization.name}</div>
           </div>
         </div>
       )}

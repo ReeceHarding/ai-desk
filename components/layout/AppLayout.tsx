@@ -1,6 +1,6 @@
 import { Toaster } from '@/components/ui/toaster';
-import { useUserRole } from '@/hooks/useUserRole';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Database } from '@/types/supabase';
+import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { useRouter } from 'next/router';
 import { ReactNode, useEffect, useState } from 'react';
 import { useThreadPanel } from '../../contexts/ThreadPanelContext';
@@ -12,10 +12,10 @@ interface AppLayoutProps {
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
-  const supabase = createClientComponentClient();
-  const { role } = useUserRole();
+  const user = useUser();
+  const supabase = useSupabaseClient<Database>();
   const [orgId, setOrgId] = useState<string | null>(null);
-  const isAdmin = role === 'admin' || role === 'super_admin';
+  const [isStaff, setIsStaff] = useState(false);
   const { isThreadPanelOpen } = useThreadPanel();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -37,13 +37,45 @@ export default function AppLayout({ children }: AppLayoutProps) {
     fetchUserOrg();
   }, [supabase]);
 
+  useEffect(() => {
+    if (user) {
+      // Check if user is staff
+      supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+        .then(({ data }) => {
+          setIsStaff(data?.role === 'admin' || data?.role === 'agent');
+        });
+    }
+  }, [user, supabase]);
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push('/auth/signin');
   };
 
+  const customerNavItems = [
+    {
+      title: 'My Tickets',
+      href: '/tickets',
+      icon: 'Ticket'
+    },
+    {
+      title: 'New Ticket',
+      href: '/tickets/new',
+      icon: 'Plus'
+    },
+    {
+      title: 'Profile',
+      href: '/profile',
+      icon: 'User'
+    }
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
       {/* Header */}
       <header className="fixed top-0 z-30 w-full bg-white border-b border-gray-200 shadow-sm">
         <div className="px-3 sm:px-6 lg:px-8">
