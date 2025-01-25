@@ -1,31 +1,10 @@
-import { EmailComposer } from "@/components/EmailComposer"
-import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Database } from "@/types/supabase"
-import { useSupabaseClient } from "@supabase/auth-helpers-react"
-import { format } from "date-fns"
-import { AnimatePresence, motion } from "framer-motion"
-import { Forward, Loader2, Mail, MoreHorizontal, Paperclip, Reply, Star, X } from "lucide-react"
-import { useEffect, useState } from "react"
-import { useInView } from "react-intersection-observer"
-
-interface EmailMessage {
-  id: string
-  ticket_id: string
-  message_id: string | null
-  thread_id: string | null
-  from_address: string | null
-  to_address: string[] | null
-  cc_address: string[] | null
-  bcc_address: string[] | null
-  subject: string | null
-  body: string | null
-  attachments: any
-  sent_at: string | null
-  org_id: string
-  created_at: string
-  updated_at: string
-}
+import { Database } from '@/types/supabase'
+import { useSupabaseClient } from '@supabase/auth-helpers-react'
+import { Download, Paperclip, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { toast } from 'sonner'
+import { EmailComposer } from './EmailComposer'
+import { Button } from './ui/button'
 
 interface EmailThreadPanelProps {
   isOpen: boolean
@@ -45,124 +24,66 @@ interface EmailThreadPanelProps {
   } | null
 }
 
+interface EmailMessage {
+  id: string
+  from_address: string
+  to_address: string[]
+  subject: string
+  body: string
+  thread_id?: string | null
+  message_id?: string | null
+  attachments: Array<{
+    name: string
+    url: string
+    size: number
+    type: string
+  }>
+  created_at: string
+}
+
 export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelProps) {
   const [messageList, setMessageList] = useState<EmailMessage[]>([])
-  const [isLoading, setIsLoading] = useState(false)
-  const [hasMore, setHasMore] = useState(true)
-  const [page, setPage] = useState(0)
-  const { ref, inView } = useInView()
+  const [loading, setLoading] = useState(false)
   const supabase = useSupabaseClient<Database>()
 
-  const fetchMessages = async (pageNum: number) => {
-    if (!ticket?.id || isLoading) return
-    setIsLoading(true)
-    try {
-      const limit = 20
-      const from = pageNum * limit
-      const to = from + limit - 1
-
-      const { data, error } = await supabase
-        .from('ticket_email_chats')
-        .select('*')
-        .eq('ticket_id', ticket.id)
-        .order('sent_at', { ascending: false })
-        .range(from, to)
-
-      if (error) throw error
-
-      if (pageNum === 0) {
-        setMessageList(data)
-      } else {
-        setMessageList((prev) => [...prev, ...data])
-      }
-      setHasMore(data.length === limit)
-    } catch (error) {
-      console.error("Error fetching ticket email thread:", error)
-    } finally {
-      setIsLoading(false)
+  useEffect(() => {
+    if (ticket?.id) {
+      fetchMessages()
     }
+  }, [ticket?.id])
+
+  const fetchMessages = async () => {
+    if (!ticket) return
+
+    const { data: messages, error } = await supabase
+      .from('ticket_email_chats')
+      .select(`
+        id,
+        from_address,
+        to_address,
+        subject,
+        body,
+        attachments,
+        created_at
+      `)
+      .eq('ticket_id', ticket.id)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching messages:', error)
+      toast.error('Failed to load messages.')
+      return
+    }
+
+    setMessageList(messages || [])
   }
 
-  useEffect(() => {
-    if (isOpen && ticket?.id) {
-      setPage(0)
-      setMessageList([])
-      setHasMore(true)
-      fetchMessages(0)
-    }
-  }, [isOpen, ticket?.id])
-
-  useEffect(() => {
-    if (inView && hasMore && !isLoading) {
-      const nextPage = page + 1
-      setPage(nextPage)
-      fetchMessages(nextPage)
-    }
-  }, [inView, hasMore, isLoading])
-
-  useEffect(() => {
-    if (!ticket?.id) return;
-
-    // Subscribe to new messages
-    const channel = supabase
-      .channel(`ticket-${ticket.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*', // Listen for all events (INSERT, UPDATE, DELETE)
-          schema: 'public',
-          table: 'ticket_email_chats',
-          filter: `ticket_id=eq.${ticket.id}`,
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            // Add new message to the list
-            const newMessage = payload.new as EmailMessage;
-            setMessageList((prev) => {
-              // Check if message already exists
-              const exists = prev.some(msg => msg.id === newMessage.id);
-              if (exists) return prev;
-              
-              // Add new message and sort by date
-              const updated = [newMessage, ...prev];
-              return updated.sort((a, b) => {
-                const dateA = a.sent_at ? new Date(a.sent_at) : new Date(a.created_at);
-                const dateB = b.sent_at ? new Date(b.sent_at) : new Date(b.created_at);
-                return dateB.getTime() - dateA.getTime();
-              });
-            });
-          } else if (payload.eventType === 'UPDATE') {
-            // Update existing message
-            const updatedMessage = payload.new as EmailMessage;
-            setMessageList((prev) => 
-              prev.map(msg => msg.id === updatedMessage.id ? updatedMessage : msg)
-            );
-          } else if (payload.eventType === 'DELETE') {
-            // Remove deleted message
-            const deletedMessage = payload.old as EmailMessage;
-            setMessageList((prev) => 
-              prev.filter(msg => msg.id !== deletedMessage.id)
-            );
-          }
-        }
-      )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`Subscribed to real-time updates for ticket ${ticket.id}`);
-        }
-      });
-
-    return () => {
-      console.log(`Unsubscribing from real-time updates for ticket ${ticket.id}`);
-      supabase.removeChannel(channel);
-    };
-  }, [ticket?.id, supabase]);
-
-  const handleSendMessage = async (htmlBody: string, attachments: any[]) => {
-    if (!ticket) return;
+  const handleSendMessage = async (body: string, attachments: any[]) => {
+    if (!ticket) return
+    setLoading(true)
     try {
       // Get the latest message for threading info
-      const latestMessage = messageList[0];
+      const latestMessage = messageList[0]
       
       // If this is a website-originated ticket (no thread_id), store directly in database
       if (!ticket.thread_id && !latestMessage?.thread_id) {
@@ -173,20 +94,25 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
             from_address: latestMessage?.to_address?.[0] || "support@yourdomain.com",
             to_address: [latestMessage?.from_address || ticket.customer?.email],
             subject: latestMessage ? `Re: ${latestMessage.subject?.replace(/^Re:\s*/i, '')}` : "Re: Support Ticket",
-            body: htmlBody,
-            attachments: attachments,
+            body,
+            attachments,
             org_id: ticket.org_id
           })
           .select()
-          .single();
+          .single()
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error sending message:', error)
+          toast.error('Failed to send message.')
+          return
+        }
         
         // Add new message to the list
         if (newMessage) {
-          setMessageList((prev) => [newMessage, ...prev]);
+          setMessageList((prev) => [newMessage, ...prev])
+          toast.success('Message sent successfully.')
         }
-        return;
+        return
       }
 
       // Otherwise, send via Gmail API
@@ -204,181 +130,104 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
           fromAddress: latestMessage?.to_address?.[0] || "support@yourdomain.com",
           toAddresses: [latestMessage?.from_address || ticket.customer?.email],
           subject: latestMessage ? `Re: ${latestMessage.subject?.replace(/^Re:\s*/i, '')}` : "Re: Support Ticket",
-          htmlBody,
+          htmlBody: body,
           attachments,
         }),
-      });
+      })
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to send email');
+        throw new Error('Failed to send email')
       }
 
-      const data = await response.json();
-
-      // Add new message to the list
-      setMessageList((prev) => [data, ...prev]);
+      await fetchMessages()
+      toast.success('Email sent successfully.')
     } catch (error) {
-      console.error("Send message error:", error);
-      throw error; // Re-throw to be handled by the UI
+      console.error('Error sending message:', error)
+      toast.error('Failed to send message.')
+    } finally {
+      setLoading(false)
     }
-  };
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString()
+  }
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes'
+    const k = 1024
+    const sizes = ['Bytes', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  if (!isOpen) return null
 
   return (
-    <AnimatePresence>
-      {isOpen && ticket?.id && (
-        <motion.div
-          initial={{ x: "100%" }}
-          animate={{ x: 0 }}
-          exit={{ x: "100%" }}
-          transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-          className="fixed inset-0 sm:absolute sm:inset-auto sm:top-0 sm:right-8 w-full sm:w-[600px] h-full bg-white border-l border-gray-200 flex flex-col sm:rounded-l-xl shadow-lg z-50"
-        >
-          {/* Header */}
-          <div className="p-3 sm:p-4 border-b border-gray-200 bg-white/50 backdrop-blur-sm flex items-center justify-between sticky top-0 z-10">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-50 flex items-center justify-center">
-                <Mail className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
-              </div>
+    <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-lg flex flex-col">
+      <div className="flex items-center justify-between p-4 border-b">
+        <h2 className="text-lg font-semibold">Email Thread</h2>
+        <Button variant="ghost" size="icon" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messageList.map((message) => (
+          <div
+            key={message.id}
+            className="bg-gray-50 rounded-lg p-4 space-y-2"
+          >
+            <div className="flex justify-between text-sm text-gray-600">
               <div>
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Email Thread</h2>
-                <p className="text-xs sm:text-sm text-gray-500">Ticket #{ticket.id}</p>
+                <div>From: {message.from_address}</div>
+                <div>To: {message.to_address.join(', ')}</div>
               </div>
+              <div>{formatDate(message.created_at)}</div>
             </div>
-            <div className="flex items-center gap-1.5 pr-1">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-gray-600 hover:text-gray-900"
-                    >
-                      <Star className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Star thread</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-gray-600 hover:text-gray-900"
-                    >
-                      <Forward className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Forward thread</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-gray-600 hover:text-gray-900"
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>More options</TooltipContent>
-                </Tooltip>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onClose}
-                  className="text-gray-600 hover:text-gray-900"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </TooltipProvider>
-            </div>
-          </div>
-
-          {/* Message List */}
-          <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4">
-            {/* Initial Ticket Description */}
-            {ticket?.description && (
-              <div className="bg-gray-50 rounded-lg p-4 mb-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="font-medium text-gray-900">
-                    {ticket.customer?.display_name || 'Customer'}
-                  </span>
-                  <span className="text-sm text-gray-500">
-                    {ticket.created_at && format(new Date(ticket.created_at), 'MMM d, yyyy h:mm a')}
-                  </span>
-                </div>
-                <div className="text-gray-700">
-                  <div className="font-medium mb-1">{ticket.subject || 'Support Ticket'}</div>
-                  <div className="whitespace-pre-wrap">{ticket.description}</div>
-                </div>
-              </div>
-            )}
             
-            {messageList.map((message, index) => (
-              <motion.div
-                key={message.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex flex-col gap-2 sm:gap-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                        <div className="font-medium text-gray-900 text-sm sm:text-base truncate">
-                          {message.from_address}
-                        </div>
-                        <div className="text-xs sm:text-sm text-gray-500">
-                          {message.sent_at
-                            ? format(new Date(message.sent_at), 'PPp')
-                            : format(new Date(message.created_at), 'PPp')}
+            <div className="text-sm font-medium">{message.subject}</div>
+            <div className="text-sm" dangerouslySetInnerHTML={{ __html: message.body }} />
+
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="mt-2 space-y-2">
+                <div className="text-sm font-medium">Attachments:</div>
+                <div className="space-y-1">
+                  {message.attachments.map((attachment, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-2 bg-white rounded-md text-sm"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Paperclip className="h-4 w-4 text-gray-500" />
+                        <div>
+                          <div className="font-medium">{attachment.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {formatFileSize(attachment.size)}
+                          </div>
                         </div>
                       </div>
-                      <div className="text-xs sm:text-sm text-gray-500 truncate">
-                        To: {message.to_address?.join(', ')}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-gray-600 hover:text-gray-900"
+                      <a
+                        href={attachment.url}
+                        download={attachment.name}
+                        className="p-1 hover:bg-gray-100 rounded-full"
+                        target="_blank"
+                        rel="noopener noreferrer"
                       >
-                        <Reply className="h-4 w-4" />
-                      </Button>
-                      {message.attachments && message.attachments.length > 0 && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-gray-600 hover:text-gray-900"
-                        >
-                          <Paperclip className="h-4 w-4" />
-                        </Button>
-                      )}
+                        <Download className="h-4 w-4 text-gray-500" />
+                      </a>
                     </div>
-                  </div>
-                  <div className="text-sm sm:text-base text-gray-600 break-words">
-                    {message.body}
-                  </div>
+                  ))}
                 </div>
-              </motion.div>
-            ))}
-            
-            {/* Load more trigger */}
-            {hasMore && (
-              <div ref={ref} className="flex justify-center p-4">
-                {isLoading && <Loader2 className="h-6 w-6 animate-spin text-gray-400" />}
               </div>
             )}
           </div>
+        ))}
+      </div>
 
-          {/* Composer */}
-          <div className="border-t border-gray-200 p-3 sm:p-4">
-            <EmailComposer onSend={handleSendMessage} />
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
+      <div className="border-t">
+        <EmailComposer onSend={handleSendMessage} loading={loading} />
+      </div>
+    </div>
+  )
 } 

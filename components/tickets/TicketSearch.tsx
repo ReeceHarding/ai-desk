@@ -89,7 +89,7 @@ export function TicketSearch({ orgId, onTicketSelect }: TicketSearchProps) {
   }, [fetchTickets]);
 
   const statusOptions = [
-    { value: '', label: 'All Statuses' },
+    { value: 'all', label: 'All Statuses' },
     { value: 'open', label: 'Open' },
     { value: 'pending', label: 'Pending' },
     { value: 'solved', label: 'Solved' },
@@ -97,7 +97,7 @@ export function TicketSearch({ orgId, onTicketSelect }: TicketSearchProps) {
   ];
 
   const priorityOptions = [
-    { value: '', label: 'All Priorities' },
+    { value: 'all', label: 'All Priorities' },
     { value: 'low', label: 'Low' },
     { value: 'medium', label: 'Medium' },
     { value: 'high', label: 'High' },

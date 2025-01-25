@@ -1,4 +1,3 @@
-import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -22,6 +21,8 @@ export default function OrganizationSettings() {
   const { role } = useUserRole();
   const isAdmin = role === 'admin' || role === 'super_admin';
   const [origin, setOrigin] = useState<string>('');
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchOrganization = useCallback(async () => {
     const { data, error } = await supabase
@@ -32,10 +33,13 @@ export default function OrganizationSettings() {
 
     if (error) {
       console.error('Error fetching organization:', error);
+      setError('Error fetching organization. Please try again later.');
+      setLoading(false);
       return;
     }
 
     setOrganization(data);
+    setLoading(false);
   }, [supabase, id]);
 
   useEffect(() => {
@@ -102,26 +106,46 @@ export default function OrganizationSettings() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <span className="ml-2">Loading organization settings...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error</h2>
+          <p className="text-gray-600">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAdmin) {
     return (
-      <AppLayout>
-        <div className="container mx-auto px-4 py-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Access Denied</CardTitle>
-              <CardDescription>
-                You do not have permission to access organization settings.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </div>
-      </AppLayout>
+      <div className="container mx-auto py-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Access Denied</CardTitle>
+            <CardDescription>
+              You do not have permission to access organization settings.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto py-8">
+      <div className="max-w-7xl mx-auto p-6">
         <h1 className="text-2xl font-semibold text-gray-900 mb-6">Organization Settings</h1>
         <div className="space-y-6">
           <Card>
@@ -154,6 +178,6 @@ export default function OrganizationSettings() {
           </Card>
         </div>
       </div>
-    </AppLayout>
+    </div>
   );
 } 

@@ -1,4 +1,3 @@
-import AppLayout from '@/components/layout/AppLayout'
 import { Database } from '@/types/supabase'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import { useRouter } from 'next/router'
@@ -73,14 +72,28 @@ export default function KnowledgeBasePage() {
 
   if (loading) {
     return (
-      <AppLayout>
-        <div className="p-6">Loading knowledge base...</div>
-      </AppLayout>
-    )
+      <div className="container mx-auto py-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <span className="ml-2">Loading articles...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error</h2>
+          <p className="text-gray-600">{error}</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <AppLayout>
+    <div className="container mx-auto py-8">
       <div className="max-w-7xl mx-auto p-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">Knowledge Base</h1>
@@ -92,12 +105,6 @@ export default function KnowledgeBasePage() {
             className="border rounded-lg px-4 py-2 w-64"
           />
         </div>
-
-        {error && (
-          <div className="bg-red-50 text-red-500 p-4 rounded mb-4">
-            {error}
-          </div>
-        )}
 
         {/* Categories */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -148,6 +155,6 @@ export default function KnowledgeBasePage() {
           </div>
         </div>
       </div>
-    </AppLayout>
+    </div>
   )
 } 

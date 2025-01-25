@@ -1,7 +1,8 @@
 import { Database } from '@/types/supabase';
+import { downloadAndStoreAttachment, parseGmailMessage } from '@/utils/gmail';
 import { logger } from '@/utils/logger';
 import { createClient } from '@supabase/supabase-js';
-import { gmail_v1, google } from 'googleapis';
+import { gmail_v1 } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 type Schema$MessagePartHeader = gmail_v1.Schema$MessagePartHeader;
@@ -96,6 +97,80 @@ const supabase = createClient<Database>(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+async function processAttachments(
+  auth: any,
+  message: gmail_v1.Schema$Message,
+  orgId: string
+) {
+  if (!message.id) {
+    await logger.error('Message missing ID');
+    return [];
+  }
+
+  // Transform Gmail message to our internal format
+  const transformedMessage = {
+    id: message.id,
+    threadId: message.threadId || '',
+    snippet: message.snippet || undefined,
+    labelIds: message.labelIds || undefined,
+    payload: message.payload ? {
+      headers: message.payload.headers?.map(header => ({
+        name: header.name || '',
+        value: header.value || ''
+      })),
+      mimeType: message.payload.mimeType || undefined,
+      body: message.payload.body ? {
+        data: message.payload.body.data || undefined
+      } : undefined,
+      parts: message.payload.parts?.map(part => ({
+        mimeType: part.mimeType || undefined,
+        body: part.body ? {
+          data: part.body.data || undefined
+        } : undefined,
+        parts: part.parts
+      }))
+    } : undefined
+  };
+
+  const parsedEmail = parseGmailMessage(transformedMessage);
+
+  const attachmentPromises = parsedEmail.attachments.map(async (attachment) => {
+    return downloadAndStoreAttachment(auth, message.id!, attachment, orgId);
+  });
+
+  const attachmentResults = await Promise.all(attachmentPromises);
+  const validAttachments = attachmentResults.filter((result): result is { filePath: string; metadata: any } => result !== null);
+
+  // Insert attachments into the database
+  if (validAttachments.length > 0) {
+    const { data: comment } = await supabase
+      .from('comments')
+      .select('id')
+      .eq('ticket_id', message.threadId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (comment) {
+      const attachmentInserts = validAttachments.map((att) => ({
+        comment_id: comment.id,
+        file_path: att.filePath,
+        metadata: att.metadata
+      }));
+
+      const { error: insertError } = await supabase
+        .from('attachments')
+        .insert(attachmentInserts);
+
+      if (insertError) {
+        await logger.error('Failed to insert attachments', { error: insertError });
+      }
+    }
+  }
+
+  return validAttachments;
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -114,263 +189,26 @@ export default async function handler(
   }
 
   try {
-    const messageData = req.body;
-    await logger.info('Received Gmail webhook', { 
-      messageData,
-      headers: req.headers,
-      timestamp: new Date().toISOString(),
-      body: req.body
-    });
+    const { message, auth, orgId } = req.body;
 
-    // Handle PubSub notification
-    let historyId: string | undefined;
-    if (messageData.message?.data) {
-      try {
-        const decodedData = JSON.parse(
-          Buffer.from(messageData.message.data, 'base64').toString()
-        );
-        historyId = decodedData.historyId;
-        await logger.info('Decoded PubSub data', { decodedData });
-      } catch (error) {
-        await logger.error('Failed to decode PubSub data', { error });
-      }
-    }
+    // Process message body
+    const emailBody = await getEmailBody(message);
+    
+    // Process attachments
+    const attachments = await processAttachments(auth, message, orgId);
 
-    // Get organization with Gmail integration
-    const { data: orgs, error: orgsError } = await supabase
-      .from('organizations')
-      .select('id, gmail_access_token, gmail_refresh_token, gmail_history_id')
-      .not('gmail_access_token', 'is', null);
-
-    if (orgsError) {
-      await logger.error('Failed to fetch organizations', { 
-        error: orgsError,
-        errorMessage: orgsError.message,
-        errorDetails: orgsError.details 
-      });
-      return res.status(500).json({ error: 'Failed to fetch organizations' });
-    }
-
-    if (!orgs || orgs.length === 0) {
-      await logger.error('No organizations found with Gmail tokens');
-      return res.status(404).json({ error: 'No organizations found with Gmail tokens' });
-    }
-
-    // Process for each organization with Gmail tokens
-    for (const org of orgs) {
-      if (!org.gmail_access_token || !org.gmail_refresh_token) {
-        await logger.error('Organization missing Gmail tokens', { orgId: org.id });
-        continue;
-      }
-
-      await logger.info('Processing organization with Gmail integration', { 
-        orgId: org.id,
-        hasAccessToken: !!org.gmail_access_token,
-        hasRefreshToken: !!org.gmail_refresh_token,
-        currentHistoryId: org.gmail_history_id,
-        newHistoryId: historyId
-      });
-
-      const oauth2Client = new google.auth.OAuth2(
-        process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
-        process.env.GMAIL_CLIENT_SECRET,
-        process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
-      );
-
-      oauth2Client.setCredentials({
-        access_token: org.gmail_access_token,
-        refresh_token: org.gmail_refresh_token,
-      });
-
-      // Add token refresh handler
-      oauth2Client.on('tokens', async (tokens) => {
-        if (tokens.access_token) {
-          await supabase
-            .from('organizations')
-            .update({
-              gmail_access_token: tokens.access_token,
-              ...(tokens.refresh_token && { gmail_refresh_token: tokens.refresh_token })
-            })
-            .eq('id', org.id);
-          
-          await logger.info('Updated Gmail tokens', { 
-            orgId: org.id,
-            hasNewAccessToken: !!tokens.access_token,
-            hasNewRefreshToken: !!tokens.refresh_token
-          });
-        }
-      });
-
-      const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-
-      // Get Gmail user profile to verify the organization
-      try {
-        const profile = await gmail.users.getProfile({ userId: 'me' });
-        await logger.info('Gmail profile fetched', {
-          orgId: org.id,
-          emailAddress: profile.data.emailAddress
-        });
-      } catch (error) {
-        await logger.error('Failed to fetch Gmail profile', {
-          error,
-          orgId: org.id
-        });
-        continue;
-      }
-
-      // If we have a history ID, get changes since last check
-      if (historyId && org.gmail_history_id) {
-        try {
-          const historyResponse = await gmail.users.history.list({
-            userId: 'me',
-            startHistoryId: org.gmail_history_id
-          });
-
-          await logger.info('Gmail history response', {
-            orgId: org.id,
-            historyCount: historyResponse.data.history?.length,
-            hasHistory: !!historyResponse.data.history
-          });
-
-          if (historyResponse.data.history) {
-            for (const history of historyResponse.data.history) {
-              if (history.messagesAdded) {
-                for (const messageAdded of history.messagesAdded) {
-                  if (!messageAdded.message?.id) continue;
-
-                  try {
-                    const fullMessageResponse = await gmail.users.messages.get({
-                      userId: 'me',
-                      id: messageAdded.message.id,
-                      format: 'full'
-                    });
-
-                    // Process the message
-                    await processMessage(fullMessageResponse.data, org.id);
-                    metrics.successfulMessages++;
-                  } catch (error) {
-                    metrics.failedMessages++;
-                    await logger.error('Failed to process message from history', {
-                      error,
-                      messageId: messageAdded.message.id,
-                      orgId: org.id
-                    });
-                  }
-                }
-              }
-            }
-          }
-        } catch (error) {
-          await logger.error('Failed to get Gmail history', {
-            error,
-            orgId: org.id,
-            startHistoryId: org.gmail_history_id
-          });
-        }
-      }
-
-      // Fallback to listing recent messages
-      try {
-        const messagesResponse = await gmail.users.messages.list({
-          userId: 'me',
-          q: 'newer_than:10m',
-          maxResults: 10
-        });
-
-        await logger.info('Gmail messages list response', { 
-          orgId: org.id,
-          resultSizeEstimate: messagesResponse.data.resultSizeEstimate,
-          nextPageToken: messagesResponse.data.nextPageToken,
-          hasMessages: !!messagesResponse.data.messages?.length,
-          messageIds: messagesResponse.data.messages?.map(m => m.id)
-        });
-
-        const messages = messagesResponse.data.messages;
-        if (!messages) {
-          await logger.info('No new messages found', { orgId: org.id });
-          continue;
-        }
-
-        metrics.totalMessages += messages.length;
-
-        // Process each message
-        for (const message of messages) {
-          const messageStartTime = Date.now();
-          try {
-            if (!message.id) {
-              await logger.warn('Message missing ID', { message });
-              continue;
-            }
-
-            const fullMessageResponse = await gmail.users.messages.get({
-              userId: 'me',
-              id: message.id,
-              format: 'full'
-            });
-
-            // Process the message
-            await processMessage(fullMessageResponse.data, org.id);
-            metrics.successfulMessages++;
-            metrics.messageProcessingTime += Date.now() - messageStartTime;
-          } catch (error) {
-            metrics.failedMessages++;
-            await logger.error('Failed to process message', {
-              error,
-              messageId: message.id,
-              orgId: org.id
-            });
-          }
-        }
-      } catch (error) {
-        await logger.error('Failed to list Gmail messages', {
-          error,
-          orgId: org.id
-        });
-      }
-
-      // Update history ID if provided
-      if (historyId) {
-        try {
-          await supabase
-            .from('organizations')
-            .update({ gmail_history_id: historyId })
-            .eq('id', org.id);
-        } catch (error) {
-          await logger.error('Failed to update history ID', {
-            error,
-            orgId: org.id,
-            historyId
-          });
-        }
-      }
-    }
-
-    // Log final metrics
-    const totalProcessingTime = Date.now() - metrics.startTime;
-    await logger.info('Webhook processing completed', { 
-      totalProcessingTime,
-      messageProcessingTime: metrics.messageProcessingTime,
-      totalMessages: metrics.totalMessages,
-      successfulMessages: metrics.successfulMessages,
-      failedMessages: metrics.failedMessages,
-      averageMessageProcessingTime: metrics.totalMessages ? metrics.messageProcessingTime / metrics.totalMessages : 0
-    });
-
-    return res.status(200).json({ 
-      status: 'success',
-      metrics: {
-        totalProcessingTime,
-        totalMessages: metrics.totalMessages,
-        successfulMessages: metrics.successfulMessages,
-        failedMessages: metrics.failedMessages
-      }
+    // Update the response to include attachment information
+    res.status(200).json({ 
+      success: true,
+      body: emailBody,
+      attachments: attachments.map(att => ({
+        filePath: att.filePath,
+        metadata: att.metadata
+      }))
     });
   } catch (error) {
-    await logger.error('Webhook processing error', { 
-      error,
-      processingTime: Date.now() - metrics.startTime
-    });
-    return res.status(500).json({ error: 'Internal server error' });
+    await logger.error('Webhook handler error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 }
 

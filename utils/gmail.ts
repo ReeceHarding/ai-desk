@@ -1,8 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { google } from 'googleapis';
 import { resolve } from 'path';
-import { GmailMessage, GmailProfile, GmailTokens, ParsedEmail } from '../types/gmail';
+import { GmailAttachment, GmailMessage, GmailProfile, GmailTokens, ParsedEmail } from '../types/gmail';
 import { Database } from '../types/supabase';
+
+// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
+google.options({ http2: false });
 
 // Load environment variables
 dotenv.config({ path: resolve(__dirname, '../.env') });
@@ -26,25 +30,37 @@ interface GmailMessagePart {
   body?: {
     data?: string;
     size?: number;
+    attachmentId?: string;
   };
   parts?: GmailMessagePart[];
   filename?: string;
   partId?: string;
 }
 
-const extractBody = (part: GmailMessagePart | undefined): string | null => {
-  if (!part) return null;
+const extractAttachments = (part: GmailMessagePart | undefined, messageId: string): GmailAttachment[] => {
+  const attachments: GmailAttachment[] = [];
   
-  if (part.mimeType === 'text/plain' && part.body?.data) {
-    return Buffer.from(part.body.data, 'base64').toString();
+  if (!part) return attachments;
+
+  // Check if current part is an attachment
+  if (part.filename && part.body?.attachmentId) {
+    attachments.push({
+      filename: part.filename,
+      mimeType: part.mimeType || 'application/octet-stream',
+      size: part.body.size || 0,
+      attachmentId: part.body.attachmentId,
+      partId: part.partId || ''
+    });
   }
+
+  // Recursively check parts
   if (part.parts) {
     for (const subPart of part.parts) {
-      const body = extractBody(subPart);
-      if (body) return body;
+      attachments.push(...extractAttachments(subPart, messageId));
     }
   }
-  return null;
+
+  return attachments;
 };
 
 // Enhance logger with more detailed logging
@@ -216,6 +232,9 @@ export function parseGmailMessage(message: GmailMessage): ParsedEmail {
     return addressStr.split(',').map(addr => addr.trim());
   };
 
+  // Extract attachments
+  const attachments = extractAttachments(message.payload, message.id || '');
+
   return {
     messageId: message.id || '',
     threadId: message.threadId || '',
@@ -227,7 +246,7 @@ export function parseGmailMessage(message: GmailMessage): ParsedEmail {
     snippet: message.snippet || '',
     body,
     date,
-    attachments: {} // TODO: Implement attachment handling
+    attachments
   };
 }
 
@@ -731,4 +750,73 @@ export async function checkAndRefreshWatches(): Promise<void> {
   }
 }
 
-export const setupGmailWatch = setupOrRefreshWatch; 
+export const setupGmailWatch = setupOrRefreshWatch;
+
+export async function downloadAndStoreAttachment(
+  auth: any,
+  messageId: string,
+  attachment: GmailAttachment,
+  orgId: string
+): Promise<{ filePath: string; metadata: any } | null> {
+  try {
+    const gmail = google.gmail({ version: 'v1', auth });
+    
+    // Get the attachment data from Gmail
+    const response = await gmail.users.messages.attachments.get({
+      userId: 'me',
+      messageId: messageId,
+      id: attachment.attachmentId
+    });
+
+    if (!response.data.data) {
+      console.error('No attachment data received from Gmail');
+      return null;
+    }
+
+    // Decode the attachment data
+    const buffer = Buffer.from(response.data.data, 'base64');
+
+    // Generate a unique filename
+    const timestamp = new Date().getTime();
+    const safeFilename = attachment.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const filePath = `${orgId}/${messageId}/${timestamp}_${safeFilename}`;
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabase.storage
+      .from('private-attachments')
+      .upload(filePath, buffer, {
+        contentType: attachment.mimeType,
+        cacheControl: '3600'
+      });
+
+    if (uploadError) {
+      console.error('Failed to upload attachment to Supabase:', uploadError);
+      return null;
+    }
+
+    // Get the file URL
+    const { data: urlData } = supabase.storage
+      .from('private-attachments')
+      .getPublicUrl(filePath);
+
+    if (!urlData.publicUrl) {
+      console.error('Failed to get public URL for uploaded attachment');
+      return null;
+    }
+
+    // Return the file path and metadata
+    return {
+      filePath: urlData.publicUrl,
+      metadata: {
+        originalName: attachment.filename,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        messageId,
+        gmailAttachmentId: attachment.attachmentId
+      }
+    };
+  } catch (error) {
+    console.error('Error downloading and storing attachment:', error);
+    return null;
+  }
+} 

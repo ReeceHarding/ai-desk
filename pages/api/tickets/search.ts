@@ -59,12 +59,12 @@ export default async function handler(
     }
 
     // Apply status filter if provided
-    if (status && typeof status === 'string') {
+    if (status && typeof status === 'string' && status !== 'all') {
       query = query.eq('status', status);
     }
 
     // Apply priority filter if provided
-    if (priority && typeof priority === 'string') {
+    if (priority && typeof priority === 'string' && priority !== 'all') {
       query = query.eq('priority', priority);
     }
 

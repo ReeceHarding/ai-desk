@@ -1,4 +1,3 @@
-import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -31,6 +30,8 @@ export default function NewTicket() {
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TicketPriority>('low');
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const supabase = useSupabaseClient<Database>();
   const user = useUser();
@@ -84,102 +85,120 @@ export default function NewTicket() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <span className="ml-2">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error</h2>
+          <p className="text-gray-600">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
-      <AppLayout>
-        <div className="container mx-auto px-4 py-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Access Denied</CardTitle>
-              <CardDescription>
-                Please log in to create a new ticket
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </div>
-      </AppLayout>
+      <div className="container mx-auto py-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Access Denied</CardTitle>
+            <CardDescription>
+              Please log in to create a new ticket
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-2xl mx-auto">
-          <div className="flex items-center gap-4 mb-6">
-            <Button
-              variant="ghost"
-              onClick={() => router.push('/tickets')}
-              className="text-gray-600 hover:text-gray-900"
-            >
-              <ChevronLeft className="h-4 w-4 mr-2" />
-              Back to Tickets
-            </Button>
-            <h1 className="text-2xl font-semibold text-gray-900">Create New Ticket</h1>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Ticket Details</CardTitle>
-              <CardDescription>
-                Fill out the form below to create a new support ticket.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="subject">Subject</Label>
-                  <Input
-                    id="subject"
-                    value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
-                    placeholder="Brief description of the issue"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="description">How can we help you today?</Label>
-                  <Textarea
-                    id="description"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Please describe your issue in detail. The more information you provide, the better we can help you."
-                    className="min-h-[200px]"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="priority">Priority</Label>
-                  <Select
-                    value={priority}
-                    onValueChange={(value) => setPriority(value as TicketPriority)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select priority" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.keys(priorityColors).map((p) => (
-                        <SelectItem key={p} value={p}>
-                          <span className={priorityColors[p]}>
-                            {p.charAt(0).toUpperCase() + p.slice(1)}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex justify-end">
-                  <Button type="submit" disabled={submitting}>
-                    {submitting ? 'Creating...' : 'Create Ticket'}
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+    <div className="container mx-auto py-8">
+      <div className="max-w-7xl mx-auto p-6">
+        <div className="flex items-center gap-4 mb-6">
+          <Button
+            variant="ghost"
+            onClick={() => router.push('/tickets')}
+            className="text-gray-600 hover:text-gray-900"
+          >
+            <ChevronLeft className="h-4 w-4 mr-2" />
+            Back to Tickets
+          </Button>
+          <h1 className="text-2xl font-semibold text-gray-900">Create New Ticket</h1>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Ticket Details</CardTitle>
+            <CardDescription>
+              Fill out the form below to create a new support ticket.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <Label htmlFor="subject">Subject</Label>
+                <Input
+                  id="subject"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="Brief description of the issue"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="description">How can we help you today?</Label>
+                <Textarea
+                  id="description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Please describe your issue in detail. The more information you provide, the better we can help you."
+                  className="min-h-[200px]"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="priority">Priority</Label>
+                <Select
+                  value={priority}
+                  onValueChange={(value) => setPriority(value as TicketPriority)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(priorityColors).map((p) => (
+                      <SelectItem key={p} value={p}>
+                        <span className={priorityColors[p]}>
+                          {p.charAt(0).toUpperCase() + p.slice(1)}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex justify-end">
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? 'Creating...' : 'Create Ticket'}
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
       </div>
-    </AppLayout>
+    </div>
   );
 } 

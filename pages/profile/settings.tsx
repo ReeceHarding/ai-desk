@@ -1,4 +1,3 @@
-import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -7,8 +6,12 @@ import { useToast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
 import { getGmailProfile } from '@/utils/gmail';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
+import { google } from 'googleapis';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
+
+// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
+google.options({ http2: false });
 
 type UserRole = Database['public']['Enums']['user_role'];
 
@@ -221,110 +224,104 @@ export default function ProfileSettings() {
 
   if (isLoading) {
     return (
-      <AppLayout>
-        <div className="container mx-auto py-8">
-          <div className="flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-            <span className="ml-2">Loading profile...</span>
-          </div>
+      <div className="container mx-auto py-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <span className="ml-2">Loading profile...</span>
         </div>
-      </AppLayout>
+      </div>
     );
   }
 
   if (!profile) {
     return (
-      <AppLayout>
-        <div className="container mx-auto py-8">
-          <div className="text-center">
-            <h2 className="text-xl font-semibold mb-2">Profile Not Found</h2>
-            <p className="text-gray-600">Unable to load your profile data. Please try refreshing the page.</p>
-          </div>
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Profile Not Found</h2>
+          <p className="text-gray-600">Unable to load your profile data. Please try refreshing the page.</p>
         </div>
-      </AppLayout>
+      </div>
     );
   }
 
   return (
-    <AppLayout>
-      <div className="container mx-auto py-8">
-        <h1 className="text-2xl font-bold mb-6">Profile Settings</h1>
-        
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Role Settings</CardTitle>
-            <CardDescription>
-              Manage your user role
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center space-x-4">
-                <Label htmlFor="role">Role</Label>
-                <Select
-                  value={profile?.role || 'customer'}
-                  onValueChange={(value: UserRole) => handleRoleChange(value)}
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="customer">Customer</SelectItem>
-                    <SelectItem value="agent">Agent</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <h1 className="text-2xl font-bold mb-6">Profile Settings</h1>
+      
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Role Settings</CardTitle>
+          <CardDescription>
+            Manage your user role
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center space-x-4">
+              <Label htmlFor="role">Role</Label>
+              <Select
+                value={profile?.role || 'customer'}
+                onValueChange={(value: UserRole) => handleRoleChange(value)}
+              >
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="customer">Customer</SelectItem>
+                  <SelectItem value="agent">Agent</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </CardContent>
+      </Card>
 
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Personal Gmail Integration</CardTitle>
-            <CardDescription>
-              Connect your personal Gmail account to handle email communications
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Gmail Connection Status</Label>
-                  <p className="text-sm text-gray-500">
-                    {profile.gmail_refresh_token 
-                      ? `Connected to Gmail${gmailAddress ? ` (${gmailAddress})` : ''}`
-                      : 'Not connected to Gmail'}
-                  </p>
-                </div>
-                {profile.gmail_refresh_token ? (
-                  <div className="space-x-2">
-                    <Button
-                      onClick={handleConnectGmail}
-                      variant="outline"
-                    >
-                      Reconnect Gmail
-                    </Button>
-                    <Button
-                      onClick={handleDisconnectGmail}
-                      variant="destructive"
-                    >
-                      Disconnect Gmail
-                    </Button>
-                  </div>
-                ) : (
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Personal Gmail Integration</CardTitle>
+          <CardDescription>
+            Connect your personal Gmail account to handle email communications
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>Gmail Connection Status</Label>
+                <p className="text-sm text-gray-500">
+                  {profile.gmail_refresh_token 
+                    ? `Connected to Gmail${gmailAddress ? ` (${gmailAddress})` : ''}`
+                    : 'Not connected to Gmail'}
+                </p>
+              </div>
+              {profile.gmail_refresh_token ? (
+                <div className="space-x-2">
                   <Button
                     onClick={handleConnectGmail}
-                    variant="default"
+                    variant="outline"
                   >
-                    Connect Gmail
+                    Reconnect Gmail
                   </Button>
-                )}
-              </div>
+                  <Button
+                    onClick={handleDisconnectGmail}
+                    variant="destructive"
+                  >
+                    Disconnect Gmail
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  onClick={handleConnectGmail}
+                  variant="default"
+                >
+                  Connect Gmail
+                </Button>
+              )}
             </div>
-          </CardContent>
-        </Card>
-      </div>
-    </AppLayout>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 } 

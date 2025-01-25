@@ -58,6 +58,14 @@ export interface GmailMessage {
   labelIds?: string[];
 }
 
+export interface GmailAttachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  attachmentId: string;
+  partId: string;
+}
+
 export interface ParsedEmail {
   messageId: string;
   threadId: string;
@@ -72,7 +80,7 @@ export interface ParsedEmail {
     html: string;
   };
   date: Date;
-  attachments?: any;
+  attachments: GmailAttachment[];
 }
 
 export interface EmailLogParams {

@@ -1,4 +1,3 @@
-import AppLayout from '@/components/layout/AppLayout'
 import { Database } from '@/types/supabase'
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react'
 import { useRouter } from 'next/router'
@@ -56,9 +55,31 @@ export default function NewTicketPage() {
     setFormData(prev => ({ ...prev, [name]: value }))
   }
 
+  if (loading) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <span className="ml-2">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error</h2>
+          <p className="text-gray-600">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <AppLayout>
-      <div className="max-w-3xl mx-auto p-6">
+    <div className="container mx-auto py-8">
+      <div className="max-w-7xl mx-auto p-6">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-semibold">New Ticket</h1>
           <button
@@ -68,12 +89,6 @@ export default function NewTicketPage() {
             ← Back to Tickets
           </button>
         </div>
-
-        {error && (
-          <div className="bg-red-50 text-red-500 p-4 rounded mb-4">
-            {error}
-          </div>
-        )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
@@ -123,6 +138,6 @@ export default function NewTicketPage() {
           </div>
         </form>
       </div>
-    </AppLayout>
+    </div>
   )
 } 

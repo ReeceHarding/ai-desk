@@ -114,9 +114,10 @@ export default function AdminDashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-        <div className="text-center">
-          Loading dashboard...
+      <div className="container mx-auto py-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <span className="ml-2">Loading dashboard...</span>
         </div>
       </div>
     );
@@ -124,179 +125,160 @@ export default function AdminDashboard() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-        <div className="text-center text-red-600">
-          {error}
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error</h2>
+          <p className="text-gray-600">{error}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="py-10">
-        <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="md:flex md:items-center md:justify-between">
-            <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-bold leading-tight text-gray-900">
-              Admin Dashboard
-            </h1>
-            </div>
-            <div className="mt-4 flex md:mt-0 md:ml-4">
-              <select
-                value={interval}
-                onChange={(e) => setInterval(e.target.value)}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
-                <option value="hour">Hourly</option>
-                <option value="day">Daily</option>
-                <option value="week">Weekly</option>
-                <option value="month">Monthly</option>
-              </select>
-            </div>
-          </div>
-        </header>
+    <div className="container mx-auto py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
+        </div>
 
-        <main className="max-w-7xl mx-auto sm:px-6 lg:px-8">
-          {/* KPI Cards */}
-            <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            <Card>
-              <Title>Average First Response</Title>
-              <Text className="mt-4 text-2xl font-semibold">
-                {metrics?.averageFirstResponseTime || '0m'}
-              </Text>
-            </Card>
-            <Card>
-              <Title>Average Resolution Time</Title>
-              <Text className="mt-4 text-2xl font-semibold">
-                {metrics?.averageResolutionTime || '0m'}
-              </Text>
-            </Card>
-            <Card>
-              <Title>Total Tickets</Title>
-              <Text className="mt-4 text-2xl font-semibold">
-                {metrics?.ticketStatusBreakdown?.reduce((acc, curr) => acc + curr.count, 0) || 0}
-              </Text>
-            </Card>
-              </div>
+        {/* KPI Cards */}
+        <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <Card>
+            <Title>Average First Response</Title>
+            <Text className="mt-4 text-2xl font-semibold">
+              {metrics?.averageFirstResponseTime || '0m'}
+            </Text>
+          </Card>
+          <Card>
+            <Title>Average Resolution Time</Title>
+            <Text className="mt-4 text-2xl font-semibold">
+              {metrics?.averageResolutionTime || '0m'}
+            </Text>
+          </Card>
+          <Card>
+            <Title>Total Tickets</Title>
+            <Text className="mt-4 text-2xl font-semibold">
+              {metrics?.ticketStatusBreakdown?.reduce((acc, curr) => acc + curr.count, 0) || 0}
+            </Text>
+          </Card>
+        </div>
 
-          {/* Charts Section */}
-          <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
-            {/* Ticket Volume Over Time */}
-            <Card>
-              <Title>Ticket Volume Over Time</Title>
-              <div className="h-[400px] mt-4">
-                <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-                  <AreaChart data={metrics?.ticketVolume || []}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis
-                      dataKey="time_bucket"
-                      tickFormatter={(value) => format(new Date(value), 'MMM dd')}
-                    />
-                    <YAxis />
-                    <Tooltip
-                      labelFormatter={(value) => format(new Date(value), 'MMM dd, yyyy')}
-                    />
-                    <Legend />
-                    <Area
-                      type="monotone"
-                      dataKey="new_tickets"
-                      name="New Tickets"
-                      stroke="#3498db"
-                      fill="#3498db"
-                      fillOpacity={0.1}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="resolved_tickets"
-                      name="Resolved Tickets"
-                      stroke="#27ae60"
-                      fill="#27ae60"
-                      fillOpacity={0.1}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
-
-            {/* Ticket Status Distribution */}
-            <Card>
-              <Title>Ticket Status Distribution</Title>
-              <div className="h-[400px] mt-4">
-                <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-                  <PieChart>
-                    <Pie
-                      data={metrics?.ticketStatusBreakdown || []}
-                      dataKey="count"
-                      nameKey="status"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={100}
-                      label
-                    >
-                      {metrics?.ticketStatusBreakdown?.map((entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={COLORS[entry.status as keyof typeof COLORS]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </Card>
-          </div>
-
-          {/* Agent Performance */}
-          <Card className="mt-8">
-            <Title>Agent Performance</Title>
+        {/* Charts Section */}
+        <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
+          {/* Ticket Volume Over Time */}
+          <Card>
+            <Title>Ticket Volume Over Time</Title>
             <div className="h-[400px] mt-4">
               <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-                <BarChart data={metrics?.agentPerformance || []}>
+                <AreaChart data={metrics?.ticketVolume || []}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="agent_name" />
+                  <XAxis
+                    dataKey="time_bucket"
+                    tickFormatter={(value) => format(new Date(value), 'MMM dd')}
+                  />
                   <YAxis />
-                  <Tooltip />
+                  <Tooltip
+                    labelFormatter={(value) => format(new Date(value), 'MMM dd, yyyy')}
+                  />
                   <Legend />
-                  <Bar
-                    dataKey="tickets_assigned"
-                    name="Tickets Assigned"
+                  <Area
+                    type="monotone"
+                    dataKey="new_tickets"
+                    name="New Tickets"
+                    stroke="#3498db"
                     fill="#3498db"
+                    fillOpacity={0.1}
                   />
-                  <Bar
-                    dataKey="tickets_resolved"
-                    name="Tickets Resolved"
+                  <Area
+                    type="monotone"
+                    dataKey="resolved_tickets"
+                    name="Resolved Tickets"
+                    stroke="#27ae60"
                     fill="#27ae60"
+                    fillOpacity={0.1}
                   />
-                </BarChart>
+                </AreaChart>
               </ResponsiveContainer>
             </div>
           </Card>
 
-          {/* Action Buttons */}
-          <div className="mt-8 flex space-x-4">
-                <button
-              onClick={() => router.push('/admin/invite-agent')}
-              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                >
-                    Invite Agent
-                </button>
-                <button
-              onClick={() => router.push('/admin/workflows')}
-              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                >
-                    Manage Workflows
-                </button>
-                <button
-              onClick={() => router.push('/admin/settings')}
-              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                >
-                    Settings
-                </button>
+          {/* Ticket Status Distribution */}
+          <Card>
+            <Title>Ticket Status Distribution</Title>
+            <div className="h-[400px] mt-4">
+              <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+                <PieChart>
+                  <Pie
+                    data={metrics?.ticketStatusBreakdown || []}
+                    dataKey="count"
+                    nameKey="status"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={100}
+                    label
+                  >
+                    {metrics?.ticketStatusBreakdown?.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[entry.status as keyof typeof COLORS]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+        </div>
+
+        {/* Agent Performance */}
+        <Card className="mt-8">
+          <Title>Agent Performance</Title>
+          <div className="h-[400px] mt-4">
+            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+              <BarChart data={metrics?.agentPerformance || []}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="agent_name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar
+                  dataKey="tickets_assigned"
+                  name="Tickets Assigned"
+                  fill="#3498db"
+                />
+                <Bar
+                  dataKey="tickets_resolved"
+                  name="Tickets Resolved"
+                  fill="#27ae60"
+                />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        </main>
+        </Card>
+
+        {/* Action Buttons */}
+        <div className="mt-8 flex space-x-4">
+          <button
+            onClick={() => router.push('/admin/invite-agent')}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            Invite Agent
+          </button>
+          <button
+            onClick={() => router.push('/admin/workflows')}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            Manage Workflows
+          </button>
+          <button
+            onClick={() => router.push('/admin/settings')}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            Settings
+          </button>
+        </div>
       </div>
     </div>
   );

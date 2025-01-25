@@ -1,4 +1,3 @@
-import AppLayout from '@/components/layout/AppLayout'
 import { Database } from '@/types/supabase'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import Link from 'next/link'
@@ -123,30 +122,34 @@ export default function AdminArticlePage() {
 
   if (loading) {
     return (
-      <AppLayout>
-        <div className="p-6">Loading article...</div>
-      </AppLayout>
-    )
+      <div className="container mx-auto py-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <span className="ml-2">Loading article...</span>
+        </div>
+      </div>
+    );
   }
 
   if (error || !article) {
     return (
-      <AppLayout>
-        <div className="max-w-3xl mx-auto p-6">
-          <div className="bg-red-50 text-red-500 p-4 rounded mb-4">
-            {error || 'Article not found'}
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error</h2>
+          <p className="text-gray-600">{error || 'Article not found'}</p>
+          <div className="mt-4">
+            <Link href="/admin/knowledge-base" className="text-blue-600 hover:underline">
+              ← Back to Articles
+            </Link>
           </div>
-          <Link href="/admin/knowledge-base" className="text-blue-600 hover:underline">
-            ← Back to Articles
-          </Link>
         </div>
-      </AppLayout>
-    )
+      </div>
+    );
   }
 
   return (
-    <AppLayout>
-      <div className="max-w-3xl mx-auto p-6">
+    <div className="container mx-auto py-8">
+      <div className="max-w-7xl mx-auto p-6">
         <div className="flex justify-between items-center mb-6">
           <Link href="/admin/knowledge-base" className="text-blue-600 hover:underline">
             ← Back to Articles
@@ -224,6 +227,6 @@ export default function AdminArticlePage() {
           )}
         </article>
       </div>
-    </AppLayout>
+    </div>
   )
 } 

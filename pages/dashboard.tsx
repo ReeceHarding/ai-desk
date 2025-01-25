@@ -3,7 +3,6 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { User } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
-import AppLayout from '../components/layout/AppLayout';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 type Ticket = Database['public']['Tables']['tickets']['Row'];
@@ -410,17 +409,15 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <AppLayout>
-        <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
-          <div className="text-center">
-            <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p className="text-gray-600 text-sm font-medium">Loading your dashboard...</p>
-          </div>
+      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
+        <div className="text-center">
+          <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p className="text-gray-600 text-sm font-medium">Loading your dashboard...</p>
         </div>
-      </AppLayout>
+      </div>
     );
   }
 
@@ -429,96 +426,94 @@ export default function Dashboard() {
   }
 
   return (
-    <AppLayout>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">
-            {organization ? `${organization.name} Dashboard` : 'Welcome back!'}
-          </h1>
-          <p className="mt-2 text-sm text-gray-600">{user.email}</p>
-        </div>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900">
+          {organization ? `${organization.name} Dashboard` : 'Welcome back!'}
+        </h1>
+        <p className="mt-2 text-sm text-gray-600">{user.email}</p>
+      </div>
 
-        <div className="mb-6">
-          <nav className="flex space-x-4">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`px-3 py-2 rounded-md ${
-                activeTab === 'dashboard'
-                  ? 'bg-gray-900 text-white'
-                  : 'text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={() => setActiveTab('tickets')}
-              className={`px-3 py-2 rounded-md ${
-                activeTab === 'tickets'
-                  ? 'bg-gray-900 text-white'
-                  : 'text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Tickets
-            </button>
-            {userRole === 'admin' && (
-              <>
-                <button
-                  onClick={() => setActiveTab('overview')}
-                  className={`px-3 py-2 rounded-md ${
-                    activeTab === 'overview'
-                      ? 'bg-gray-900 text-white'
-                      : 'text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Overview
-                </button>
-                <button
-                  onClick={() => setActiveTab('agents')}
-                  className={`px-3 py-2 rounded-md ${
-                    activeTab === 'agents'
-                      ? 'bg-gray-900 text-white'
-                      : 'text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Agents
-                </button>
-              </>
-            )}
-          </nav>
-        </div>
+      <div className="mb-6">
+        <nav className="flex space-x-4">
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`px-3 py-2 rounded-md ${
+              activeTab === 'dashboard'
+                ? 'bg-gray-900 text-white'
+                : 'text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Dashboard
+          </button>
+          <button
+            onClick={() => setActiveTab('tickets')}
+            className={`px-3 py-2 rounded-md ${
+              activeTab === 'tickets'
+                ? 'bg-gray-900 text-white'
+                : 'text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            Tickets
+          </button>
+          {userRole === 'admin' && (
+            <>
+              <button
+                onClick={() => setActiveTab('overview')}
+                className={`px-3 py-2 rounded-md ${
+                  activeTab === 'overview'
+                    ? 'bg-gray-900 text-white'
+                    : 'text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Overview
+              </button>
+              <button
+                onClick={() => setActiveTab('agents')}
+                className={`px-3 py-2 rounded-md ${
+                  activeTab === 'agents'
+                    ? 'bg-gray-900 text-white'
+                    : 'text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                Agents
+              </button>
+            </>
+          )}
+        </nav>
+      </div>
 
-        {renderContent()}
+      {renderContent()}
 
-        {/* Invite Agent Modal */}
-        {showInviteModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg w-full max-w-md">
-              <h3 className="text-lg font-semibold mb-4">Invite Agent</h3>
-              <input
-                type="email"
-                value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="Enter email address"
-                className="w-full p-2 border rounded mb-4"
-              />
-              <div className="flex justify-end space-x-2">
-                <button
-                  onClick={() => setShowInviteModal(false)}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleInviteAgent}
-                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                >
-                  Send Invitation
-                </button>
-              </div>
+      {/* Invite Agent Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white p-6 rounded-lg w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Invite Agent</h3>
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="Enter email address"
+              className="w-full p-2 border rounded mb-4"
+            />
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setShowInviteModal(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleInviteAgent}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+              >
+                Send Invitation
+              </button>
             </div>
           </div>
-        )}
-      </div>
-    </AppLayout>
+        </div>
+      )}
+    </div>
   );
 } 

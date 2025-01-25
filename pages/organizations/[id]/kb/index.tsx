@@ -1,8 +1,8 @@
-import AppLayout from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { toast } from '@/components/ui/use-toast';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { AlertCircle, CheckCircle2, File, Upload } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
@@ -17,12 +17,15 @@ interface UploadState {
 
 export default function KnowledgeBaseUpload() {
   const router = useRouter();
+  const supabase = useSupabaseClient();
   const orgId = router.query.id as string;
   const [uploadState, setUploadState] = useState<UploadState>({
     file: null,
     progress: 0,
     status: 'idle',
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (router.isReady && (!orgId || orgId === 'null')) {
@@ -122,9 +125,31 @@ export default function KnowledgeBaseUpload() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <span className="ml-2">Loading knowledge base...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error</h2>
+          <p className="text-gray-600">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <AppLayout>
-      <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto py-8">
+      <div className="max-w-7xl mx-auto p-6">
         <h1 className="text-2xl font-semibold text-gray-900 mb-6">Knowledge Base Upload</h1>
         <Card className="p-6">
           <div
@@ -208,6 +233,6 @@ export default function KnowledgeBaseUpload() {
           )}
         </Card>
       </div>
-    </AppLayout>
+    </div>
   );
 } 

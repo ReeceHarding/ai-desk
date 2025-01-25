@@ -152,11 +152,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .update({
             gmail_access_token: access_token,
             gmail_refresh_token: refresh_token,
-            updated_at: new Date().toISOString(),
-            metadata: {
-              onboarding_completed: true,
-              onboarding_completed_at: new Date().toISOString()
-            }
+            updated_at: new Date().toISOString()
           })
           .eq('id', userId);
 
@@ -217,6 +213,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             })
             .eq('id', userId);
           // Continue with redirect even if watch setup fails
+        }
+
+        // Import initial emails
+        try {
+          await importInitialEmails(userId, {
+            access_token,
+            refresh_token,
+            token_type: 'Bearer',
+            scope: GMAIL_SCOPES.join(' '),
+            expiry_date: Date.now() + (expires_in * 1000)
+          });
+          log('Successfully imported initial emails for onboarding user');
+        } catch (importError) {
+          log('Error importing initial emails during onboarding:', importError);
+          // Continue with redirect even if import fails
         }
 
         // Redirect based on user type

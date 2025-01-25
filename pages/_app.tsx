@@ -1,3 +1,4 @@
+import AppLayout from '@/components/layout/AppLayout';
 import { logger } from '@/utils/logger';
 import { MantineProvider } from '@mantine/core';
 import { createPagesBrowserClient } from '@supabase/auth-helpers-nextjs';
@@ -7,6 +8,17 @@ import Head from 'next/head';
 import { useEffect, useState } from 'react';
 import { ThreadPanelProvider } from '../contexts/ThreadPanelContext';
 import '../styles/globals.css';
+
+// Routes that should not use AppLayout
+const noLayoutRoutes = [
+  '/auth/signin',
+  '/auth/signup',
+  '/onboarding',
+  '/onboarding/customer/select-org',
+  '/onboarding/agent/select-org',
+  '/onboarding/admin/create-org',
+  '/onboarding/select-role'
+];
 
 export default function App({ Component, pageProps, router }: AppProps) {
   const [supabaseClient] = useState(() => createPagesBrowserClient());
@@ -25,6 +37,9 @@ export default function App({ Component, pageProps, router }: AppProps) {
     };
   }, [router]);
 
+  // Check if current route should use AppLayout
+  const shouldUseLayout = !noLayoutRoutes.some(route => router.pathname.startsWith(route));
+
   return (
     <>
       <Head>
@@ -37,7 +52,13 @@ export default function App({ Component, pageProps, router }: AppProps) {
         >
           <ThreadPanelProvider>
             <div className="min-h-screen bg-white text-gray-900 antialiased">
-              <Component {...pageProps} />
+              {shouldUseLayout ? (
+                <AppLayout>
+                  <Component {...pageProps} />
+                </AppLayout>
+              ) : (
+                <Component {...pageProps} />
+              )}
             </div>
           </ThreadPanelProvider>
         </SessionContextProvider>

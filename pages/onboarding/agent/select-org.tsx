@@ -89,10 +89,7 @@ export default function AgentSelectOrg() {
         .from('profiles')
         .update({ 
           org_id: selectedOrg.id,
-          metadata: {
-            org_selected_at: new Date().toISOString(),
-            is_agent: true
-          }
+          updated_at: new Date().toISOString()
         })
         .eq('id', user.id);
 
@@ -108,11 +105,7 @@ export default function AgentSelectOrg() {
         .insert([{
           organization_id: selectedOrg.id,
           user_id: user.id,
-          role: 'agent',
-          metadata: {
-            joined_as_agent: true,
-            joined_at: new Date().toISOString()
-          }
+          role: 'member'
         }])
         .select()
         .single();
@@ -182,10 +175,7 @@ export default function AgentSelectOrg() {
         .from('profiles')
         .update({ 
           org_id: newOrg.id,
-          metadata: {
-            org_created_at: new Date().toISOString(),
-            is_agent: true
-          }
+          updated_at: new Date().toISOString()
         })
         .eq('id', user.id);
 
@@ -201,12 +191,7 @@ export default function AgentSelectOrg() {
         .insert([{
           organization_id: newOrg.id,
           user_id: user.id,
-          role: 'agent',
-          metadata: {
-            is_creator: true,
-            joined_as_agent: true,
-            joined_at: new Date().toISOString()
-          }
+          role: 'member'
         }]);
 
       if (memberError) {

@@ -1,4 +1,3 @@
-import AppLayout from '@/components/layout/AppLayout'
 import { Database } from '@/types/supabase'
 import { useSupabaseClient } from '@supabase/auth-helpers-react'
 import Link from 'next/link'
@@ -73,58 +72,66 @@ export default function ArticlePage() {
 
   if (loading) {
     return (
-      <AppLayout>
-        <div className="p-6">Loading article...</div>
-      </AppLayout>
+      <div className="container mx-auto py-8">
+        <div className="flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <span className="ml-2">Loading article...</span>
+        </div>
+      </div>
     )
   }
 
-  if (error || !article) {
+  if (error) {
     return (
-      <AppLayout>
-        <div className="max-w-3xl mx-auto p-6">
-          <div className="bg-red-50 text-red-500 p-4 rounded mb-4">
-            {error || 'Article not found'}
-          </div>
-          <Link href="/knowledge-base" className="text-blue-600 hover:underline">
-            ← Back to Knowledge Base
-          </Link>
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Error</h2>
+          <p className="text-gray-600">{error}</p>
         </div>
-      </AppLayout>
+      </div>
+    )
+  }
+
+  if (!article) {
+    return (
+      <div className="container mx-auto py-8">
+        <div className="text-center">
+          <h2 className="text-xl font-semibold mb-2">Article Not Found</h2>
+          <p className="text-gray-600">The requested article could not be found.</p>
+        </div>
+      </div>
     )
   }
 
   return (
-    <AppLayout>
-      <div className="max-w-3xl mx-auto p-6">
-        <Link href="/knowledge-base" className="text-blue-600 hover:underline mb-6 block">
-          ← Back to Knowledge Base
-        </Link>
+    <div className="container mx-auto py-8">
+      <Link href="/knowledge-base" className="text-blue-600 hover:underline mb-6 block">
+        ← Back to Knowledge Base
+      </Link>
 
-        <article className="bg-white rounded-lg shadow p-6">
-          <header className="mb-6">
-            <h1 className="text-3xl font-semibold mb-2">{article.title}</h1>
-            <div className="text-sm text-gray-500">
-              By {article.author?.display_name || 'Unknown'} on{' '}
-              {new Date(article.created_at).toLocaleDateString()}
-              {article.article_category && (
-                <> in <span className="text-gray-700">{article.article_category}</span></>
-              )}
-              {article.article_type && (
-                <> • Type: <span className="text-gray-700">{article.article_type}</span></>
-              )}
-            </div>
-          </header>
-
-          <div className="prose max-w-none">
-            {article.content.split('\n').map((paragraph, index) => (
-              <p key={index} className="mb-4">
-                {paragraph}
-              </p>
-            ))}
+      <article className="bg-white rounded-lg shadow p-6">
+        <header className="mb-6">
+          <h1 className="text-3xl font-semibold mb-2">{article.title}</h1>
+          <div className="text-sm text-gray-500">
+            By {article.author?.display_name || 'Unknown'} on{' '}
+            {new Date(article.created_at).toLocaleDateString()}
+            {article.article_category && (
+              <> in <span className="text-gray-700">{article.article_category}</span></>
+            )}
+            {article.article_type && (
+              <> • Type: <span className="text-gray-700">{article.article_type}</span></>
+            )}
           </div>
-        </article>
-      </div>
-    </AppLayout>
+        </header>
+
+        <div className="prose max-w-none">
+          {article.content.split('\n').map((paragraph, index) => (
+            <p key={index} className="mb-4">
+              {paragraph}
+            </p>
+          ))}
+        </div>
+      </article>
+    </div>
   )
 } 
