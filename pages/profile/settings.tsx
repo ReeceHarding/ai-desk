@@ -6,12 +6,8 @@ import { useToast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
 import { getGmailProfile } from '@/utils/gmail';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
-import { google } from 'googleapis';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
-
-// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
-google.options({ http2: false });
 
 type UserRole = Database['public']['Enums']['user_role'];
 

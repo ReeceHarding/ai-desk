@@ -1,20 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import { google } from 'googleapis';
 import { resolve } from 'path';
 import { GmailAttachment, GmailMessage, GmailProfile, GmailTokens, ParsedEmail } from '../types/gmail';
 import { Database } from '../types/supabase';
 
-// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
-google.options({ http2: false });
-
 // Load environment variables
 dotenv.config({ path: resolve(__dirname, '../.env') });
-
-// Verify environment variables
-if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-  throw new Error('Missing required environment variables for Supabase');
-}
 
 // Initialize Supabase client
 const supabase = createClient<Database>(
