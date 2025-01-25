@@ -51,6 +51,7 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-dropzone": "^14.3.5",
+    "react-hot-toast": "^2.5.1",
     "react-intersection-observer": "^9.15.1",
     "react-quill": "^2.0.0",
     "react-use": "^17.6.0",
@@ -84,7 +85,8 @@
     "prebuild": "tsc --noEmit",
     "check-env": "ts-node scripts/check-env.ts",
     "verify-build": "npm run check-env && npm run lint && tsc --noEmit && next build",
-    "predeploy": "npm run verify-build"
+    "predeploy": "npm run verify-build",
+    "setup-cron": "ts-node scripts/setup-cron-jobs.ts"
   },
   "repository": {
     "type": "git",

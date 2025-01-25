@@ -1,5 +1,4 @@
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useState } from 'react';
@@ -7,20 +6,15 @@ import { useState } from 'react';
 interface BasicOnboardingProps {
   userId: string;
   email: string;
-  onComplete: (role: 'customer' | 'agent' | 'admin', name: string) => void;
+  onComplete: (role: 'customer' | 'agent' | 'admin') => void;
 }
 
 export function BasicOnboarding({ userId, email, onComplete }: BasicOnboardingProps) {
-  const [name, setName] = useState('');
   const [role, setRole] = useState<'customer' | 'agent' | 'admin'>('customer');
   const [error, setError] = useState('');
 
   const handleSubmit = async () => {
-    if (!name.trim()) {
-      setError('Please enter your name');
-      return;
-    }
-    onComplete(role, name);
+    onComplete(role);
   };
 
   return (
@@ -28,7 +22,7 @@ export function BasicOnboarding({ userId, email, onComplete }: BasicOnboardingPr
       <div>
         <h2 className="text-lg font-semibold text-gray-900">Welcome to Gauntlet</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Let's get you set up. First, tell us a bit about yourself.
+          Let's get you set up. First, tell us about your role.
         </p>
       </div>
 
@@ -39,21 +33,6 @@ export function BasicOnboarding({ userId, email, onComplete }: BasicOnboardingPr
       )}
 
       <div className="space-y-4">
-        <div>
-          <label htmlFor="name" className="block text-sm font-medium text-gray-700">
-            Full Name
-          </label>
-          <Input
-            id="name"
-            type="text"
-            required
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="mt-1"
-            placeholder="Enter your full name"
-          />
-        </div>
-
         <div className="space-y-2">
           <Label className="text-sm font-medium text-gray-700">I am a...</Label>
           <RadioGroup

@@ -39,11 +39,11 @@ export async function middleware(req: NextRequest) {
 
     // For all other routes, require authentication
     if (!session) {
-      // Don't redirect if already on signin page
-      if (path === '/auth/signin') {
+      // Don't redirect if already on login page
+      if (path === '/auth/login') {
         return res;
       }
-      const redirectUrl = new URL('/auth/signin', req.url);
+      const redirectUrl = new URL('/auth/login', req.url);
       redirectUrl.searchParams.set('redirect', req.url);
       return NextResponse.redirect(redirectUrl);
     }
@@ -88,13 +88,15 @@ export async function middleware(req: NextRequest) {
           return NextResponse.redirect(new URL('/404', req.url));
         }
 
-        const { data: profile } = await supabase
-          .from('profiles')
+        // Get user's role in the organization
+        const { data: orgMember } = await supabase
+          .from('organization_members')
           .select('role')
-          .eq('id', session.user.id)
-          .single();
+          .eq('organization_id', ticket.org_id)
+          .eq('user_id', session.user.id)
+          .maybeSingle();
 
-        const isAgent = profile?.role === 'agent' || profile?.role === 'admin';
+        const isAgent = orgMember?.role === 'member' || orgMember?.role === 'admin' || orgMember?.role === 'super_admin';
         const isCustomer = ticket.customer_id === session.user.id;
 
         if (!isAgent && !isCustomer) {

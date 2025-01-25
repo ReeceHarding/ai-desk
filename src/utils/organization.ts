@@ -64,7 +64,12 @@ export async function createUserOrganization(supabase: SupabaseClient, userId: s
         email: email,
         created_by: userId,
         created_at: new Date().toISOString(),
-        owner_id: userId // Add owner_id as it's required
+        owner_id: userId, // Add owner_id as it's required
+        config: {
+          is_personal: true,
+          is_current: true,
+          created_at_timestamp: new Date().toISOString()
+        }
       })
       .select()
       .single();

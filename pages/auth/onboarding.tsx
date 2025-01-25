@@ -20,27 +20,41 @@ export default function Onboarding() {
   useEffect(() => {
     if (!user) {
       router.replace('/auth/signin');
+      return;
     }
-  }, [user, router]);
+
+    // Fetch user's name from profile
+    const fetchProfile = async () => {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data?.display_name) {
+        setName(data.display_name);
+      }
+    };
+
+    fetchProfile();
+  }, [user, router, supabase]);
 
   if (!user) {
     return null;
   }
 
-  const handleBasicComplete = async (selectedRole: 'customer' | 'agent' | 'admin', fullName: string) => {
+  const handleBasicComplete = async (selectedRole: 'customer' | 'agent' | 'admin') => {
     try {
-      // Update profile with name and role
+      // Update profile with role only since name is already set
       const { error } = await supabase
         .from('profiles')
         .update({
-          display_name: fullName,
           role: selectedRole
         })
         .eq('id', user.id);
 
       if (error) throw error;
 
-      setName(fullName);
       setRole(selectedRole);
       setStep(selectedRole);
     } catch (err) {
@@ -71,7 +85,8 @@ export default function Onboarding() {
   };
 
   const handleAgentComplete = async () => {
-    router.push('/dashboard');
+    // Redirect to Gmail connection
+    router.push('/onboarding/agent/connect-gmail');
   };
 
   const handleAdminComplete = async (orgName: string) => {
@@ -81,39 +96,29 @@ export default function Onboarding() {
         .from('organizations')
         .insert({
           name: orgName,
-          email: user.email,
           created_by: user.id,
-          created_at: new Date().toISOString(),
-          owner_id: user.id
+          created_at: new Date().toISOString()
         })
         .select()
         .single();
 
       if (orgError) throw orgError;
 
-      // Associate user with organization
-      const { error: memberError } = await supabase
-        .from('organization_members')
-        .insert({
-          organization_id: org.id,
-          user_id: user.id,
-          role: 'admin',
-          created_at: new Date().toISOString()
-        });
-
-      if (memberError) throw memberError;
-
-      // Update profile with org_id
+      // Update profile with organization
       const { error: profileError } = await supabase
         .from('profiles')
-        .update({ org_id: org.id })
+        .update({
+          organization_id: org.id,
+          role: 'admin'
+        })
         .eq('id', user.id);
 
       if (profileError) throw profileError;
 
-      router.push('/dashboard');
+      // Redirect to Gmail connection
+      router.push('/onboarding/admin/connect-gmail');
     } catch (err) {
-      console.error('Error setting up organization:', err);
+      console.error('Error creating organization:', err);
     }
   };
 

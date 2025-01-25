@@ -1,5 +1,7 @@
 import { AdminDashboard } from '@/components/admin/AdminDashboard';
+import InviteAgentModal from '@/components/InviteAgentModal';
 import { Database } from '@/types/supabase';
+import { logger } from '@/utils/logger';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { User } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
@@ -31,7 +33,6 @@ export default function Dashboard() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [agents, setAgents] = useState<(Profile & { stats: AgentStats })[]>([]);
   const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
 
   const getUser = useCallback(async () => {
     try {
@@ -124,7 +125,7 @@ export default function Dashboard() {
         }
       }
     } catch (err) {
-      console.error('Session check error:', err);
+      logger.error('Session check error:', err);
       router.push('/auth/signin');
     } finally {
       setLoading(false);
@@ -134,68 +135,6 @@ export default function Dashboard() {
   useEffect(() => {
     getUser();
   }, [getUser]);
-
-  const handleInviteAgent = async () => {
-    if (!inviteEmail || !organization) return;
-
-    // First check if the user already exists
-    const { data: existingUser } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('email', inviteEmail)
-      .single();
-
-    if (existingUser) {
-      // Add them directly as an agent
-      await supabase.from('organization_members').insert({
-        organization_id: organization.id,
-        user_id: existingUser.id,
-        role: 'agent'
-      });
-    } else {
-      // Create an invitation
-      await supabase.from('invitations').insert({
-        email: inviteEmail,
-        organization_id: organization.id,
-        role: 'agent'
-      });
-    }
-
-    setInviteEmail('');
-    setShowInviteModal(false);
-    
-    // Refresh agent list
-    if (organization) {
-      const { data: members } = await supabase
-        .from('organization_members')
-        .select('user_id')
-        .eq('organization_id', organization.id)
-        .eq('role', 'agent');
-
-      if (members) {
-        const agentDetails = await Promise.all(
-          members.map(async (member) => {
-            const { data: profile } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', member.user_id)
-              .single();
-
-            return {
-              ...profile,
-              stats: profile?.extra_json_1?.agentStats || {
-                totalTicketsResponded: 0,
-                totalFirstResponseTime: 0,
-                totalTicketsResolved: 0,
-                totalResolutionTime: 0,
-              },
-            };
-          })
-        );
-        setAgents(agentDetails);
-      }
-    }
-  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -216,6 +155,14 @@ export default function Dashboard() {
                   >
                     Create New Ticket
                   </button>
+                  {userRole === 'admin' && (
+                    <button
+                      onClick={() => setShowInviteModal(true)}
+                      className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-500 hover:bg-blue-600"
+                    >
+                      Invite Agent
+                    </button>
+                  )}
                   <button
                     onClick={() => router.push('/profile')}
                     className="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
@@ -258,154 +205,21 @@ export default function Dashboard() {
                       <dd className="mt-1 text-sm text-gray-900">{organization.name}</dd>
                     </div>
                     <div>
-                      <dt className="text-sm font-medium text-gray-500">Plan</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{organization.sla_tier}</dd>
+                      <dt className="text-sm font-medium text-gray-500">SLA Tier</dt>
+                      <dd className="mt-1 text-sm text-gray-900 capitalize">{organization.sla_tier}</dd>
                     </div>
-                    {userRole === 'admin' && (
-                      <div>
-                        <dt className="text-sm font-medium text-gray-500">Public Mode</dt>
-                        <dd className="mt-1 text-sm text-gray-900">
-                          {organization.public_mode ? 'Enabled' : 'Disabled'}
-                        </dd>
-                      </div>
-                    )}
+                    <div>
+                      <dt className="text-sm font-medium text-gray-500">Public Mode</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {organization.public_mode ? 'Enabled' : 'Disabled'}
+                      </dd>
+                    </div>
                   </dl>
                 </div>
               </div>
             )}
           </div>
         );
-
-      case 'tickets':
-        return (
-          <div className="bg-white shadow rounded-lg p-6">
-            <h2 className="text-xl font-semibold mb-4">Recent Tickets</h2>
-            <div className="space-y-4">
-              {tickets.map((ticket) => (
-                <div
-                  key={ticket.id}
-                  className="border p-4 rounded hover:bg-gray-50 cursor-pointer"
-                  onClick={() => router.push(`/tickets/${ticket.id}`)}
-                >
-                  <div className="flex justify-between">
-                    <h3 className="font-medium">{ticket.subject}</h3>
-                    <span className={`px-2 py-1 rounded text-sm ${
-                      ticket.status === 'open' ? 'bg-green-100 text-green-800' :
-                      ticket.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-gray-100 text-gray-800'
-                    }`}>
-                      {ticket.status}
-                    </span>
-                  </div>
-                  <p className="text-gray-600 text-sm mt-1">{ticket.description}</p>
-                  <div className="flex justify-between items-center mt-2 text-sm text-gray-500">
-                    <span>Created {new Date(ticket.created_at).toLocaleDateString()}</span>
-                    <span>#{ticket.id.split('-')[0]}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 'agents':
-        if (userRole !== 'admin') return null;
-        return (
-          <div className="bg-white shadow rounded-lg p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold">Manage Agents</h2>
-              <button
-                onClick={() => setShowInviteModal(true)}
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-              >
-                Invite Agent
-              </button>
-            </div>
-            <div className="space-y-4">
-              {agents.map((agent) => (
-                <div key={agent.id} className="border rounded-lg p-4 flex justify-between items-center">
-                  <div>
-                    <h3 className="font-medium">{agent.display_name || agent.email}</h3>
-                    <p className="text-sm text-gray-500">{agent.email}</p>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      if (!organization) return;
-                      await supabase
-                        .from('organization_members')
-                        .delete()
-                        .eq('organization_id', organization.id)
-                        .eq('user_id', agent.id);
-                      setAgents(agents.filter(a => a.id !== agent.id));
-                    }}
-                    className="text-red-500 hover:text-red-600"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 'overview':
-        if (userRole !== 'admin') return null;
-        return (
-          <div className="space-y-6">
-            <div className="bg-white shadow rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Organization Overview</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <div className="border rounded-lg p-4">
-                  <h3 className="text-lg font-medium mb-2">Total Agents</h3>
-                  <p className="text-2xl font-bold">{agents.length}</p>
-                </div>
-                {organization && (
-                  <div className="border rounded-lg p-4">
-                    <h3 className="text-lg font-medium mb-2">Public Mode</h3>
-                    <p className="text-2xl font-bold">{organization.public_mode ? 'Enabled' : 'Disabled'}</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="bg-white shadow rounded-lg p-6">
-              <h2 className="text-xl font-semibold mb-4">Agent Performance</h2>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead>
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tickets Responded</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Response Time</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tickets Resolved</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Avg Resolution Time</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {agents.map((agent) => (
-                      <tr key={agent.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">{agent.display_name || agent.email}</td>
-                        <td className="px-6 py-4 whitespace-nowrap">{agent.stats.totalTicketsResponded}</td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {agent.stats.totalTicketsResponded > 0
-                            ? `${Math.round(agent.stats.totalFirstResponseTime / agent.stats.totalTicketsResponded)} mins`
-                            : 'N/A'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">{agent.stats.totalTicketsResolved}</td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {agent.stats.totalTicketsResolved > 0
-                            ? `${Math.round(agent.stats.totalResolutionTime / agent.stats.totalTicketsResolved)} mins`
-                            : 'N/A'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        );
-
       default:
         return null;
     }
@@ -413,111 +227,41 @@ export default function Dashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
-        <div className="text-center">
-          <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-          <p className="text-gray-600 text-sm font-medium">Loading your dashboard...</p>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <span className="ml-2">Loading...</span>
       </div>
     );
   }
 
-  if (!user) {
-    return null; // Will redirect in useEffect
-  }
-
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">
-          {organization ? `${organization.name} Dashboard` : 'Welcome back!'}
-        </h1>
-        <p className="mt-2 text-sm text-gray-600">{user.email}</p>
-      </div>
-
-      <div className="mb-6">
-        <nav className="flex space-x-4">
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-3 py-2 rounded-md ${
-              activeTab === 'dashboard'
-                ? 'bg-gray-900 text-white'
-                : 'text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => setActiveTab('tickets')}
-            className={`px-3 py-2 rounded-md ${
-              activeTab === 'tickets'
-                ? 'bg-gray-900 text-white'
-                : 'text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            Tickets
-          </button>
-          {userRole === 'admin' && (
-            <>
+    <div className="min-h-screen bg-gray-50">
+      <div className="py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
+            {userRole === 'admin' && (
               <button
-                onClick={() => setActiveTab('overview')}
-                className={`px-3 py-2 rounded-md ${
-                  activeTab === 'overview'
-                    ? 'bg-gray-900 text-white'
-                    : 'text-gray-700 hover:bg-gray-200'
-                }`}
+                onClick={() => setShowInviteModal(true)}
+                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
               >
-                Overview
+                Invite Agent
               </button>
-              <button
-                onClick={() => setActiveTab('agents')}
-                className={`px-3 py-2 rounded-md ${
-                  activeTab === 'agents'
-                    ? 'bg-gray-900 text-white'
-                    : 'text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Agents
-              </button>
-            </>
-          )}
-        </nav>
-      </div>
-
-      {renderContent()}
-
-      {/* Invite Agent Modal */}
-      {showInviteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Invite Agent</h3>
-            <input
-              type="email"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="Enter email address"
-              className="w-full p-2 border rounded mb-4"
-            />
-            <div className="flex justify-end space-x-2">
-              <button
-                onClick={() => setShowInviteModal(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleInviteAgent}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-              >
-                Send Invitation
-              </button>
-            </div>
+            )}
+          </div>
+          <div className="mt-8">
+            {renderContent()}
           </div>
         </div>
-      )}
+      </div>
+
+      <InviteAgentModal
+        isOpen={showInviteModal}
+        onClose={() => {
+          setShowInviteModal(false);
+          getUser(); // Refresh data after inviting
+        }}
+      />
     </div>
   );
 } 

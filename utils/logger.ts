@@ -9,7 +9,7 @@ const isEdgeRuntime = typeof process.env.NEXT_RUNTIME === 'string' && process.en
 let supabaseClient: ReturnType<typeof createClientComponentClient> | null = null;
 
 const getSupabaseClient = () => {
-  if (isServer || !isDev) return null;
+  if (!isDev || isServer) return null;
   if (!supabaseClient) {
     supabaseClient = createClientComponentClient();
   }
@@ -114,28 +114,9 @@ function formatTerminalLog(level: LogLevel, message: string, metadata?: unknown)
   }
 }
 
-function writeLog(level: LogLevel, message: string, metadata?: unknown) {
-  // Always write to console in development
-  if (isDev) {
-    writeToConsole(level, message, metadata as Record<string, unknown>);
-  }
-
-  // Write to file if on server and not in edge runtime
-  if (isServer && !isEdgeRuntime) {
-    writeToFile(level, message);
-  }
-
-  // Only write to Supabase in development and when on client
-  if (isDev && !isServer) {
-    writeToSupabase(level, message, metadata as Record<string, unknown>);
-  }
-}
-
 async function writeToSupabase(level: string, message: string, metadata?: Record<string, unknown>) {
   const supabase = getSupabaseClient();
-  if (!supabase) {
-    return;
-  }
+  if (!supabase) return;
 
   try {
     const logEntry = {
@@ -143,83 +124,77 @@ async function writeToSupabase(level: string, message: string, metadata?: Record
       message,
       metadata: metadata || {},
       timestamp: new Date().toISOString(),
-      is_client: true,
-      url: window.location.href,
-      runtime: 'client'
+      is_client: !isServer,
+      url: typeof window !== 'undefined' ? window.location.href : undefined,
+      runtime: isEdgeRuntime ? 'edge' : isServer ? 'server' : 'client'
     };
 
-    const { error } = await supabase.from('logs').insert([logEntry]);
-    if (error && isDev) {
-      console.error('Failed to write to Supabase logs:', error);
-    }
-
-    // Add test log
-    if (isDev && !isServer) {
-      console.log('Test log entry:', { level, message, metadata });
-      await supabase.from('logs').insert([{ 
-        level: 'info', 
-        message: 'Test log entry after schema fix', 
-        metadata: { test: true }, 
-        timestamp: new Date().toISOString(),
-        is_client: true,
-        url: window.location.href,
-        runtime: 'client'
-      }]);
-    }
+    await supabase.from('logs').insert([logEntry]).throwOnError();
   } catch (error) {
+    // Only log errors in development
     if (isDev) {
       console.error('Failed to write to Supabase logs:', error);
     }
   }
 }
 
-function writeToConsole(level: string, message: string, metadata?: Record<string, unknown>) {
-  const timestamp = new Date().toISOString();
-  let emoji = '';
-  let color = '';
-  
-  switch (level) {
-    case 'error':
-      emoji = '🚨 🚨 🚨';
-      color = '\x1b[1;31m'; // Bright Red
-      break;
-    case 'warn':
-      emoji = '⚠️ ⚠️ ⚠️';
-      color = '\x1b[1;33m'; // Bright Yellow
-      break;
-    case 'info':
-      emoji = 'ℹ️ ℹ️ ℹ️';
-      color = '\x1b[1;36m'; // Bright Cyan
-      break;
-    default:
-      emoji = '📝 📝 📝';
-      color = '\x1b[1;37m'; // Bright White
+function writeLog(level: LogLevel, message: string, metadata?: unknown) {
+  // Format console output based on environment
+  if (isServer) {
+    formatTerminalLog(level, message, metadata);
+  } else {
+    formatBrowserLog(level, message, metadata);
   }
-  
-  const reset = '\x1b[0m';
-  const prefix = isServer ? '[SERVER]' : '[CLIENT]';
-  const separator = '\n========================================\n';
-  
-  // Format the output with multiple lines for better visibility
-  const output = `${separator}${color}${emoji}
-${prefix} [${level.toUpperCase()}]
-TIME: ${timestamp}
-MSG: ${message}
-${metadata ? `DATA: ${JSON.stringify(metadata, null, 2)}` : ''}${reset}${separator}`;
 
-  // Use console methods directly
-  console.log(output);
+  // Write to file if on server and not in edge runtime
+  if (isServer && !isEdgeRuntime && logStream) {
+    writeToFile(level, message);
+  }
+
+  // Write to Supabase in development
+  if (isDev) {
+    writeToSupabase(level, message, metadata as Record<string, unknown>).catch(() => {
+      // Ignore Supabase write errors in production
+      if (isDev) {
+        console.warn('Failed to write log to Supabase');
+      }
+    });
+  }
 }
 
 function writeToFile(level: string, message: string) {
-  if (!isServer || !logStream) {
-    return;
-  }
+  if (!isServer || !logStream) return;
   
   const timestamp = new Date().toISOString();
   const formattedMessage = `[${level.toUpperCase()}] - ${timestamp} - ${message}\n`;
   logStream.write(formattedMessage);
 }
+
+export const logger = {
+  info: (...args: unknown[]) => {
+    const metadata = extractMetadata(args);
+    const message = formatMessage(metadata ? args.slice(0, -1) : args);
+    writeLog('info', message, metadata);
+  },
+
+  warn: (...args: unknown[]) => {
+    const metadata = extractMetadata(args);
+    const message = formatMessage(metadata ? args.slice(0, -1) : args);
+    writeLog('warn', message, metadata);
+  },
+
+  error: (...args: unknown[]) => {
+    const metadata = extractMetadata(args);
+    const message = formatMessage(metadata ? args.slice(0, -1) : args);
+    writeLog('error', message, metadata);
+  },
+
+  log: (...args: unknown[]) => {
+    const metadata = extractMetadata(args);
+    const message = formatMessage(metadata ? args.slice(0, -1) : args);
+    writeLog('log', message, metadata);
+  }
+};
 
 function extractMetadata(args: unknown[]): Record<string, unknown> | undefined {
   const lastArg = args[args.length - 1];
@@ -228,29 +203,3 @@ function extractMetadata(args: unknown[]): Record<string, unknown> | undefined {
   }
   return undefined;
 }
-
-export const logger = {
-  log: (...args: unknown[]) => {
-    const message = formatMessage(args.slice(0, -1));
-    const metadata = args[args.length - 1];
-    writeLog('log', message, metadata);
-  },
-
-  warn: (...args: unknown[]) => {
-    const message = formatMessage(args.slice(0, -1));
-    const metadata = args[args.length - 1];
-    writeLog('warn', message, metadata);
-  },
-
-  error: (...args: unknown[]) => {
-    const message = formatMessage(args.slice(0, -1));
-    const metadata = args[args.length - 1];
-    writeLog('error', message, metadata);
-  },
-
-  info: (...args: unknown[]) => {
-    const message = formatMessage(args.slice(0, -1));
-    const metadata = args[args.length - 1];
-    writeLog('info', message, metadata);
-  }
-};

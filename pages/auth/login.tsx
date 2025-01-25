@@ -1,93 +1,38 @@
 import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-export default function SignUpPage() {
+export default function LoginPage() {
   const router = useRouter();
-  const { inviteToken } = router.query;
+  const { redirect } = router.query;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [invitation, setInvitation] = useState<any>(null);
   const supabase = createClientComponentClient<Database>();
 
-  // Fetch invitation details when token is available
-  useEffect(() => {
-    async function fetchInvitation() {
-      if (!inviteToken || typeof inviteToken !== 'string') return;
-
-      const { data, error } = await supabase
-        .from('invitations')
-        .select('*, organizations(name)')
-        .eq('token', inviteToken)
-        .single();
-
-      if (error) {
-        setError('Invalid or expired invitation');
-        return;
-      }
-
-      if (data.used_at) {
-        setError('This invitation has already been used');
-        return;
-      }
-
-      if (new Date(data.expires_at) < new Date()) {
-        setError('This invitation has expired');
-        return;
-      }
-
-      setInvitation(data);
-      setEmail(data.email); // Pre-fill email from invitation
-    }
-
-    fetchInvitation();
-  }, [inviteToken, supabase]);
-
-  async function handleSignUp(e: React.FormEvent) {
+  async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
 
     try {
-      // 1. Create the user account
-      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
-        options: {
-          data: {
-            display_name: name,
-          },
-        },
       });
 
-      if (signUpError) throw signUpError;
+      if (signInError) throw signInError;
 
-      if (!authData.user) {
-        throw new Error('Failed to create account');
+      if (!data.user) {
+        throw new Error('Failed to sign in');
       }
 
-      // 2. If we have an invitation, accept it
-      if (invitation && inviteToken) {
-        const response = await fetch('/api/invitations/accept', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token: inviteToken }),
-        });
-
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || 'Failed to accept invitation');
-        }
-      }
-
-      // 3. Redirect to appropriate page
-      router.push(invitation ? '/tickets' : '/onboarding');
+      // Redirect to the original URL or tickets page
+      router.push(typeof redirect === 'string' ? redirect : '/tickets');
     } catch (err: any) {
-      console.error('Signup error:', err);
+      console.error('Login error:', err);
       setError(err.message);
     } finally {
       setIsLoading(false);
@@ -98,13 +43,8 @@ export default function SignUpPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Create your account
+          Sign in to your account
         </h2>
-        {invitation && (
-          <p className="mt-2 text-center text-sm text-gray-600">
-            You've been invited to join {invitation.organizations?.name} as an {invitation.role}
-          </p>
-        )}
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
@@ -124,27 +64,7 @@ export default function SignUpPage() {
             </div>
           )}
 
-          <form className="space-y-6" onSubmit={handleSignUp}>
-            <div>
-              <label
-                htmlFor="name"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Full Name
-              </label>
-              <div className="mt-1">
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
+          <form className="space-y-6" onSubmit={handleLogin}>
             <div>
               <label
                 htmlFor="email"
@@ -161,8 +81,7 @@ export default function SignUpPage() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  disabled={!!invitation} // Disable if we have an invitation
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100"
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                 />
               </div>
             </div>
@@ -179,7 +98,7 @@ export default function SignUpPage() {
                   id="password"
                   name="password"
                   type="password"
-                  autoComplete="new-password"
+                  autoComplete="current-password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -196,7 +115,7 @@ export default function SignUpPage() {
                   isLoading ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
-                {isLoading ? 'Creating Account...' : 'Create Account'}
+                {isLoading ? 'Signing in...' : 'Sign in'}
               </button>
             </div>
           </form>
@@ -208,17 +127,17 @@ export default function SignUpPage() {
               </div>
               <div className="relative flex justify-center text-sm">
                 <span className="px-2 bg-white text-gray-500">
-                  Already have an account?
+                  Don't have an account?
                 </span>
               </div>
             </div>
 
             <div className="mt-6">
               <button
-                onClick={() => router.push('/auth/login')}
+                onClick={() => router.push('/auth/signup')}
                 className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
               >
-                Sign in
+                Create an account
               </button>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import { NotificationPreferences } from '@/components/notification-preferences';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -316,6 +317,18 @@ export default function ProfileSettings() {
               )}
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Notification Settings</CardTitle>
+          <CardDescription>
+            Manage how you want to be notified about ticket updates
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <NotificationPreferences />
         </CardContent>
       </Card>
     </div>

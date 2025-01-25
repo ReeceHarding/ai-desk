@@ -84,12 +84,50 @@ export default function AgentSelectOrg() {
         return;
       }
 
+      // First, unset is_current flag on all organizations
+      const { error: updateOldError } = await supabase
+        .from('organizations')
+        .update({ 
+          config: supabase.rpc('jsonb_set', {
+            jsonb: 'config',
+            path: '{is_current}',
+            value: 'false'
+          })
+        })
+        .eq('created_by', user.id);
+
+      if (updateOldError) {
+        logger.error('[AGENT_SELECT_ORG] Error unsetting current org:', { error: updateOldError });
+        setError('Failed to update organization settings');
+        return;
+      }
+
+      // Set is_current flag on the selected organization
+      const { error: updateNewError } = await supabase
+        .from('organizations')
+        .update({ 
+          config: supabase.rpc('jsonb_set', {
+            jsonb: 'config',
+            path: '{is_current}',
+            value: 'true'
+          })
+        })
+        .eq('id', selectedOrg.id);
+
+      if (updateNewError) {
+        logger.error('[AGENT_SELECT_ORG] Error setting current org:', { error: updateNewError });
+        setError('Failed to update organization settings');
+        return;
+      }
+
       // Update the user's profile with the selected org
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ 
           org_id: selectedOrg.id,
-          updated_at: new Date().toISOString()
+          metadata: {
+            org_selected_at: new Date().toISOString()
+          }
         })
         .eq('id', user.id);
 
@@ -215,6 +253,27 @@ export default function AgentSelectOrg() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="flex justify-center space-x-4 mb-8">
+          <div className="flex items-center">
+            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center">
+              1
+            </div>
+            <div className="ml-2 text-sm font-medium text-blue-600">Organization</div>
+          </div>
+          <div className="flex items-center">
+            <div className="w-8 h-8 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center">
+              2
+            </div>
+            <div className="ml-2 text-sm font-medium text-gray-600">Gmail</div>
+          </div>
+          <div className="flex items-center">
+            <div className="w-8 h-8 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center">
+              3
+            </div>
+            <div className="ml-2 text-sm font-medium text-gray-600">Done</div>
+          </div>
+        </div>
+
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           {showCreateForm ? 'Create Organization' : 'Find Your Organization'}
         </h2>

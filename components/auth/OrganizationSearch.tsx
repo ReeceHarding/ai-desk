@@ -31,7 +31,8 @@ export function OrganizationSearch({ userId, onSelect, isLoading = false }: Orga
 
         const query = supabase
           .from('organizations')
-          .select('id, name, email');
+          .select('id, name, email')
+          .eq('config->is_current', true);
 
         if (search) {
           query.ilike('name', `%${search}%`);
@@ -59,6 +60,34 @@ export function OrganizationSearch({ userId, onSelect, isLoading = false }: Orga
       setLoading(true);
       setError('');
 
+      // First, unset is_current flag on all organizations
+      const { error: updateOldError } = await supabase
+        .from('organizations')
+        .update({ 
+          config: supabase.rpc('jsonb_set', {
+            jsonb: 'config',
+            path: '{is_current}',
+            value: 'false'
+          })
+        })
+        .eq('created_by', userId);
+
+      if (updateOldError) throw updateOldError;
+
+      // Set is_current flag on the selected organization
+      const { error: updateNewError } = await supabase
+        .from('organizations')
+        .update({ 
+          config: supabase.rpc('jsonb_set', {
+            jsonb: 'config',
+            path: '{is_current}',
+            value: 'true'
+          })
+        })
+        .eq('id', orgId);
+
+      if (updateNewError) throw updateNewError;
+
       // Associate user with organization
       const { error: memberError } = await supabase
         .from('organization_members')
@@ -74,7 +103,12 @@ export function OrganizationSearch({ userId, onSelect, isLoading = false }: Orga
       // Update profile with org_id
       const { error: profileError } = await supabase
         .from('profiles')
-        .update({ org_id: orgId })
+        .update({ 
+          org_id: orgId,
+          metadata: {
+            org_selected_at: new Date().toISOString()
+          }
+        })
         .eq('id', userId);
 
       if (profileError) throw profileError;

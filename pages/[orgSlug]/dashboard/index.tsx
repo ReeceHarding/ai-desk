@@ -1,3 +1,4 @@
+import { useOrganizationRole } from '@/hooks/useOrganizationRole';
 import type { Database } from '@/types/supabase';
 import { createClientComponentClient, createPagesServerClient } from '@supabase/auth-helpers-nextjs';
 import { GetServerSideProps } from 'next';
@@ -22,7 +23,6 @@ interface Props {
     public_mode: boolean;
     sla_tier: string;
   };
-  userRole: string;
 }
 
 export const getServerSideProps: GetServerSideProps<Props> = async (context) => {
@@ -91,12 +91,11 @@ export const getServerSideProps: GetServerSideProps<Props> = async (context) => 
         public_mode: organization.public_mode,
         sla_tier: organization.sla_tier,
       },
-      userRole: membership.role,
     },
   };
 };
 
-export default function OrganizationDashboard({ organization, userRole }: Props) {
+export default function OrganizationDashboard({ organization }: Props) {
   const router = useRouter();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [agents, setAgents] = useState<(Profile & { stats: AgentStats })[]>([]);
@@ -104,6 +103,8 @@ export default function OrganizationDashboard({ organization, userRole }: Props)
   const [activeTab, setActiveTab] = useState('tickets');
   const [inviteEmail, setInviteEmail] = useState('');
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const { role: orgRole, loading: roleLoading } = useOrganizationRole(organization.id);
+  const isAdmin = orgRole === 'admin' || orgRole === 'super_admin';
 
   useEffect(() => {
     const fetchData = async () => {
@@ -121,12 +122,12 @@ export default function OrganizationDashboard({ organization, userRole }: Props)
       }
 
       // If admin, fetch agent data
-      if (userRole === 'admin') {
+      if (isAdmin) {
         const { data: members } = await supabase
           .from('organization_members')
           .select('user_id')
           .eq('organization_id', organization.id)
-          .eq('role', 'agent');
+          .eq('role', 'member');
 
         if (members) {
           const agentDetails = await Promise.all(
@@ -156,7 +157,7 @@ export default function OrganizationDashboard({ organization, userRole }: Props)
     };
 
     fetchData();
-  }, [organization.id, userRole]);
+  }, [organization.id, isAdmin]);
 
   const handleInviteAgent = async () => {
     if (!inviteEmail) return;
@@ -254,7 +255,7 @@ export default function OrganizationDashboard({ organization, userRole }: Props)
         );
 
       case 'agents':
-        if (userRole !== 'admin') return null;
+        if (!isAdmin) return null;
         return (
           <div className="bg-white shadow rounded-lg p-6">
             <div className="flex justify-between items-center mb-6">
@@ -294,7 +295,7 @@ export default function OrganizationDashboard({ organization, userRole }: Props)
         );
 
       case 'overview':
-        if (userRole !== 'admin') return null;
+        if (!isAdmin) return null;
         return (
           <div className="space-y-6">
             <div className="bg-white shadow rounded-lg p-6">
@@ -376,7 +377,7 @@ export default function OrganizationDashboard({ organization, userRole }: Props)
           >
             Tickets
           </button>
-          {userRole === 'admin' && (
+          {isAdmin && (
             <>
               <button
                 onClick={() => setActiveTab('overview')}

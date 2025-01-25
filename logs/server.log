@@ -267,3 +267,50 @@
 [ERROR] - 2025-01-25T18:46:03.763Z - Failed to fetch dashboard metrics
 [INFO] - 2025-01-25T18:49:39.636Z - 
 [INFO] - 2025-01-25T18:49:40.302Z - 
+[INFO] - 2025-01-25T19:46:24.602Z - 
+[INFO] - 2025-01-25T19:46:25.201Z - 
+[INFO] - 2025-01-25T19:53:12.289Z - 
+[INFO] - 2025-01-25T19:53:12.853Z - 
+[WARN] - 2025-01-25T19:56:57.889Z - Unauthorized attempt to invite user
+[INFO] - 2025-01-25T20:05:37.808Z - 
+[INFO] - 2025-01-25T20:05:38.448Z - 
+[INFO] - 2025-01-25T20:08:51.033Z - 
+[INFO] - 2025-01-25T20:08:51.592Z - 
+[INFO] - 2025-01-25T20:12:28.002Z - 
+[INFO] - 2025-01-25T20:12:28.625Z - 
+[INFO] - 2025-01-25T20:29:09.907Z - Setting up Gmail watch
+[INFO] - 2025-01-25T20:29:09.986Z - 
+[INFO] - 2025-01-25T20:29:15.048Z - 
+[INFO] - 2025-01-25T20:29:15.590Z - 
+[INFO] 2025-01-25T20:32:49.695Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:32:49.695Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:32:50.316Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:32:50.316Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:33:57.707Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:33:57.708Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:33:58.325Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:33:58.325Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:36:16.246Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:36:16.246Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:36:16.869Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:36:16.869Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:36:42.222Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:36:42.222Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:36:42.873Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:36:42.873Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:41:28.654Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:41:28.655Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:41:29.269Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:41:29.269Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:43:41.995Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:43:41.996Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T20:43:42.693Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T20:43:42.694Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T21:08:20.882Z - Setting up Gmail watch - {"headers":{"host":"localhost:3000","connection":"keep-alive","content-type":"application/json","accept":"*/*","accept-language":"*","sec-fetch-mode":"cors","user-agent":"node","accept-encoding":"gzip, deflate","content-length":"424","x-forwarded-host":"localhost:3000","x-forwarded-port":"3000","x-forwarded-proto":"http","x-forwarded-for":"::1"},"timestamp":"2025-01-25T21:08:20.881Z"}
+[INFO] - 2025-01-25T21:08:20.882Z - Setting up Gmail watch
+[INFO] 2025-01-25T21:08:20.966Z - No organizations need watch setup
+[INFO] - 2025-01-25T21:08:20.967Z - No organizations need watch setup
+[INFO] 2025-01-25T21:08:28.678Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T21:08:28.678Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T21:08:29.246Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T21:08:29.247Z - Successfully fetched dashboard metrics

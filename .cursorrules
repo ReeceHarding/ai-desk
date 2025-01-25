@@ -5,6 +5,8 @@ Key Instructions
 
 Check the Documentation folder's files ot learn about the project.
 
+Make sure that there isn't already an implementation of the feature you're trying to implement. If there is, you can either delete it or modify it based on your judgement.
+
 Process for migrations:
 1. Please read every migration file to completely understand our Super Bay schema before changing any of the migration files. 
 2. Always make sure that the migration you made doesn't clash with any existing migrations, read all the current migration files to find out. 

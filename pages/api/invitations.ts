@@ -1,23 +1,27 @@
 import { Database } from '@/types/supabase';
+import { logger } from '@/utils/logger';
 import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs';
+import crypto from 'crypto';
 import { NextApiRequest, NextApiResponse } from 'next';
-import { createTransport } from 'nodemailer';
-
-const transporter = createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
+  const requestId = crypto.randomUUID();
+
+  logger.info('Received invitation request', {
+    requestId,
+    method: req.method,
+    path: req.url
+  });
+
   if (req.method !== 'POST') {
+    logger.warn('Invalid method', { 
+      requestId,
+      method: req.method,
+      path: req.url 
+    });
     res.setHeader('Allow', ['POST']);
     return res.status(405).end(`Method ${req.method} Not Allowed`);
   }
@@ -25,15 +29,43 @@ export default async function handler(
   const supabase = createServerSupabaseClient<Database>({ req, res });
 
   // Check if user is authenticated and is an admin
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+  
+  if (sessionError) {
+    logger.error('Error getting session:', {
+      requestId,
+      error: sessionError.message
+    });
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+
   if (!session?.user) {
+    logger.warn('Unauthorized attempt to invite user', { 
+      requestId,
+      path: req.url 
+    });
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const { email, organizationId, role, token } = req.body;
+  const { email, organizationId, role } = req.body;
 
-  if (!email || !organizationId || !role || !token) {
-    return res.status(400).json({ error: 'Missing required fields' });
+  logger.info('Processing invitation request', {
+    requestId,
+    email,
+    organizationId,
+    role,
+    userId: session.user.id
+  });
+
+  if (!email || !organizationId || !role || !['agent', 'admin'].includes(role)) {
+    logger.warn('Invalid invitation request', {
+      requestId,
+      email: !!email,
+      organizationId: !!organizationId,
+      role,
+      userId: session.user.id
+    });
+    return res.status(400).json({ error: 'Missing or invalid required fields' });
   }
 
   try {
@@ -45,54 +77,80 @@ export default async function handler(
       .eq('user_id', session.user.id)
       .single();
 
-    if (membershipError || !membership || membership.role !== 'admin') {
+    if (membershipError) {
+      logger.error('Error checking user membership:', {
+        requestId,
+        error: membershipError.message,
+        userId: session.user.id,
+        organizationId
+      });
+      return res.status(500).json({ error: 'Failed to verify organization membership' });
+    }
+
+    if (!membership || membership.role !== 'admin') {
+      logger.warn('User not authorized to invite for organization', {
+        requestId,
+        userId: session.user.id,
+        organizationId,
+        userRole: membership?.role
+      });
       return res.status(403).json({ error: 'Not authorized to invite users' });
     }
 
-    // Get organization details
-    const { data: org, error: orgError } = await supabase
-      .from('organizations')
-      .select('name, slug')
-      .eq('id', organizationId)
-      .single();
-
-    if (orgError || !org) {
-      return res.status(404).json({ error: 'Organization not found' });
-    }
+    // Generate a secure random token
+    const token = crypto.randomBytes(32).toString('hex');
 
     // Create invitation
-    const { error: inviteError } = await supabase
+    const { data: invitation, error: inviteError } = await supabase
       .from('invitations')
       .insert({
         organization_id: organizationId,
         email,
         role,
         token
-      });
+      })
+      .select()
+      .single();
 
     if (inviteError) {
-      console.error('Error creating invitation:', inviteError);
+      logger.error('Failed to create invitation:', {
+        requestId,
+        error: inviteError.message,
+        details: inviteError.details
+      });
       return res.status(500).json({ error: 'Failed to create invitation' });
     }
 
-    // Send invitation email
-    const inviteUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/invite?orgSlug=${org.slug}&role=${role}&token=${token}`;
-    
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM,
-      to: email,
-      subject: `Invitation to join ${org.name} as ${role}`,
-      html: `
-        <p>You have been invited to join ${org.name} as a ${role}.</p>
-        <p>Click the link below to accept the invitation:</p>
-        <p><a href="${inviteUrl}">${inviteUrl}</a></p>
-        <p>This invitation will expire in 7 days.</p>
-      `,
+    if (!invitation) {
+      logger.error('No invitation data returned:', {
+        requestId
+      });
+      return res.status(500).json({ error: 'Invitation creation returned no data' });
+    }
+
+    // Generate invitation link
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    const inviteUrl = `${baseUrl}/invite?token=${token}`;
+
+    logger.info('Invitation created successfully', {
+      requestId,
+      invitationId: invitation.id,
+      email,
+      organizationId,
+      role
     });
 
-    return res.status(200).json({ message: 'Invitation sent successfully' });
-  } catch (error) {
-    console.error('Error sending invitation:', error);
-    return res.status(500).json({ error: 'Failed to send invitation' });
+    return res.status(200).json({ 
+      message: 'Invitation created successfully',
+      invitationId: invitation.id,
+      invitationLink: inviteUrl
+    });
+  } catch (error: any) {
+    logger.error('Error processing invitation:', {
+      requestId,
+      error: error.message,
+      stack: error.stack
+    });
+    return res.status(500).json({ error: 'Failed to process invitation' });
   }
 } 

@@ -66,7 +66,7 @@ export function AdminOnboarding({ userId, email, name, onComplete }: AdminOnboar
     }
   };
 
-  const handleGmailAuth = async () => {
+  const handleComplete = async () => {
     try {
       if (!orgName.trim()) {
         setError('Please enter your organization name');
@@ -76,7 +76,7 @@ export function AdminOnboarding({ userId, email, name, onComplete }: AdminOnboar
       setIsLoading(true);
       setError('');
 
-      // Update profile with avatar
+      // Update profile with avatar and role
       const { error: updateError } = await supabase
         .from('profiles')
         .update({
@@ -87,23 +87,10 @@ export function AdminOnboarding({ userId, email, name, onComplete }: AdminOnboar
 
       if (updateError) throw updateError;
 
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-            scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify'
-          }
-        }
-      });
-
-      if (error) throw error;
-
       onComplete(orgName);
     } catch (err) {
-      console.error('Error during Gmail auth:', err);
-      setError('Failed to authenticate with Gmail. Please try again.');
+      console.error('Error completing setup:', err);
+      setError('Failed to complete setup. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -176,17 +163,17 @@ export function AdminOnboarding({ userId, email, name, onComplete }: AdminOnboar
         </div>
 
         <Button
-          onClick={handleGmailAuth}
+          onClick={handleComplete}
           disabled={!canProceed || isLoading}
           className="w-full"
         >
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Connecting Gmail...
+              Setting up...
             </>
           ) : (
-            'Connect Gmail & Continue'
+            'Complete Setup'
           )}
         </Button>
       </div>

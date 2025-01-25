@@ -94,6 +94,33 @@ export default function ConnectGmail() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="mb-8">
+          <div className="flex items-center justify-center space-x-4">
+            <div className="flex items-center">
+              <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded-full">
+                <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <span className="ml-2 text-sm font-medium text-gray-900">Organization</span>
+            </div>
+            <div className="w-12 h-0.5 bg-blue-600"></div>
+            <div className="flex items-center">
+              <div className="flex items-center justify-center w-8 h-8 bg-blue-600 border-2 border-blue-600 rounded-full">
+                <span className="text-white font-bold">2</span>
+              </div>
+              <span className="ml-2 text-sm font-medium text-gray-900">Gmail</span>
+            </div>
+            <div className="w-12 h-0.5 bg-gray-200"></div>
+            <div className="flex items-center">
+              <div className="flex items-center justify-center w-8 h-8 bg-white border-2 border-gray-300 rounded-full">
+                <span className="text-gray-500 font-bold">3</span>
+              </div>
+              <span className="ml-2 text-sm font-medium text-gray-500">Done</span>
+            </div>
+          </div>
+        </div>
+
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Connect Gmail
         </h2>

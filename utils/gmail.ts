@@ -123,14 +123,24 @@ const logger = {
 export async function getGmailProfile(tokens: GmailTokens): Promise<GmailProfile> {
   try {
     console.log('Fetching Gmail profile...');
+    
+    // First get the organization ID for the current user
+    const { data: userProfile, error: profileError } = await supabase
+      .from('profiles')
+      .select('org_id')
+      .single();
+
+    if (profileError || !userProfile?.org_id) {
+      throw new Error('Failed to get organization ID');
+    }
+
     const response = await fetch(`${API_BASE_URL}/api/gmail/profile`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
+        org_id: userProfile.org_id
       }),
     });
     
@@ -143,9 +153,9 @@ export async function getGmailProfile(tokens: GmailTokens): Promise<GmailProfile
       throw new Error(`Failed to fetch Gmail profile: ${response.statusText}`);
     }
     
-    const profile = await response.json();
+    const gmailProfile = await response.json();
     console.log('Successfully fetched Gmail profile');
-    return profile;
+    return gmailProfile;
   } catch (error) {
     console.error('Error fetching Gmail profile:', error);
     throw error;
@@ -610,17 +620,28 @@ export async function importInitialEmails(userId: string, tokens: GmailTokens) {
   try {
     await logger.info('Starting initial email import', { userId });
     
+    // Get user's organization
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('org_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profile?.org_id) {
+      throw profileError || new Error('No organization found for profile');
+    }
+
     // Fetch last 10 emails
     const messages = await fetchLastTenEmails(tokens);
-    await logger.info('Fetched initial emails', { count: messages.length });
+    await logger.info('Fetched initial emails', { count: messages.length, orgId: profile.org_id });
     
     // Process each message
     const results = await Promise.allSettled(
       messages.map(async (message) => {
         try {
           const parsedEmail = parseGmailMessage(message);
-          await createTicketFromEmail(parsedEmail, userId);
-          return { success: true, messageId: message.id };
+          const ticket = await createTicketFromEmail(parsedEmail, userId);
+          return { success: true, messageId: message.id, ticketId: ticket.id };
         } catch (error) {
           await logger.error(`Failed to process message ${message.id}`, error);
           return { success: false, messageId: message.id, error };
@@ -636,6 +657,7 @@ export async function importInitialEmails(userId: string, tokens: GmailTokens) {
       total: messages.length,
       successful,
       failed,
+      orgId: profile.org_id,
       results: results.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: r.reason })
     });
     

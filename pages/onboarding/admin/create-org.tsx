@@ -120,6 +120,27 @@ export default function CreateAdminOrg() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="flex justify-center space-x-4 mb-8">
+          <div className="flex items-center">
+            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center">
+              1
+            </div>
+            <div className="ml-2 text-sm font-medium text-blue-600">Organization</div>
+          </div>
+          <div className="flex items-center">
+            <div className="w-8 h-8 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center">
+              2
+            </div>
+            <div className="ml-2 text-sm font-medium text-gray-600">Gmail</div>
+          </div>
+          <div className="flex items-center">
+            <div className="w-8 h-8 bg-gray-200 text-gray-600 rounded-full flex items-center justify-center">
+              3
+            </div>
+            <div className="ml-2 text-sm font-medium text-gray-600">Done</div>
+          </div>
+        </div>
+
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Create Your Organization
         </h2>
