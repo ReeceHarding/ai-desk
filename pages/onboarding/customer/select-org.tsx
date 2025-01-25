@@ -1,106 +1,110 @@
-import { Database } from '@/types/supabase'
 import { logger } from '@/utils/logger'
-import { useSupabaseClient } from '@supabase/auth-helpers-react'
-import { Loader2 } from 'lucide-react'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import Image from 'next/image'
 import { useRouter } from 'next/router'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-export default function CustomerSelectOrgPage() {
+interface Organization {
+  id: string
+  name: string
+  slug: string
+  avatar_url?: string
+}
+
+export default function SelectOrg() {
   const router = useRouter()
-  const supabase = useSupabaseClient<Database>()
   const [searchTerm, setSearchTerm] = useState('')
-  const [orgs, setOrgs] = useState<{id:string, name:string}[]>([])
-  const [selectedOrgId, setSelectedOrgId] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string|null>(null)
-  const [isSearching, setIsSearching] = useState(false)
-  const [showDropdown, setShowDropdown] = useState(false)
-  const searchRef = useRef<HTMLDivElement>(null)
+  const [results, setResults] = useState<Organization[]>([])
+  const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const supabase = createClientComponentClient()
 
-  // Close dropdown when clicking outside
+  // Debounced search
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
-        setShowDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+    const timer = setTimeout(async () => {
+      if (searchTerm.length > 0) {
+        setIsLoading(true)
+        setError(null)
 
-  useEffect(() => {
-    if (searchTerm.length < 1) {
-      setOrgs([]);
-      setIsSearching(false);
-      return;
-    }
-    
-    logger.info('[SELECT_ORG] Starting search:', { searchTerm });
-    setIsSearching(true);
-    const timer = setTimeout(() => {
-      fetch(`/api/organizations/search?q=${encodeURIComponent(searchTerm)}`)
-        .then(resp => {
-          logger.info('[SELECT_ORG] Search response:', { 
-            status: resp.status,
-            ok: resp.ok 
-          });
-          return resp.json();
-        })
-        .then(data => {
-          setIsSearching(false);
-          logger.info('[SELECT_ORG] Search results:', { 
-            isArray: Array.isArray(data),
-            resultCount: Array.isArray(data) ? data.length : 0,
-            data
-          });
-          // Ensure data is an array before setting it
-          if (Array.isArray(data)) {
-            setOrgs(data);
-            setShowDropdown(true);
-          } else {
-            console.error('Expected array of organizations but got:', data);
-            setOrgs([]);
+        try {
+          logger.info('[SELECT_ORG] Searching organizations:', { searchTerm })
+          
+          const { data, error } = await supabase
+            .from('organizations')
+            .select('id, name, slug, avatar_url')
+            .ilike('name', `%${searchTerm}%`)
+            .limit(10)
+
+          if (error) {
+            logger.error('[SELECT_ORG] Search error:', { error })
+            setError('Failed to search organizations')
+            return
           }
-        })
-        .catch(e => {
-          setIsSearching(false);
-          logger.error('[SELECT_ORG] Search error:', e);
-          setOrgs([]);
-        });
-    }, 300);
 
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
+          setResults(data || [])
+          logger.info('[SELECT_ORG] Search results:', { count: data?.length })
+        } catch (err) {
+          logger.error('[SELECT_ORG] Unexpected error:', { error: err })
+          setError('An unexpected error occurred')
+        } finally {
+          setIsLoading(false)
+        }
+      } else {
+        setResults([])
+      }
+    }, 300)
 
-  const handleOrgSelect = (org: {id: string, name: string}) => {
-    setSelectedOrgId(org.id);
-    setSearchTerm(org.name);
-    setShowDropdown(false);
-  };
+    return () => clearTimeout(timer)
+  }, [searchTerm, supabase])
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSelectOrg = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!selectedOrg) {
+      setError('Please select an organization')
+      return
+    }
+
+    setIsLoading(true)
     setError(null)
-    setLoading(true)
+
     try {
-      // Save selected organization
-      const resp = await fetch('/api/profiles/update-organization', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizationId: selectedOrgId })
+      logger.info('[SELECT_ORG] Updating user organization:', { 
+        orgId: selectedOrg.id,
+        orgName: selectedOrg.name 
       })
 
-      if (!resp.ok) {
-        const er = await resp.json()
-        throw new Error(er.error || 'Failed to select organization')
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        logger.error('[SELECT_ORG] Auth error:', { error: userError })
+        setError('Could not verify your identity')
+        return
       }
 
-      // Proceed to submit question
+      // Update the user's profile with the selected org
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ 
+          org_id: selectedOrg.id,
+          metadata: {
+            org_selected_at: new Date().toISOString()
+          }
+        })
+        .eq('id', user.id)
+
+      if (updateError) {
+        logger.error('[SELECT_ORG] Profile update error:', { error: updateError })
+        setError('Failed to update your organization')
+        return
+      }
+
+      logger.info('[SELECT_ORG] Organization selected successfully')
       router.push('/onboarding/customer/submit-question')
-    } catch (err:any) {
-      setError(err.message)
+    } catch (err) {
+      logger.error('[SELECT_ORG] Unexpected error:', { error: err })
+      setError('An unexpected error occurred')
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
@@ -108,98 +112,94 @@ export default function CustomerSelectOrgPage() {
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Select Organization
+          Find Your Organization
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Which organization do you have a question about?
+          Search for your company or organization name
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-          <form className="space-y-6" onSubmit={handleSubmit}>
-            {error && (
-              <div className="rounded-md bg-red-50 p-4">
-                <div className="flex">
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800">
-                      {error}
-                    </h3>
-                  </div>
-                </div>
-              </div>
-            )}
+          {error && (
+            <div className="mb-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">
+              {error}
+            </div>
+          )}
 
-            <div ref={searchRef} className="relative">
+          <div className="space-y-6">
+            <div>
               <label htmlFor="search" className="block text-sm font-medium text-gray-700">
-                Search Organizations
+                Organization Name
               </label>
               <div className="mt-1">
                 <input
-                  id="search"
                   type="text"
-                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  id="search"
                   value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                  onFocus={() => setShowDropdown(true)}
-                  placeholder="Type organization name..."
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Type to search..."
+                  className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 />
               </div>
-
-              {/* Autocomplete Dropdown */}
-              {showDropdown && (searchTerm.length > 0 || isSearching) && (
-                <div className="absolute z-10 w-full mt-1 bg-white shadow-lg max-h-60 rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto focus:outline-none sm:text-sm">
-                  {isSearching ? (
-                    <div className="flex items-center justify-center py-2">
-                      <Loader2 className="animate-spin h-5 w-5 text-gray-400" />
-                    </div>
-                  ) : orgs.length > 0 ? (
-                    orgs.map(org => (
-                      <div
-                        key={org.id}
-                        className="cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-gray-50"
-                        onClick={() => handleOrgSelect(org)}
-                      >
-                        <div className="flex items-center">
-                          <span className="ml-3 block truncate">
-                            {org.name}
-                          </span>
-                        </div>
-                        {selectedOrgId === org.id && (
-                          <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-blue-600">
-                            <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
-                          </span>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="px-3 py-2 text-sm text-gray-500">
-                      No organizations found
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
-            <div>
+            {/* Results list */}
+            {results.length > 0 && (
+              <div className="mt-2 border border-gray-200 rounded-md divide-y divide-gray-200">
+                {results.map((org) => (
+                  <button
+                    key={org.id}
+                    onClick={() => {
+                      setSelectedOrg(org);
+                      setSearchTerm(org.name);
+                    }}
+                    className={`w-full px-4 py-3 flex items-center space-x-3 hover:bg-gray-50 focus:outline-none ${
+                      selectedOrg?.id === org.id ? 'bg-blue-50' : ''
+                    }`}
+                    type="button"
+                  >
+                    {org.avatar_url ? (
+                      <Image
+                        src={org.avatar_url}
+                        alt={org.name}
+                        width={40}
+                        height={40}
+                        className="rounded-full"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                        <span className="text-lg font-medium text-gray-600">
+                          {org.name.charAt(0)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex-1 text-left">
+                      <div className="font-medium text-gray-900">{org.name}</div>
+                      <div className="text-sm text-gray-500">@{org.slug}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {searchTerm && !isLoading && results.length === 0 && (
+              <div className="text-center py-4 text-gray-500">
+                No organizations found
+              </div>
+            )}
+
+            {/* Continue button */}
+            <form onSubmit={handleSelectOrg}>
               <button
                 type="submit"
-                disabled={!selectedOrgId || loading}
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isLoading || !selectedOrg}
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
               >
-                {loading ? (
-                  <>
-                    <Loader2 className="animate-spin -ml-1 mr-2 h-4 w-4" />
-                    Saving...
-                  </>
-                ) : (
-                  'Continue'
-                )}
+                {isLoading ? 'Processing...' : 'Continue'}
               </button>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
       </div>
     </div>

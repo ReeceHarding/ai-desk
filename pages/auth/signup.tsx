@@ -216,41 +216,57 @@ export default function SignUp() {
 
   const handleEmailSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const requestId = crypto.randomUUID();
     
     try {
       setLoading(true);
       setError(null);
 
+      logger.info('[SIGNUP_PAGE] Starting email signup', {
+        requestId,
+        email: email.length > 0 ? `${email.substring(0, 2)}...${email.split('@')[1]}` : 'empty',
+        hasPassword: password.length > 0,
+        timestamp: new Date().toISOString()
+      });
+
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`
+          // No email verification required
+          data: {
+            signup_completed: false
+          }
         }
       });
 
       if (error) {
+        logger.error('[SIGNUP_PAGE] Signup error', {
+          requestId,
+          error: error.message,
+          code: error.status,
+          timestamp: new Date().toISOString()
+        });
         setError(error.message);
         return;
       }
 
-      if (!data.user) {
-        setError('Failed to create account');
-        return;
-      }
-
-      // Check if email verification is required
-      if (data.session) {
-        // User is already signed in, redirect to role selection
-        router.push('/onboarding/select-role');
-      } else if (data.user.identities?.length === 0) {
-        // No identities means email verification is required
-        router.push('/auth/verify-email');
-      } else {
-        // Default to role selection
+      if (data?.user) {
+        logger.info('[SIGNUP_PAGE] Signup successful', {
+          requestId,
+          userId: data.user.id,
+          timestamp: new Date().toISOString()
+        });
+        
+        // Redirect to role selection
         router.push('/onboarding/select-role');
       }
     } catch (err) {
+      logger.error('[SIGNUP_PAGE] Unexpected error', {
+        requestId,
+        error: err,
+        timestamp: new Date().toISOString()
+      });
       setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);

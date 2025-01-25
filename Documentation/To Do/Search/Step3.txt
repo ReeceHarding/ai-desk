@@ -1,0 +1,422 @@
+Below is an extremely thorough, step-by-step guide to implement Step 3—the Front-End / UI Flow—covering every detail of the user interface for our outreach system. Each sub-step contains a rationale, code snippets, references to our database columns, and instructions for testing to ensure that we do “literally everything requested” in the front-end.
+
+STEP 3: FRONT-END / UI FLOW
+
+3.1. Purpose & Overview
+
+By this point, our back-end logic (from Step 2) is ready. Now we build the user interface that:
+	1.	Lets the user create “outreach campaigns” in outreach_campaigns.
+	2.	Lets the user add “search tasks” (queries) in search_tasks.
+	3.	Displays the scraping results and discovered contacts.
+	4.	Allows the user to kick off the initial outreach creation (“step 1 emails/forms”).
+	5.	Shows statuses for each step of the pipeline (pending, in progress, completed, etc.).
+
+We’ll assume a Next.js environment for the example, but you can adapt to your chosen framework. The following sub-steps are all about implementing pages or components that talk to the back-end services (from Step 2) and the new Supabase tables. We’ll ensure everything is consistent with the code already written.
+
+Checkpoint: Make sure your environment can run your Next.js (or React) project and that you can successfully query your Supabase instance from the front-end.
+
+3.2. Potential Pages & Components
+
+We’ll define the front-end structure as follows (though you can reorder or rename as needed):
+	1.	/campaigns page: Displays a list of campaigns (outreach_campaigns) for the currently logged-in user.
+	2.	/campaigns/[id] page: Shows details of a single campaign: search tasks, a button to add new tasks, a button to “create initial outreach,” etc.
+	3.	/contacts or /campaigns/[id]/contacts (optional): Displays discovered contacts for the user. Possibly we filter by campaign.
+	4.	Components for forms:
+	•	Create a campaign form
+	•	Add a search task form
+	5.	Progress or status pages: Possibly we show how many tasks are pending or completed, how many messages have been sent, etc.
+
+3.2.1. Rationale for This Structure
+	•	The user logs in, sees all their “outreach campaigns.”
+	•	They pick or create one.
+	•	Inside that campaign, they define multiple search tasks.
+	•	The system eventually runs them (via cron).
+	•	Scraping results become contacts.
+	•	The user can click “start outreach,” which calls createInitialOutreachEntries(campaignId).
+	•	They can see if the drip emails have gone out, who responded, etc.
+
+3.2.2. Code Organization
+
+In a Next.js environment, typical file structure is:
+
+pages/
+  campaigns/
+    index.tsx          --> list campaigns
+    [id]/
+      index.tsx        --> detail of a single campaign
+  contacts/ (optional) 
+  ...
+components/
+  campaigns/
+    CampaignList.tsx
+    CampaignForm.tsx
+    ...
+utils/ (from Step 2)
+  ...
+
+We will detail each page or major component below.
+
+3.3. Implementation Examples
+
+3.3.1. /campaigns/index.tsx (List of Campaigns)
+
+Purpose: Show the user their existing campaigns from outreach_campaigns, filter by owner_id = currentUser.id, plus a button to create a new campaign.
+
+Detailed Steps:
+	1.	Fetch campaigns:
+	•	Use supabase client in your getServerSideProps or client-side React with a hook (like useEffect).
+	•	Filter by owner_id = currentUserId.
+	2.	Render:
+	•	A table or list of campaign_name, maybe description.
+	•	Link each row to /campaigns/[id] for details.
+	3.	New campaign:
+	•	A small form or a modal that calls createCampaign(currentUserId, campaignName, description).
+	•	Then refresh or re-fetch campaigns.
+
+Example:
+
+// pages/campaigns/index.tsx
+import { useEffect, useState } from 'react';
+import { useUser } from '@supabase/auth-helpers-react';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+
+export default function CampaignsListPage() {
+  const user = useUser();
+  const supabase = useSupabaseClient();
+  const [campaigns, setCampaigns] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+
+  useEffect(() => {
+    if (!user) return;
+    fetchCampaigns();
+  }, [user]);
+
+  async function fetchCampaigns() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('outreach_campaigns')
+      .select('*')
+      .eq('owner_id', user?.id)
+      .order('created_at', { ascending: false });
+    if (!error && data) {
+      setCampaigns(data);
+    }
+    setLoading(false);
+  }
+
+  async function createNewCampaign() {
+    if (!newName.trim()) return;
+    const { data, error } = await supabase
+      .from('outreach_campaigns')
+      .insert({
+        owner_id: user?.id,
+        campaign_name: newName,
+        description: newDesc
+      })
+      .select()
+      .single();
+    if (!error && data) {
+      // appended
+      setCampaigns([data, ...campaigns]);
+      setNewName('');
+      setNewDesc('');
+    }
+  }
+
+  if (!user) {
+    return <div>Please sign in</div>;
+  }
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h1>Your Outreach Campaigns</h1>
+      {loading ? (
+        <p>Loading...</p>
+      ) : (
+        <ul>
+          {campaigns.map((c) => (
+            <li key={c.id}>
+              <a href={`/campaigns/${c.id}`}>
+                {c.campaign_name} - {c.description}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div style={{ marginTop: 20 }}>
+        <h2>Create a new campaign</h2>
+        <input
+          placeholder="Campaign Name"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+        />
+        <br />
+        <textarea
+          placeholder="Description"
+          value={newDesc}
+          onChange={(e) => setNewDesc(e.target.value)}
+        />
+        <br />
+        <button onClick={createNewCampaign}>Create Campaign</button>
+      </div>
+    </div>
+  );
+}
+
+Testing:
+	•	Log in, see “no campaigns” if none exist.
+	•	Create a campaign with a name & description, see it appear in the list.
+	•	Ensure the DB has that row.
+
+3.3.2. /campaigns/[id]/index.tsx (Single Campaign Detail)
+
+Purpose: Show the details of one campaign: the search tasks, a button to add new tasks, a button to create initial outreach, etc.
+
+Detailed Steps:
+	1.	Fetch campaign details from outreach_campaigns plus search tasks from search_tasks where campaign_id = id.
+	2.	Display them in a table. Show columns: search_query, status.
+	3.	Add a new search task: small form with a text input for searchQuery. Insert row in search_tasks.
+	4.	Button “Create Initial Outreach” => calls a next API route or directly calls createInitialOutreachEntries(id).
+	5.	Show a link or a small UI for how many contacts have been discovered (contacts) => optionally link them to a contact table.
+
+Example:
+
+// pages/campaigns/[id]/index.tsx
+import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { createInitialOutreachEntries } from '@/utils/outreachService'; // or call serverless function
+
+export default function CampaignDetailPage() {
+  const router = useRouter();
+  const supabase = useSupabaseClient();
+  const { id } = router.query;
+
+  const [campaign, setCampaign] = useState<any>(null);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const [newQuery, setNewQuery] = useState('');
+
+  useEffect(() => {
+    if (id) {
+      fetchData();
+    }
+  }, [id]);
+
+  async function fetchData() {
+    setLoading(true);
+
+    // 1) fetch campaign
+    let { data: camp, error: campErr } = await supabase
+      .from('outreach_campaigns')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    // 2) fetch tasks
+    let { data: tData, error: tErr } = await supabase
+      .from('search_tasks')
+      .select('*')
+      .eq('campaign_id', id)
+      .order('created_at', { ascending: false });
+
+    setCampaign(camp || null);
+    setTasks(tData || []);
+    setLoading(false);
+  }
+
+  async function addSearchTask() {
+    if (!newQuery.trim()) return;
+    const { data, error } = await supabase
+      .from('search_tasks')
+      .insert({
+        campaign_id: id,
+        search_query: newQuery
+      })
+      .select()
+      .single();
+    if (!error && data) {
+      setTasks([data, ...tasks]);
+      setNewQuery('');
+    }
+  }
+
+  async function startInitialOutreach() {
+    // Option 1: Call a direct function. But we must be in a front-end environment, so better do an API route or serverless function. 
+    // For demonstration, let's do a naive approach:
+    try {
+      // if we have a function in our front-end:
+      await createInitialOutreachEntries(id as string);
+      alert('Initial outreach entries created. Wait for cron to process them.');
+    } catch (e) {
+      console.error(e);
+      alert('Error creating outreach entries.');
+    }
+  }
+
+  if (loading) return <p>Loading...</p>;
+  if (!campaign) return <p>No campaign found</p>;
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h1>Campaign Detail</h1>
+      <p><strong>{campaign.campaign_name}</strong></p>
+      <p>{campaign.description}</p>
+
+      <h2>Search Tasks</h2>
+      <ul>
+        {tasks.map((task) => (
+          <li key={task.id}>
+            Query: {task.search_query}, status: {task.status}
+          </li>
+        ))}
+      </ul>
+
+      <div style={{ marginTop: 20 }}>
+        <input
+          placeholder="New Search Query"
+          value={newQuery}
+          onChange={(e) => setNewQuery(e.target.value)}
+        />
+        <button onClick={addSearchTask}>Add Task</button>
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <button onClick={startInitialOutreach}>Create Initial Outreach</button>
+      </div>
+    </div>
+  );
+}
+
+Testing:
+	•	Create a campaign in the step 3.3.1 page. Then click on it => you should see a blank or short detail page.
+	•	Add new search tasks. They appear in the list with status 'pending'.
+	•	“Create Initial Outreach” => we expect some success message. (In real usage, this sets up the flows in the DB.)
+
+3.3.3. Optional “Contacts” Page
+
+Purpose: If we want the user to see all discovered contacts, we can have a page. We can filter them by campaign (through a join). Or we do a global list to see if they responded or not. This is optional but extremely helpful for debugging.
+
+Example:
+
+// pages/contacts/index.tsx
+import { useEffect, useState } from 'react';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+
+export default function ContactsPage() {
+  const supabase = useSupabaseClient();
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchContacts();
+  }, []);
+
+  async function fetchContacts() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('contacts')
+      .select(`
+        id,
+        email,
+        form_url,
+        reached_status,
+        scrape_result_id (
+          url,
+          search_task_id (
+            campaign_id
+          )
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setContacts(data);
+    }
+    setLoading(false);
+  }
+
+  if (loading) return <p>Loading...</p>;
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h1>All Contacts Found</h1>
+      <table>
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Form URL</th>
+            <th>Reached Status</th>
+            <th>Origin</th>
+          </tr>
+        </thead>
+        <tbody>
+          {contacts.map((c) => (
+            <tr key={c.id}>
+              <td>{c.email || '—'}</td>
+              <td>{c.form_url || '—'}</td>
+              <td>{c.reached_status}</td>
+              <td>
+                <small>
+                  {c.scrape_result_id?.url} 
+                  (campaign: {c.scrape_result_id?.search_task_id?.campaign_id})
+                </small>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+Testing:
+	•	After searching & scraping in Step 2, we get contacts. This page should display them.
+	•	Confirm the column “Reached Status” updates after the outreach flow runs.
+
+3.3.4. UI for Automatic Refresh / or Cron Indication
+
+We might have a small banner that says: “Your tasks will run automatically every 10 minutes. Next run in ~7 minutes.” Or we can add a manual “Run Cron Now” button if we want (like a dev environment approach). This is optional.
+
+3.4. Testing & Validation
+
+3.4.1. High-Level Flow
+	1.	Login -> land on /campaigns page. No campaigns? We create one.
+	2.	Click on the new campaign -> add search tasks (like “yoga studios in Florida”).
+	3.	Wait or manually run the Step 2 cron to see tasks 'completed'.
+	4.	Then check “Contacts” page to see discovered emails or forms, all 'not_reached'.
+	5.	Click “Create Initial Outreach” in the campaign detail -> This calls the function that adds the “step 1 flows.”
+	6.	Wait or run the Step 2 cron again -> we see the flows get 'sent', the contact 'emailed'.
+	7.	If they respond, in your real email/ticket system, we see them. Or if not, we do the follow-up flows.
+
+3.4.2. Detailed Checklist
+	1.	Campaign Creation: Confirm a new row in outreach_campaigns is indeed created for the user.
+	2.	Search Task: Confirm new tasks go into search_tasks.
+	3.	Reading: Confirm the page lists them with the correct status.
+	4.	Contacts: Confirm after the scraping step that the front-end can see them.
+	5.	Outreach: The “start initial outreach” triggers creation of outreach_flows rows.
+	6.	No JS/TS errors in the browser console or build logs.
+
+If all these pass, you have a working front-end that ties into the system built in Step 2.
+
+Summary of Step 3
+
+We have thoroughly covered:
+	•	3.1: The purpose and overview of the front-end.
+	•	3.2: The recommended page structure.
+	•	3.3: Implementation examples for each page (/campaigns, /campaigns/[id], optional /contacts), with code that references the new Supabase schema.
+	•	3.4: Testing guidance, ensuring each piece is validated.
+
+This approach ensures the user can:
+	•	Create campaigns
+	•	Add tasks
+	•	Inspect results & contacts
+	•	Initiate outreach
+	•	Follow the status changes as the back-end runs each step
+
+All steps are integral to “literally everything requested” in Step 3. When you finish, you have a robust UI that fully interacts with your Supabase-based back-end automation from Step 2.

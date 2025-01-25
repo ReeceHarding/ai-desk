@@ -2,9 +2,9 @@ import { google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
+  process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
+  process.env.GMAIL_CLIENT_SECRET,
+  process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
 );
 
 export default async function handler(
@@ -30,8 +30,8 @@ export default async function handler(
     const state = `${type}:${id}`;
 
     console.log('Using OAuth2 config:', {
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      redirectUri: process.env.GOOGLE_REDIRECT_URI,
+      clientId: process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
+      redirectUri: process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI,
       state
     });
 

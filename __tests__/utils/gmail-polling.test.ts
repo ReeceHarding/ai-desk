@@ -1,6 +1,4 @@
-import { jest } from '@jest/globals';
-import { GmailTokens } from '../../types/gmail';
-import { pollAndCreateTickets } from '../../utils/gmail';
+import { pollGmailForNewMessages } from '@/utils/gmail-polling';
 import { cleanupTestDatabase, setupTestEnvironment } from './test-setup';
 
 // Mock environment variables
@@ -63,8 +61,8 @@ const mockSupabaseClient = {
   }))
 };
 
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: jest.fn(() => mockSupabaseClient)
+jest.mock('@supabase/auth-helpers-nextjs', () => ({
+  createClientComponentClient: jest.fn()
 }));
 
 // Mock fetch
@@ -107,12 +105,13 @@ describe('Gmail Polling Integration', () => {
     // Reset environment variables before each test
     process.env.TEST_GMAIL_ACCESS_TOKEN = 'test-access-token'
     process.env.TEST_GMAIL_REFRESH_TOKEN = 'test-refresh-token'
+    jest.clearAllMocks();
   })
 
   describe('pollAndCreateTickets', () => {
     it('should successfully poll Gmail and create tickets', async () => {
       try {
-        const result = await pollAndCreateTickets(testUserId)
+        const result = await pollGmailForNewMessages()
         expect(result).toBeDefined()
       } catch (error) {
         console.error('Error in test:', error)
@@ -123,7 +122,7 @@ describe('Gmail Polling Integration', () => {
     it('should handle missing Gmail tokens', async () => {
       try {
         // Use a non-existent user ID to test missing tokens
-        await expect(pollAndCreateTickets('non-existent-user'))
+        await expect(pollGmailForNewMessages())
           .rejects
           .toThrow('Gmail not connected')
       } catch (error) {
@@ -136,7 +135,7 @@ describe('Gmail Polling Integration', () => {
       try {
         // Mock Gmail API error by using invalid tokens
         process.env.TEST_GMAIL_ACCESS_TOKEN = 'invalid-token'
-        await expect(pollAndCreateTickets(testUserId))
+        await expect(pollGmailForNewMessages())
           .rejects
           .toThrow('Failed to fetch Gmail messages')
       } catch (error) {

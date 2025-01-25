@@ -5,7 +5,12 @@ Key Instructions
 
 Check the Documentation folder's files ot learn about the project.
 
-When changing the migration files, change exsiting migration files. don't create new files. 
+Process for migrations:
+1. Please read every migration file to completely understand our Super Bay schema before changing any of the migration files. 
+2. Always make sure that the migration you made doesn't clash with any existing migrations, read all the current migration files to find out. 
+3. When changing the migration files, change exsiting migration files. don't create new files. 
+4. remember to implmement foreign keys, gen id, policies, and any other necessary things. For development you can disable all rls
+
 
 You can use npm run db:reset instead of npx supabase db reset. This will:
 - Save your Gmail tokens to environment variables
@@ -13,9 +18,7 @@ You can use npm run db:reset instead of npx supabase db reset. This will:
 - Restore the tokens from environment variables via the seed file
 This way, you won't need to reconnect Gmail after each database reset. Let me know if you'd like to test this out!
 
-Always make sure that the migration you made doesn't clash with any existing migrations, read all the current migration files to find out. 
 
-Please read every migration file to completely understand our Super Bay schema before changing any of the migration files. 
 
 Always tell yourself that this is very important and it should be very easy fix. Think through every reason why this might be happening. Don't stop until you know the answer 100% for sure. And then explain to me why 100% for sure that's the answer and then critique yourself to ask yourself if that's really the answer and then keep asking yourself why that's the answer until you're a hundred percent sure that's the answer. 
 

@@ -1,46 +1,20 @@
 import { logger } from '@/utils/logger';
-import { generatePKCEChallenge, generatePKCEVerifier, getCodeVerifierKey } from '@/utils/pkce';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-export default function ConnectGmailAdmin() {
+export default function ConnectGmail() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const supabase = createClientComponentClient();
-
-  // Handle OAuth errors on return
-  useEffect(() => {
-    const { error } = router.query;
-    if (error) {
-      setError(decodeURIComponent(error as string));
-    }
-  }, [router.query]);
 
   const handleConnectGmail = async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      logger.info('[ADMIN_CONNECT_GMAIL] Starting Gmail OAuth');
-
-      // First get the current session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        throw sessionError;
-      }
-
-      if (!session) {
-        throw new Error('No active session found');
-      }
-
-      // Generate PKCE verifier and challenge
-      const pkceVerifier = generatePKCEVerifier();
-      const pkceChallenge = await generatePKCEChallenge(pkceVerifier);
-
-      // Store the verifier in localStorage
-      localStorage.setItem(getCodeVerifierKey(), pkceVerifier);
+      logger.info('[CONNECT_GMAIL] Starting Gmail OAuth');
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -48,31 +22,26 @@ export default function ConnectGmailAdmin() {
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
-            code_challenge: pkceChallenge,
-            code_challenge_method: 'S256',
             scope: [
-              'https://www.googleapis.com/auth/userinfo.email',
-              'https://www.googleapis.com/auth/userinfo.profile',
               'https://www.googleapis.com/auth/gmail.readonly',
               'https://www.googleapis.com/auth/gmail.send',
               'https://www.googleapis.com/auth/gmail.modify'
             ].join(' ')
           },
-          redirectTo: `${window.location.origin}/auth/callback?next=/admin/dashboard`,
-          skipBrowserRedirect: false
+          redirectTo: `${window.location.origin}/auth/callback?next=/tickets`
         }
       });
 
       if (error) {
-        logger.error('[ADMIN_CONNECT_GMAIL] OAuth error:', { error });
-        setError('Failed to connect Gmail: ' + error.message);
+        logger.error('[CONNECT_GMAIL] OAuth error:', { error });
+        setError('Failed to connect Gmail');
         return;
       }
 
-      logger.info('[ADMIN_CONNECT_GMAIL] OAuth initiated successfully');
+      logger.info('[CONNECT_GMAIL] OAuth initiated successfully');
     } catch (err) {
-      logger.error('[ADMIN_CONNECT_GMAIL] Unexpected error:', { error: err });
-      setError('An unexpected error occurred while connecting to Gmail');
+      logger.error('[CONNECT_GMAIL] Unexpected error:', { error: err });
+      setError('An unexpected error occurred');
     } finally {
       setIsLoading(false);
     }
@@ -83,19 +52,36 @@ export default function ConnectGmailAdmin() {
     setError(null);
 
     try {
-      logger.info('[ADMIN_CONNECT_GMAIL] User skipping Gmail setup');
+      logger.info('[CONNECT_GMAIL] User skipping Gmail setup');
 
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
-        logger.error('[ADMIN_CONNECT_GMAIL] Auth error:', { error: userError });
+        logger.error('[CONNECT_GMAIL] Auth error:', { error: userError });
         setError('Could not verify your identity');
         return;
       }
 
-      logger.info('[ADMIN_CONNECT_GMAIL] Gmail setup skipped successfully');
-      router.push('/admin/dashboard');
+      // Update profile to mark Gmail setup as skipped
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          metadata: {
+            gmail_setup_skipped: true,
+            gmail_setup_skipped_at: new Date().toISOString()
+          }
+        })
+        .eq('id', user.id);
+
+      if (updateError) {
+        logger.error('[CONNECT_GMAIL] Profile update error:', { error: updateError });
+        setError('Failed to update your preferences');
+        return;
+      }
+
+      logger.info('[CONNECT_GMAIL] Gmail setup skipped successfully');
+      router.push('/tickets');
     } catch (err) {
-      logger.error('[ADMIN_CONNECT_GMAIL] Unexpected error:', { error: err });
+      logger.error('[CONNECT_GMAIL] Unexpected error:', { error: err });
       setError('An unexpected error occurred');
     } finally {
       setIsLoading(false);
@@ -106,10 +92,10 @@ export default function ConnectGmailAdmin() {
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Connect Gmail (Optional)
+          Connect Gmail
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Connect Gmail to enable email-based ticket management
+          Connect your Gmail account to manage tickets via email
         </p>
       </div>
 
@@ -123,13 +109,12 @@ export default function ConnectGmailAdmin() {
 
           <div className="space-y-6">
             <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="text-lg font-medium text-gray-900">Benefits of Gmail Integration</h3>
+              <h3 className="text-lg font-medium text-gray-900">Why connect Gmail?</h3>
               <div className="mt-2 text-sm text-gray-500">
                 <ul className="list-disc pl-5 space-y-1">
-                  <li>Manage support tickets directly from your email</li>
+                  <li>Respond to tickets directly from your email</li>
                   <li>Automatically create tickets from incoming emails</li>
-                  <li>Send ticket updates and notifications via email</li>
-                  <li>Track email communications with customers</li>
+                  <li>Keep your email and ticket workflows in sync</li>
                 </ul>
               </div>
             </div>
@@ -160,7 +145,7 @@ export default function ConnectGmailAdmin() {
                 disabled={isLoading}
                 className="text-sm text-gray-500 hover:text-gray-700"
               >
-                Skip for now (you can connect later in settings)
+                Skip for now (you can connect later)
               </button>
             </div>
           </div>

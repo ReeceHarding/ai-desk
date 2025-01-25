@@ -10,6 +10,7 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Make sure the "public" schema is owned by postgres and open
 ALTER SCHEMA public OWNER TO postgres;
@@ -137,7 +138,7 @@ CREATE TABLE public.organizations (
   name text NOT NULL,
   slug text NOT NULL,
   public_mode boolean NOT NULL DEFAULT true,
-  owner_id uuid,  -- final references can be set if needed
+  owner_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,  -- ensures if user is deleted, this becomes NULL
   sla_tier public.sla_tier NOT NULL DEFAULT 'basic',
   gmail_refresh_token text,
   gmail_access_token text,
@@ -195,7 +196,7 @@ CREATE TABLE public.profiles (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Link to auth.users
+-- Link to auth.users (1:1)
 ALTER TABLE public.profiles
   ADD CONSTRAINT profiles_id_fkey
   FOREIGN KEY (id)
@@ -211,7 +212,6 @@ EXECUTE PROCEDURE public.fn_auto_update_timestamp();
 ------------------------------
 -- 7. ORGANIZATION MEMBERS
 ------------------------------
--- Final "organization_members" with direct PK (no separate ID needed):
 CREATE TABLE public.organization_members (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   organization_id uuid NOT NULL REFERENCES public.organizations (id) ON DELETE CASCADE,
@@ -662,15 +662,11 @@ WHERE NOT EXISTS (
   SELECT 1 FROM storage.buckets WHERE id = 'avatars'
 );
 
--- For development, we won't define final RLS policies on storage.objects
--- (since the final step is "disable RLS on everything" below).
--- But if you want them, you can re-add them.  
+-- For dev, no final RLS policies on storage.objects
 
 ------------------------------
 -- 18. FINAL handle_new_user() TRIGGER
 ------------------------------
--- This is the *enhanced* logging version from 20250123120004_add_profile_trigger.sql
-
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -824,7 +820,6 @@ CREATE TRIGGER on_auth_user_created
 ------------------------------
 -- 19. SIMPLE STATS TRIGGERS
 ------------------------------
--- Final versions that remain
 CREATE OR REPLACE FUNCTION public.fn_update_agent_first_response_stats()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -856,8 +851,7 @@ EXECUTE FUNCTION public.fn_update_agent_resolution_stats();
 ------------------------------
 -- 20. SAMPLE DATA UPDATE
 ------------------------------
--- This appeared in the migrations; keep if relevant.
--- If 'ee0f56a0-4130-4398-bc2d-27529f82efb1' is a known org ID, set its gmail_history_id
+-- If 'ee0f56a0-4130-4398-bc2d-27529f82efb1' is a known org ID:
 UPDATE public.organizations
 SET gmail_history_id = '2180684'
 WHERE id = 'ee0f56a0-4130-4398-bc2d-27529f82efb1';
@@ -865,9 +859,8 @@ WHERE id = 'ee0f56a0-4130-4398-bc2d-27529f82efb1';
 ------------------------------
 -- 21. DISABLE RLS & GRANTS (Final State)
 ------------------------------
--- In the end, all RLS was disabled and wide grants given for development.
+-- In the end, all RLS was disabled and wide grants given for dev.
 
--- Disable RLS on all relevant tables
 ALTER TABLE public.logs                   DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organizations          DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles               DISABLE ROW LEVEL SECURITY;
@@ -892,7 +885,6 @@ ALTER TABLE public.organization_members   DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.invitations            DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ticket_email_chats     DISABLE ROW LEVEL SECURITY;
 
--- Broad grants for development convenience
 GRANT ALL ON ALL TABLES IN SCHEMA public TO public;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO public;
 GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO public;
