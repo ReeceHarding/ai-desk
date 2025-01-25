@@ -5,6 +5,9 @@ import { createClient } from '@supabase/supabase-js';
 import { google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
 
+// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
+google.options({ http2: false });
+
 function encodeBase64(text: string): string {
   return Buffer.from(text)
     .toString('base64')

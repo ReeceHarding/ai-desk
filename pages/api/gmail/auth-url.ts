@@ -1,10 +1,8 @@
 import { google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
 
-// Configure Gmail API to use HTTP/1.1
-google.options({
-  http2: false
-});
+// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
+google.options({ http2: false });
 
 const oauth2Client = new google.auth.OAuth2(
   process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,

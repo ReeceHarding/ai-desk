@@ -1,174 +1,201 @@
+import { Database } from '@/types/supabase';
 import { logger } from '@/utils/logger';
-import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs';
+import { createPagesServerClient } from '@supabase/auth-helpers-nextjs';
+import { format } from 'date-fns';
 import { NextApiRequest, NextApiResponse } from 'next';
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+interface Ticket {
+  created_at: string;
+  status: string;
+  first_response_time?: number;
+  resolution_time?: number;
+}
+
+interface TicketWithResponseTimes {
+  first_response_time: number | null;
+  resolution_time: number | null;
+}
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
   if (req.method !== 'GET') {
+    await logger.warn('Invalid method', { method: req.method });
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const { startDate, endDate, interval = 'day' } = req.query;
+    const supabase = createPagesServerClient<Database>({ req, res });
+    const {
+      data: { session },
+      error: sessionError
+    } = await supabase.auth.getSession();
 
-    logger.info('[DASHBOARD_METRICS] Starting metrics fetch', {
-      startDate,
-      endDate,
-      interval
-    });
+    if (sessionError) {
+      await logger.error('Session error', { error: sessionError });
+      return res.status(401).json({ error: 'Session error' });
+    }
 
-    const supabase = createServerSupabaseClient({ req, res });
-
-    // Get current user and org_id
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user) {
-      logger.error('[DASHBOARD_METRICS] Auth error:', { 
-        error: userError,
-        userId: user?.id
-      });
+    if (!session) {
+      await logger.warn('No session found');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    logger.info('[DASHBOARD_METRICS] Got user:', { userId: user.id });
-
-    // Get user's organization ID
-    const { data: profile, error: profileError } = await supabase
+    // Get user's organization and role
+    const { data: profile } = await supabase
       .from('profiles')
-      .select('org_id, role')
-      .eq('id', user.id)
+      .select('org_id')
+      .eq('id', session.user.id)
       .single();
 
-    if (profileError) {
-      logger.error('[DASHBOARD_METRICS] Profile fetch error:', { 
-        error: profileError,
-        userId: user.id
-      });
-      return res.status(404).json({ error: 'Profile not found' });
-    }
-
     if (!profile?.org_id) {
-      logger.error('[DASHBOARD_METRICS] No org_id found:', { 
-        userId: user.id,
-        profile
-      });
-      return res.status(404).json({ error: 'Organization not found' });
+      await logger.error('No organization found for user');
+      return res.status(400).json({ error: 'No organization found' });
     }
 
-    logger.info('[DASHBOARD_METRICS] Got profile:', { 
-      userId: user.id,
-      orgId: profile.org_id,
-      role: profile.role
-    });
+    // Check if user is admin
+    const { data: membership } = await supabase
+      .from('organization_members')
+      .select('role')
+      .eq('organization_id', profile.org_id)
+      .eq('user_id', session.user.id)
+      .single();
 
-    // Check if user is admin or super_admin
-    if (!['admin', 'super_admin'].includes(profile.role)) {
-      logger.error('[DASHBOARD_METRICS] Unauthorized role:', { 
-        userId: user.id,
-        role: profile.role
-      });
-      return res.status(403).json({ error: 'Unauthorized' });
+    if (!membership || membership.role !== 'admin') {
+      await logger.warn('User is not an admin');
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
-    // Fetch all metrics in parallel
-    logger.info('[DASHBOARD_METRICS] Fetching metrics...', {
-      orgId: profile.org_id,
-      startDate,
-      endDate
-    });
+    const { startDate, endDate, interval } = req.query;
 
-    const [
-      avgFirstResponseResult,
-      avgResolutionResult,
-      statusBreakdownResult,
-      agentPerformanceResult,
-      ticketVolumeResult
-    ] = await Promise.all([
-      supabase.rpc('fn_get_avg_first_response_time', {
-        p_org_id: profile.org_id,
-        p_start_date: startDate as string,
-        p_end_date: endDate as string
-      }),
-      supabase.rpc('fn_get_avg_resolution_time', {
-        p_org_id: profile.org_id,
-        p_start_date: startDate as string,
-        p_end_date: endDate as string
-      }),
-      supabase.rpc('fn_get_ticket_status_breakdown', {
-        p_org_id: profile.org_id
-      }),
-      supabase.rpc('fn_get_agent_performance', {
-        p_org_id: profile.org_id,
-        p_start_date: startDate as string,
-        p_end_date: endDate as string
-      }),
-      supabase.rpc('fn_get_ticket_volume', {
-        p_org_id: profile.org_id,
-        p_interval: interval as string,
-        p_start_date: startDate as string,
-        p_end_date: endDate as string
+    // Get ticket status breakdown
+    const { data: tickets } = await supabase
+      .from('tickets')
+      .select('status')
+      .eq('org_id', profile.org_id);
+
+    const ticketStatusBreakdown = tickets?.reduce((acc: Record<string, number>, ticket) => {
+      acc[ticket.status] = (acc[ticket.status] || 0) + 1;
+      return acc;
+    }, {});
+
+    const ticketStatusData = Object.entries(ticketStatusBreakdown || {}).map(([status, count]) => ({
+      status,
+      count
+    }));
+
+    // Get agent performance
+    const { data: agents } = await supabase
+      .from('organization_members')
+      .select('user_id')
+      .eq('organization_id', profile.org_id)
+      .eq('role', 'agent');
+
+    const agentPerformance = await Promise.all(
+      (agents || []).map(async (agent) => {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', agent.user_id)
+          .single();
+
+        const { data: stats } = await supabase
+          .from('tickets')
+          .select('*')
+          .eq('org_id', profile.org_id)
+          .eq('assigned_to', agent.user_id);
+
+        const totalTicketsAssigned = stats?.length || 0;
+        const totalTicketsResolved = stats?.filter(t => t.status === 'solved').length || 0;
+        const totalFirstResponseTime = stats?.reduce((acc, t) => acc + (t.first_response_time || 0), 0) || 0;
+        const totalResolutionTime = stats?.reduce((acc, t) => acc + (t.resolution_time || 0), 0) || 0;
+
+        return {
+          agent_id: agent.user_id,
+          agent_name: profile?.display_name || profile?.email || 'Unknown',
+          tickets_assigned: totalTicketsAssigned,
+          tickets_resolved: totalTicketsResolved,
+          avg_response_time: totalTicketsAssigned > 0 ? 
+            Math.round(totalFirstResponseTime / totalTicketsAssigned) + 'm' : '0m',
+          avg_resolution_time: totalTicketsResolved > 0 ? 
+            Math.round(totalResolutionTime / totalTicketsResolved) + 'm' : '0m'
+        };
       })
-    ]);
+    );
 
-    // Check for errors in each result
-    if (avgFirstResponseResult.error) {
-      logger.error('[DASHBOARD_METRICS] Avg first response error:', { 
-        error: avgFirstResponseResult.error,
-        orgId: profile.org_id
-      });
-    }
-    if (avgResolutionResult.error) {
-      logger.error('[DASHBOARD_METRICS] Avg resolution error:', { 
-        error: avgResolutionResult.error,
-        orgId: profile.org_id
-      });
-    }
-    if (statusBreakdownResult.error) {
-      logger.error('[DASHBOARD_METRICS] Status breakdown error:', { 
-        error: statusBreakdownResult.error,
-        orgId: profile.org_id
-      });
-    }
-    if (agentPerformanceResult.error) {
-      logger.error('[DASHBOARD_METRICS] Agent performance error:', { 
-        error: agentPerformanceResult.error,
-        orgId: profile.org_id
-      });
-    }
-    if (ticketVolumeResult.error) {
-      logger.error('[DASHBOARD_METRICS] Ticket volume error:', { 
-        error: ticketVolumeResult.error,
-        orgId: profile.org_id
-      });
-    }
+    // Get ticket volume over time
+    const { data: ticketVolume } = await supabase
+      .from('tickets')
+      .select('created_at, status')
+      .eq('org_id', profile.org_id)
+      .gte('created_at', startDate)
+      .lte('created_at', endDate)
+      .order('created_at');
 
-    // Format the response
-    const metrics = {
-      averageFirstResponseTime: avgFirstResponseResult.data || '0m',
-      averageResolutionTime: avgResolutionResult.data || '0m',
-      ticketStatusBreakdown: statusBreakdownResult.data || [],
-      agentPerformance: agentPerformanceResult.data || [],
-      ticketVolume: ticketVolumeResult.data || []
-    };
-
-    logger.info('[DASHBOARD_METRICS] Metrics fetched successfully:', {
-      orgId: profile.org_id,
-      hasFirstResponseTime: !!avgFirstResponseResult.data,
-      hasResolutionTime: !!avgResolutionResult.data,
-      statusBreakdownCount: statusBreakdownResult.data?.length || 0,
-      agentCount: agentPerformanceResult.data?.length || 0,
-      volumeDataPoints: ticketVolumeResult.data?.length || 0
-    });
-
-    return res.status(200).json(metrics);
-  } catch (error) {
-    logger.error('[DASHBOARD_METRICS] Unexpected error:', { 
-      error,
-      stack: error instanceof Error ? error.stack : undefined,
-      params: {
-        startDate: req.query.startDate,
-        endDate: req.query.endDate,
-        interval: req.query.interval
+    // Group tickets by day/week/month
+    const volumeByPeriod = (ticketVolume || []).reduce((acc: any, ticket) => {
+      const date = new Date(ticket.created_at);
+      let period;
+      
+      switch (interval) {
+        case 'week':
+          period = format(date, 'yyyy-ww');
+          break;
+        case 'month':
+          period = format(date, 'yyyy-MM');
+          break;
+        default:
+          period = format(date, 'yyyy-MM-dd');
       }
+
+      if (!acc[period]) {
+        acc[period] = { new_tickets: 0, resolved_tickets: 0 };
+      }
+
+      acc[period].new_tickets++;
+      if (ticket.status === 'solved') {
+        acc[period].resolved_tickets++;
+      }
+
+      return acc;
+    }, {});
+
+    const ticketVolumeData = Object.entries(volumeByPeriod).map(([time_bucket, data]: [string, any]) => ({
+      time_bucket,
+      ...data
+    }));
+
+    // Calculate average response and resolution times
+    const { data: allTickets } = await supabase
+      .from('tickets')
+      .select('first_response_time, resolution_time')
+      .eq('org_id', profile.org_id)
+      .not('first_response_time', 'is', null);
+
+    const totalFirstResponseTime = (allTickets || []).reduce((acc: number, t: TicketWithResponseTimes) => 
+      acc + (t.first_response_time || 0), 0);
+    const totalResolutionTime = (allTickets || []).reduce((acc: number, t: TicketWithResponseTimes) => 
+      acc + (t.resolution_time || 0), 0);
+    const averageFirstResponseTime = allTickets?.length ? 
+      Math.round(totalFirstResponseTime / allTickets.length) + 'm' : '0m';
+    const averageResolutionTime = allTickets?.length ? 
+      Math.round(totalResolutionTime / allTickets.length) + 'm' : '0m';
+
+    await logger.info('Successfully fetched dashboard metrics');
+
+    return res.status(200).json({
+      averageFirstResponseTime,
+      averageResolutionTime,
+      ticketStatusBreakdown: ticketStatusData,
+      agentPerformance,
+      ticketVolume: ticketVolumeData
     });
-    return res.status(500).json({ error: 'Internal server error' });
+  } catch (error: any) {
+    await logger.error('Failed to fetch dashboard metrics', { error });
+    return res.status(500).json({ 
+      error: 'Failed to fetch metrics',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 } 

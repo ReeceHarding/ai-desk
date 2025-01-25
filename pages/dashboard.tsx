@@ -1,3 +1,4 @@
+import { AdminDashboard } from '@/components/admin/AdminDashboard';
 import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { User } from '@supabase/supabase-js';
@@ -199,6 +200,9 @@ export default function Dashboard() {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
+        if (userRole === 'admin') {
+          return <AdminDashboard />;
+        }
         return (
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {/* Quick Actions Card */}

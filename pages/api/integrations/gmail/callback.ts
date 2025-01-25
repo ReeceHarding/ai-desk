@@ -3,7 +3,11 @@ import { Database } from '@/types/supabase';
 import { importInitialEmails, setupOrRefreshWatch } from '@/utils/gmail';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
+import { google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
+
+// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
+google.options({ http2: false });
 
 interface GoogleOAuthError extends Error {
   response?: {
