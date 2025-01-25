@@ -673,8 +673,6 @@ DECLARE
   v_email text;
   v_display_name text;
   v_avatar_url text;
-  v_org_id uuid;
-  v_org_name text;
   v_request_id text;
 BEGIN
   v_request_id := gen_random_uuid()::text;
@@ -721,34 +719,13 @@ BEGIN
   );
 
   v_avatar_url := NEW.raw_user_meta_data->>'avatar_url';
-  v_org_name := v_display_name || '''s Organization';
 
-  -- Create an organization
-  INSERT INTO public.organizations (
-    name,
-    owner_id,
-    email,
-    public_mode,
-    sla_tier,
-    created_by
-  )
-  VALUES (
-    v_org_name,
-    NEW.id,
-    v_email,
-    false,
-    'basic',
-    NEW.id
-  )
-  RETURNING id INTO v_org_id;
-
-  -- Create a profile for the user
+  -- Create a profile for the user (without organization)
   INSERT INTO public.profiles (
     id,
     email,
     display_name,
     role,
-    org_id,
     avatar_url,
     metadata
   )
@@ -757,7 +734,6 @@ BEGIN
     v_email,
     v_display_name,
     'customer',
-    v_org_id,
     v_avatar_url,
     jsonb_build_object(
       'signup_completed', false,
@@ -769,18 +745,6 @@ BEGIN
     )
   );
 
-  -- Add them to organization_members as admin
-  INSERT INTO public.organization_members (
-    organization_id,
-    user_id,
-    role
-  )
-  VALUES (
-    v_org_id,
-    NEW.id,
-    'admin'
-  );
-
   INSERT INTO public.logs (level, message, metadata)
   VALUES (
     'info',
@@ -789,7 +753,6 @@ BEGIN
       'request_id', v_request_id,
       'user_id', NEW.id,
       'email', v_email,
-      'org_id', v_org_id,
       'timestamp', now()
     )
   );
@@ -904,42 +867,68 @@ VALUES (
 
 -- Function to calculate average first response time for an organization
 CREATE OR REPLACE FUNCTION public.fn_get_avg_first_response_time(p_org_id uuid, p_start_date timestamptz DEFAULT NULL, p_end_date timestamptz DEFAULT NULL)
-RETURNS interval AS $$
+RETURNS text AS $$
+DECLARE
+  avg_time interval;
 BEGIN
-  RETURN (
-    SELECT AVG(first_response_time)
-    FROM (
-      SELECT 
-        t.id,
-        MIN(c.created_at) - t.created_at as first_response_time
-      FROM tickets t
-      LEFT JOIN comments c ON c.ticket_id = t.id
-      JOIN profiles p ON p.id = c.author_id
-      WHERE t.organization_id = p_org_id
-        AND p.role IN ('agent', 'admin', 'super_admin')
-        AND (p_start_date IS NULL OR t.created_at >= p_start_date)
-        AND (p_end_date IS NULL OR t.created_at <= p_end_date)
-      GROUP BY t.id
-    ) subq
+  SELECT AVG(first_response_time)
+  INTO avg_time
+  FROM (
+    SELECT 
+      t.id,
+      MIN(c.created_at) - t.created_at as first_response_time
+    FROM tickets t
+    LEFT JOIN comments c ON c.ticket_id = t.id
+    JOIN profiles p ON p.id = c.author_id
+    WHERE t.org_id = p_org_id
+      AND p.role IN ('agent', 'admin', 'super_admin')
+      AND (p_start_date IS NULL OR t.created_at >= p_start_date)
+      AND (p_end_date IS NULL OR t.created_at <= p_end_date)
+    GROUP BY t.id
+  ) subq;
+
+  RETURN COALESCE(
+    CASE 
+      WHEN EXTRACT(epoch FROM avg_time) >= 86400 THEN 
+        ROUND(EXTRACT(epoch FROM avg_time) / 86400) || 'd'
+      WHEN EXTRACT(epoch FROM avg_time) >= 3600 THEN 
+        ROUND(EXTRACT(epoch FROM avg_time) / 3600) || 'h'
+      ELSE 
+        ROUND(EXTRACT(epoch FROM avg_time) / 60) || 'm'
+    END,
+    '0m'
   );
 END;
 $$ LANGUAGE plpgsql;
 
 -- Function to calculate average resolution time for an organization
 CREATE OR REPLACE FUNCTION public.fn_get_avg_resolution_time(p_org_id uuid, p_start_date timestamptz DEFAULT NULL, p_end_date timestamptz DEFAULT NULL)
-RETURNS interval AS $$
+RETURNS text AS $$
+DECLARE
+  avg_time interval;
 BEGIN
-  RETURN (
-    SELECT AVG(resolution_time)
-    FROM (
-      SELECT 
-        updated_at - created_at as resolution_time
-      FROM tickets
-      WHERE organization_id = p_org_id
-        AND status = 'solved'
-        AND (p_start_date IS NULL OR created_at >= p_start_date)
-        AND (p_end_date IS NULL OR created_at <= p_end_date)
-    ) subq
+  SELECT AVG(resolution_time)
+  INTO avg_time
+  FROM (
+    SELECT 
+      updated_at - created_at as resolution_time
+    FROM tickets
+    WHERE org_id = p_org_id
+      AND status = 'solved'
+      AND (p_start_date IS NULL OR created_at >= p_start_date)
+      AND (p_end_date IS NULL OR created_at <= p_end_date)
+  ) subq;
+
+  RETURN COALESCE(
+    CASE 
+      WHEN EXTRACT(epoch FROM avg_time) >= 86400 THEN 
+        ROUND(EXTRACT(epoch FROM avg_time) / 86400) || 'd'
+      WHEN EXTRACT(epoch FROM avg_time) >= 3600 THEN 
+        ROUND(EXTRACT(epoch FROM avg_time) / 3600) || 'h'
+      ELSE 
+        ROUND(EXTRACT(epoch FROM avg_time) / 60) || 'm'
+    END,
+    '0m'
   );
 END;
 $$ LANGUAGE plpgsql;
@@ -954,8 +943,13 @@ BEGIN
   RETURN QUERY
   SELECT t.status, COUNT(*) as count
   FROM tickets t
-  WHERE t.organization_id = p_org_id
-  GROUP BY t.status;
+  WHERE t.org_id = p_org_id
+  GROUP BY t.status
+  UNION ALL
+  SELECT unnest(enum_range(NULL::public.ticket_status)) as status, 0 as count
+  WHERE NOT EXISTS (
+    SELECT 1 FROM tickets t WHERE t.org_id = p_org_id
+  );
 END;
 $$ LANGUAGE plpgsql;
 
@@ -966,8 +960,8 @@ RETURNS TABLE (
   agent_name text,
   tickets_assigned bigint,
   tickets_resolved bigint,
-  avg_response_time interval,
-  avg_resolution_time interval
+  avg_response_time text,
+  avg_resolution_time text
 ) AS $$
 BEGIN
   RETURN QUERY
@@ -977,8 +971,8 @@ BEGIN
       p.display_name as agent_name,
       COUNT(DISTINCT t.id) as tickets_assigned,
       COUNT(DISTINCT CASE WHEN t.status = 'solved' THEN t.id END) as tickets_resolved,
-      AVG(CASE WHEN c.id IS NOT NULL THEN c.created_at - t.created_at END) as avg_response_time,
-      AVG(CASE WHEN t.status = 'solved' THEN t.updated_at - t.created_at END) as avg_resolution_time
+      AVG(CASE WHEN c.id IS NOT NULL THEN c.created_at - t.created_at END) as response_time,
+      AVG(CASE WHEN t.status = 'solved' THEN t.updated_at - t.created_at END) as resolution_time
     FROM profiles p
     LEFT JOIN tickets t ON t.assigned_agent_id = p.id
     LEFT JOIN comments c ON c.ticket_id = t.id AND c.author_id = p.id
@@ -988,7 +982,34 @@ BEGIN
       AND (p_end_date IS NULL OR t.created_at <= p_end_date)
     GROUP BY p.id, p.display_name
   )
-  SELECT * FROM agent_responses;
+  SELECT 
+    agent_id,
+    agent_name,
+    tickets_assigned,
+    tickets_resolved,
+    COALESCE(
+      CASE 
+        WHEN EXTRACT(epoch FROM response_time) >= 86400 THEN 
+          ROUND(EXTRACT(epoch FROM response_time) / 86400) || 'd'
+        WHEN EXTRACT(epoch FROM response_time) >= 3600 THEN 
+          ROUND(EXTRACT(epoch FROM response_time) / 3600) || 'h'
+        ELSE 
+          ROUND(EXTRACT(epoch FROM response_time) / 60) || 'm'
+      END,
+      '0m'
+    ) as avg_response_time,
+    COALESCE(
+      CASE 
+        WHEN EXTRACT(epoch FROM resolution_time) >= 86400 THEN 
+          ROUND(EXTRACT(epoch FROM resolution_time) / 86400) || 'd'
+        WHEN EXTRACT(epoch FROM resolution_time) >= 3600 THEN 
+          ROUND(EXTRACT(epoch FROM resolution_time) / 3600) || 'h'
+        ELSE 
+          ROUND(EXTRACT(epoch FROM resolution_time) / 60) || 'm'
+      END,
+      '0m'
+    ) as avg_resolution_time
+  FROM agent_responses;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -1017,7 +1038,7 @@ BEGIN
   )
   SELECT 
     ts.time_bucket,
-    COUNT(DISTINCT CASE WHEN t.created_at >= ts.time_bucket 
+    COALESCE(COUNT(DISTINCT CASE WHEN t.created_at >= ts.time_bucket 
       AND t.created_at < ts.time_bucket + 
         CASE 
           WHEN p_interval = 'hour' THEN interval '1 hour'
@@ -1025,8 +1046,8 @@ BEGIN
           WHEN p_interval = 'week' THEN interval '1 week'
           ELSE interval '1 month'
         END
-      THEN t.id END) as new_tickets,
-    COUNT(DISTINCT CASE WHEN t.status = 'solved' 
+      THEN t.id END), 0) as new_tickets,
+    COALESCE(COUNT(DISTINCT CASE WHEN t.status = 'solved' 
       AND t.updated_at >= ts.time_bucket 
       AND t.updated_at < ts.time_bucket + 
         CASE 
@@ -1035,10 +1056,21 @@ BEGIN
           WHEN p_interval = 'week' THEN interval '1 week'
           ELSE interval '1 month'
         END
-      THEN t.id END) as resolved_tickets
+      THEN t.id END), 0) as resolved_tickets
   FROM time_series ts
-  LEFT JOIN tickets t ON t.organization_id = p_org_id
+  LEFT JOIN tickets t ON t.org_id = p_org_id
   GROUP BY ts.time_bucket
   ORDER BY ts.time_bucket;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Add GIN indexes for ticket search
+CREATE INDEX IF NOT EXISTS idx_tickets_subject_tsv
+  ON public.tickets USING gin(to_tsvector('english', subject));
+
+CREATE INDEX IF NOT EXISTS idx_tickets_description_tsv
+  ON public.tickets USING gin(to_tsvector('english', description));
+
+-- Add composite index for org_id and status for filtered searches
+CREATE INDEX IF NOT EXISTS idx_tickets_org_status
+  ON public.tickets(org_id, status);

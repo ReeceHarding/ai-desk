@@ -78,12 +78,12 @@ export default function AdminDashboard() {
       const data = await response.json();
       setMetrics(data);
       setError(null);
-    } catch (err) {
+      } catch (err) {
       logger.error('[ADMIN_DASHBOARD] Failed to fetch metrics:', { error: err });
       setError('Failed to load dashboard metrics');
-    } finally {
-      setIsLoading(false);
-    }
+      } finally {
+        setIsLoading(false);
+      }
   }, [dateRange, interval]);
 
   useEffect(() => {
@@ -138,9 +138,9 @@ export default function AdminDashboard() {
         <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="md:flex md:items-center md:justify-between">
             <div className="flex-1 min-w-0">
-              <h1 className="text-3xl font-bold leading-tight text-gray-900">
-                Admin Dashboard
-              </h1>
+            <h1 className="text-3xl font-bold leading-tight text-gray-900">
+              Admin Dashboard
+            </h1>
             </div>
             <div className="mt-4 flex md:mt-0 md:ml-4">
               <select
@@ -159,7 +159,7 @@ export default function AdminDashboard() {
 
         <main className="max-w-7xl mx-auto sm:px-6 lg:px-8">
           {/* KPI Cards */}
-          <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             <Card>
               <Title>Average First Response</Title>
               <Text className="mt-4 text-2xl font-semibold">
@@ -178,7 +178,7 @@ export default function AdminDashboard() {
                 {metrics?.ticketStatusBreakdown?.reduce((acc, curr) => acc + curr.count, 0) || 0}
               </Text>
             </Card>
-          </div>
+              </div>
 
           {/* Charts Section */}
           <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
@@ -277,24 +277,24 @@ export default function AdminDashboard() {
 
           {/* Action Buttons */}
           <div className="mt-8 flex space-x-4">
-            <button
+                <button
               onClick={() => router.push('/admin/invite-agent')}
               className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Invite Agent
-            </button>
-            <button
+                >
+                    Invite Agent
+                </button>
+                <button
               onClick={() => router.push('/admin/workflows')}
               className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Manage Workflows
-            </button>
-            <button
+                >
+                    Manage Workflows
+                </button>
+                <button
               onClick={() => router.push('/admin/settings')}
               className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Settings
-            </button>
+                >
+                    Settings
+                </button>
           </div>
         </main>
       </div>

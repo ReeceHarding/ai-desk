@@ -33,14 +33,30 @@ export default function CreateAdminOrg() {
         return;
       }
 
-      // Create new organization
+      // Get user's profile to ensure it exists
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) {
+        logger.error('[ADMIN_CREATE_ORG] Profile fetch error:', { error: profileError });
+        setError('Could not find your profile');
+        return;
+      }
+
+      // Create new organization with slug
       const { data: newOrg, error: createError } = await supabase
         .from('organizations')
         .insert([{
           name: orgName.trim(),
           avatar_url: orgLogoUrl || null,
           created_by: user.id,
-          owner_id: user.id
+          owner_id: user.id,
+          email: profile.email,
+          public_mode: false,
+          sla_tier: 'basic'
         }])
         .select()
         .single();
@@ -51,12 +67,17 @@ export default function CreateAdminOrg() {
         return;
       }
 
-      // Update user's profile
+      // Update user's profile with org_id and ensure admin role
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ 
           org_id: newOrg.id,
-          role: 'admin'
+          role: 'admin',
+          metadata: {
+            signup_completed: true,
+            onboarding_started_at: new Date().toISOString(),
+            org_created_at: new Date().toISOString()
+          }
         })
         .eq('id', user.id);
 
@@ -82,8 +103,11 @@ export default function CreateAdminOrg() {
       }
 
       logger.info('[ADMIN_CREATE_ORG] Organization created successfully:', {
-        orgId: newOrg.id
+        orgId: newOrg.id,
+        userId: user.id
       });
+
+      // Redirect to Gmail connection
       router.push('/onboarding/admin/connect-gmail');
     } catch (err) {
       logger.error('[ADMIN_CREATE_ORG] Unexpected error:', { error: err });
