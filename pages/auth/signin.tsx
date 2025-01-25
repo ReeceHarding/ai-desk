@@ -22,19 +22,40 @@ export default function SignIn() {
   }, []);
 
   const handleGoogleSignIn = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${origin}/auth/callback`,
-      },
-    });
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Clear any existing PKCE-related items from localStorage
+      localStorage.removeItem('supabase.auth.token.code_verifier');
+      localStorage.removeItem('supabase.auth.token.code_challenge');
+      localStorage.removeItem('supabase.auth.token.code_challenge_method');
 
-    if (error) {
-      console.error('Error signing in with Google:', error.message);
-      return;
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+            response_type: 'code'
+          }
+        }
+      });
+
+      if (error) {
+        console.error('Error signing in with Google:', error.message);
+        setError(error.message);
+        return;
+      }
+
+      // Let Supabase handle the redirect
+    } catch (err) {
+      console.error('Error in Google sign in:', err);
+      setError('An unexpected error occurred');
+    } finally {
+      setIsLoading(false);
     }
-
-    // Let Supabase handle the redirect
   };
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {

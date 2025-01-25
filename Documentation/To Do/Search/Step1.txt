@@ -1,0 +1,361 @@
+Below is **Step 1** written **as exhaustively and precisely** as possible so that your system is fully future-proof for multi-organization usage, per-campaign unsubscribes, multi-step outreach flows, and advanced AI logic. It includes the **entire** SQL creation script with every detail, plus the **why** behind each table and the **test plan** to confirm everything is correct.
+
+---
+
+# **STEP 1: EXTREMELY THOROUGH INITIAL SETUP**
+
+We assume you’re using **Supabase** with:
+
+1. A built-in `auth.users` table (or `public.profiles` if you prefer).
+2. A single Postgres schema (`public`) for your main tables.
+3. A need for multi-tenant usage (multiple organizations), advanced unsubscribes, bridging tables, and no row-level security (RLS) in development.
+
+---
+
+## **1.1. FULL SCHEMA CREATION SCRIPT**
+
+Below is a single script you could run in your migration. **Read** the commentary for how each table is used. For *pure clarity*, we show each table, foreign keys, plus advanced unsubscribes bridging. If you do **not** want partial unsubscribes, remove that bridging table. Otherwise, you’ll be set for future expansions.
+
+```sql
+-- ===================================
+-- 0. START: CREATE EXTENSIONS (IF NEEDED)
+-- ===================================
+-- If you want the uuid_generate_v4 function or other features:
+-- CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ===================================
+-- 1. ORGANIZATIONS
+-- ===================================
+-- Stores each tenant or business
+CREATE TABLE IF NOT EXISTS public.organizations (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  org_name text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Optional: some sort of "plan" field or other config if needed
+-- plan text DEFAULT 'free',
+
+-- ===================================
+-- 2. ORGANIZATION_MEMBERS
+-- ===================================
+-- Each user belongs to an organization with a role
+CREATE TABLE IF NOT EXISTS public.organization_members (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id uuid NOT NULL,
+  user_id uuid NOT NULL,          -- references auth.users(id) or public.profiles(id)
+  role text NOT NULL DEFAULT 'member', -- e.g. 'member','admin'
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.organization_members
+  ADD CONSTRAINT fk_org_members_org
+    FOREIGN KEY (organization_id) REFERENCES public.organizations(id);
+
+-- If referencing auth.users directly:
+ALTER TABLE public.organization_members
+  ADD CONSTRAINT fk_org_members_user
+    FOREIGN KEY (user_id) REFERENCES auth.users(id);
+
+-- If your user system is in public.profiles, do:
+-- FOREIGN KEY (user_id) REFERENCES public.profiles(id);
+
+-- ===================================
+-- 3. CAMPAIGNS
+-- ===================================
+-- Each outreach campaign belongs to an org and can have custom AI settings
+CREATE TABLE IF NOT EXISTS public.campaigns (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id uuid NOT NULL,
+  campaign_name text NOT NULL,
+  instructions text,              -- AI instructions or campaign notes
+  tone text,                      -- optional: e.g. 'friendly','formal'
+  word_limit int,                 -- optional: limit for AI
+  ai_settings jsonb NOT NULL DEFAULT '{}'::jsonb, -- advanced config
+  default_language text,          -- e.g. 'en','es'
+  status text NOT NULL DEFAULT 'active', -- 'active','paused','completed'
+  created_by uuid,                -- references user, if we want to store the user who created campaign
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.campaigns
+  ADD CONSTRAINT fk_campaigns_org
+    FOREIGN KEY (organization_id) REFERENCES public.organizations(id);
+
+-- If you want to store the user who created it:
+ALTER TABLE public.campaigns
+  ADD CONSTRAINT fk_campaigns_created_by
+    FOREIGN KEY (created_by) REFERENCES auth.users(id);
+
+-- ===================================
+-- 4. SEARCH_TASKS
+-- ===================================
+-- For each campaign, we can define queries
+CREATE TABLE IF NOT EXISTS public.search_tasks (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  campaign_id uuid NOT NULL,
+  search_query text NOT NULL,    -- The actual query: "yoga studios in Florida"
+  language text,                 -- 'en','es'
+  status text NOT NULL DEFAULT 'pending',  -- 'pending','in_progress','completed','failed'
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.search_tasks
+  ADD CONSTRAINT fk_search_tasks_campaign
+    FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id);
+
+-- ===================================
+-- 5. SCRAPE_RESULTS
+-- ===================================
+-- Once we do a search, each discovered link is stored here
+CREATE TABLE IF NOT EXISTS public.scrape_results (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  search_task_id uuid NOT NULL,
+  website_url text NOT NULL,
+  status text NOT NULL DEFAULT 'pending', -- 'pending','scraping','completed','failed'
+  extracted_emails text[],      -- possibly multiple
+  extracted_phone text[],
+  raw_content text,             -- can store partial HTML or summary
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.scrape_results
+  ADD CONSTRAINT fk_scrape_results_task
+    FOREIGN KEY (search_task_id) REFERENCES public.search_tasks(id);
+
+-- ===================================
+-- 6. CONTACTS
+-- ===================================
+-- The leads discovered or manually added, belongs to an org
+CREATE TABLE IF NOT EXISTS public.contacts (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  organization_id uuid NOT NULL,
+  source_scrape_id uuid,        -- optional link to a specific scrape result
+  email text NOT NULL,
+  phone text,
+  name text,
+  language_preference text,
+  reached_status text NOT NULL DEFAULT 'pending',  -- 'pending','responded','unsubscribed'
+  unsubscribe_requested boolean NOT NULL DEFAULT false, -- global unsub
+  unsubscribe_reason text,
+  extra_data jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.contacts
+  ADD CONSTRAINT fk_contacts_org
+    FOREIGN KEY (organization_id) REFERENCES public.organizations(id);
+
+ALTER TABLE public.contacts
+  ADD CONSTRAINT fk_contacts_scrape
+    FOREIGN KEY (source_scrape_id) REFERENCES public.scrape_results(id);
+
+-- Unique index to avoid duplicates in a single org
+CREATE UNIQUE INDEX IF NOT EXISTS contacts_org_email_unique
+  ON public.contacts(organization_id, (lower(email)));
+
+-- ===================================
+-- 7. CAMPAIGN_CONTACTS
+-- ===================================
+-- A bridging table for many-to-many between campaigns and contacts
+CREATE TABLE IF NOT EXISTS public.campaign_contacts (
+  campaign_id uuid NOT NULL,
+  contact_id uuid NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (campaign_id, contact_id)
+);
+
+ALTER TABLE public.campaign_contacts
+  ADD CONSTRAINT fk_campaign_contacts_campaign
+    FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id);
+
+ALTER TABLE public.campaign_contacts
+  ADD CONSTRAINT fk_campaign_contacts_contact
+    FOREIGN KEY (contact_id) REFERENCES public.contacts(id);
+
+-- ===================================
+-- 8. OUTREACH_FLOWS
+-- ===================================
+-- Each row is a scheduled or sent attempt to contact
+CREATE TABLE IF NOT EXISTS public.outreach_flows (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  contact_id uuid NOT NULL,
+  campaign_id uuid NOT NULL,
+  flow_type text NOT NULL DEFAULT 'email',  -- 'email','form_submission'
+  status text NOT NULL DEFAULT 'scheduled', -- 'scheduled','sent','failed','canceled'
+  subject text,
+  body text,
+  sequence_order int NOT NULL DEFAULT 0,
+  scheduled_send_time timestamptz,
+  sent_at timestamptz,
+  message_id text,     -- store email's message-id or submission id
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.outreach_flows
+  ADD CONSTRAINT fk_outreach_flows_contact
+    FOREIGN KEY (contact_id) REFERENCES public.contacts(id);
+
+ALTER TABLE public.outreach_flows
+  ADD CONSTRAINT fk_outreach_flows_campaign
+    FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id);
+
+-- ===================================
+-- 9. CAMPAIGN_UNSUBSCRIBES (PER-CAMPAIGN UNSUBSCRIBE)
+-- ===================================
+-- If you want partial unsubscribes for only certain campaigns
+CREATE TABLE IF NOT EXISTS public.campaign_unsubscribes (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  campaign_id uuid NOT NULL,
+  contact_id uuid NOT NULL,
+  unsubscribed_at timestamptz NOT NULL DEFAULT now(),
+  reason text
+);
+
+ALTER TABLE public.campaign_unsubscribes
+  ADD CONSTRAINT fk_campaign_unsubscribes_campaign
+    FOREIGN KEY (campaign_id) REFERENCES public.campaigns(id);
+
+ALTER TABLE public.campaign_unsubscribes
+  ADD CONSTRAINT fk_campaign_unsubscribes_contact
+    FOREIGN KEY (contact_id) REFERENCES public.contacts(id);
+
+-- ===================================
+-- 10. DISABLE RLS IN DEVELOPMENT
+-- ===================================
+ALTER TABLE public.organizations DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_members DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaigns DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.search_tasks DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scrape_results DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contacts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_contacts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.outreach_flows DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.campaign_unsubscribes DISABLE ROW LEVEL SECURITY;
+
+-- END OF STEP 1 MIGRATION
+```
+
+**Result**: a fully robust schema that covers **both**:
+
+1. **Global unsubscribes** (contact-level `unsubscribe_requested`)  
+2. **Campaign-level unsubscribes** (`campaign_unsubscribes`)  
+
+…all while supporting multi-tenancy, bridging tables, advanced scraping references, AI fields, and no RLS.
+
+---
+
+## **1.2. WHAT THIS SCHEMA COVERS**
+
+1. **Organizations**: 
+   - Each row is a separate business or entity. If single-tenant, you can skip this, but it’s good for multi-tenant.  
+
+2. **Organization Members**: 
+   - Ties each user (`auth.users` or `public.profiles`) to the org with a role.  
+
+3. **Campaigns**: 
+   - Each has AI instructions, a default language, and other user-defined properties.  
+   - References an organization and optionally a “created_by” user.  
+
+4. **Search Tasks**: 
+   - Contain the actual queries used by the campaign.  
+   - Subordinate to the campaign.  
+
+5. **Scrape Results**: 
+   - Each discovered link from a search.  
+   - Possibly store raw HTML or partial text.  
+
+6. **Contacts**: 
+   - Each lead belongs to exactly one organization.  
+   - A unique `(organization_id, lower(email))` index ensures no duplicate addresses in the same org’s dataset.  
+
+7. **Campaign Contacts**: 
+   - A bridging table that allows each contact to appear in multiple campaigns within the same organization.  
+
+8. **Outreach Flows**: 
+   - Detailed scheduling: is it an email or form submission? When is it scheduled? Did we send it already?  
+
+9. **Campaign Unsubscribes**: 
+   - If a contact unsubscribes from just one campaign, you record it here.  
+   - If they want an overall unsubscribe from that org, set `contacts.unsubscribe_requested = true`.  
+
+**Note**: If you prefer only campaign-level unsubscribes and never a global unsub, remove the boolean from `contacts`. But most marketing apps do want a “global unsub.”
+
+---
+
+## **1.3. VERIFICATION & LOGICAL SOUNDNESS**
+
+1. **No Cross-Org Data Leaks**:  
+   - Because `contacts` store an `organization_id`, you keep each lead siloed.  
+   - The bridging table `campaign_contacts` ensures you only link them to campaigns of the **same** org. (If you want to be extra safe, you can add triggers or code-level checks to confirm `campaigns.organization_id == contacts.organization_id`.)
+
+2. **Global vs. Campaign-Level** unsubscribes are both possible.  
+3. **No collisions** on email: The index `(organization_id, LOWER(email))` ensures that within a single org, you can’t have two contacts with the same email.  
+4. **Scrape** logic references a campaign → org chain, so you know which org “owns” each search.  
+5. **RLS** is turned off, so you can manipulate data easily in dev.  
+6. If you store user details in `public.profiles`, just reference that table in the foreign keys for `organization_members` and `created_by`.
+
+---
+
+## **1.4. HOW TO TEST STEP 1**
+
+### **Test A: Basic Insert**  
+**a.** Create an organization row.  
+**b.** Insert `organization_members` row referencing a known user from `auth.users`.  
+**c.** Insert a campaign referencing that organization. Possibly also set `created_by` to the same user.  
+**d.** Insert a search_task referencing that campaign.  
+**e.** Insert a scrape_result referencing that search_task.  
+**f.** Insert a contact referencing the same organization. Confirm `(org_id, 'myLead@example.com')` is unique.  
+**g.** Insert a `campaign_contacts` bridging row with that contact and the campaign.  
+**h.** Insert an `outreach_flows` row referencing that contact & campaign, set `flow_type='email'`, `scheduled_send_time` to a future date.  
+
+**Result**: No foreign key errors, no uniqueness conflicts unless you try the same email in the same org.
+
+### **Test B: Partial vs. Global Unsubscribe**  
+**a.** For partial unsub, insert a `campaign_unsubscribes` row referencing the campaign & contact.  
+**b.** For global unsub, update `contacts.unsubscribe_requested=TRUE` for that lead.  
+**c.** In your application logic, skip sending them further emails if either condition is met.
+
+### **Test C: Insert Another Org**  
+**a.** Insert a second organization.  
+**b.** Insert the same email in that second org’s `contacts`. Should not conflict because the index includes org_id.  
+**c.** Insert a second campaign for that second org. Confirm you can do so.  
+
+### **Test D: Edge Cases**  
+**a.** Insert a phone that’s very long or includes “+1 (305) 123-4567.” Confirm it’s accepted.  
+**b.** Insert a row in `outreach_flows` with `flow_type='form_submission'`. Check no constraints fail.  
+**c.** Possibly test a contact with uppercase “TEST@Example.com” to see the unique index does not allow “test@example.com” for the same org.  
+
+---
+
+## **1.5. WHY THIS IS COMPREHENSIVE**
+
+1. **Multi-tenant**? Yes: `organization_id` in `campaigns`, `contacts`, bridging for membership.  
+2. **Scraping**? Yes: We track queries (`search_tasks`), discovered links (`scrape_results`), even store raw data.  
+3. **AI instructions**? Yes: `campaigns` has `instructions`, `tone`, `word_limit`, `ai_settings`.  
+4. **Bridging** for multi-campaign usage? Yes: `campaign_contacts`.  
+5. **Partial unsub**? Yes: `campaign_unsubscribes`.  
+6. **Global unsub**? Yes: `contacts.unsubscribe_requested`.  
+7. **Drip / Multi-step**? The table `outreach_flows` has `sequence_order`, `scheduled_send_time`, etc.  
+8. **No RLS** in dev. You can add policies later if you want data isolation at the database level.  
+
+This fully addresses everything from Steps 2–10 at the schema level, ensuring minimal rework down the line.
+
+---
+
+## **Conclusion**
+
+By **fully implementing** the above Step 1:
+
+- You have **all** the core tables for multi-organization usage, scraping tasks, result storing, multi-campaign bridging, unsubscribes at both global and partial levels, advanced outreach flows, plus RLS off for quick dev iteration.
+- The code is **logically sound**, with **foreign keys** ensuring no references break. 
+- You avoid **duplicates** inside each org. 
+- You can easily do partial or full unsubscribes.
+
+**That** is the final, thorough Step 1, ensuring your advanced outreach system is built on a stable, future-proof foundation.

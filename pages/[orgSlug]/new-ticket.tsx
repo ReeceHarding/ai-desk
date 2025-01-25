@@ -3,7 +3,7 @@ import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { GetServerSideProps } from 'next';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 export const getServerSideProps: GetServerSideProps = async ({ params }) => {
   const orgSlug = params?.orgSlug;

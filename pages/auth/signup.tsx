@@ -1,123 +1,44 @@
+import { logger } from '@/utils/logger';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import React, { useEffect, useState } from 'react';
 import AuthLayout from '../../components/auth/AuthLayout';
 
-// Helper function to create organization and associate user
-async function createUserOrganization(supabase: any, userId: string, email: string) {
-  try {
-    if (!userId || !email) {
-      throw new Error('User ID and email are required');
-    }
+// At the top of the file, after imports
+interface GoogleCredentialResponse {
+  credential: string;
+  select_by: string;
+  client_id: string;
+}
 
-    console.log('[SIGNUP] Creating profile and organization for user:', { userId, email });
-    
-    // Wait a bit for the trigger to complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // First, check if user already has an organization through profile
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, org_id')
-      .eq('id', userId)
-      .single();
-
-    if (profileError) {
-      console.error('[SIGNUP] Error checking profile:', profileError);
-      throw profileError;
-    }
-
-    if (profile?.org_id) {
-      console.log('[SIGNUP] Profile already has an organization:', profile.org_id);
-      return;
-    }
-
-    // Double check organization_members as well
-    const { data: existingMember } = await supabase
-      .from('organization_members')
-      .select('organization_id')
-      .eq('user_id', userId)
-      .single();
-
-    if (existingMember?.organization_id) {
-      console.log('[SIGNUP] User already has an organization:', existingMember.organization_id);
-      
-      // Update profile with org_id if needed
-      if (!profile?.org_id) {
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ org_id: existingMember.organization_id })
-          .eq('id', userId);
-          
-        if (updateError) {
-          console.error('[SIGNUP] Error updating profile with org_id:', updateError);
-        }
-      }
-      return;
-    }
-    
-    // Create organization with user's email domain as name
-    const emailPrefix = email.split('@')[0];
-    const orgName = `${emailPrefix}'s Organization`;
-    
-    // Create the organization
-    const { data: org, error: orgError } = await supabase
-      .from('organizations')
-      .insert({ 
-        name: orgName.slice(0, 100), // Ensure name isn't too long
-        email: email,
-        created_by: userId,
-        created_at: new Date().toISOString(),
-        owner_id: userId // Add owner_id as it's required
-      })
-      .select()
-      .single();
-
-    if (orgError) {
-      console.error('[SIGNUP] Error creating organization:', orgError);
-      throw orgError;
-    }
-
-    console.log('[SIGNUP] Organization created:', org);
-
-    // Associate user with organization
-    const { error: memberError } = await supabase
-      .from('organization_members')
-      .insert({ 
-        organization_id: org.id,
-        user_id: userId,
-        role: 'admin', // Make the creator an admin
-        created_at: new Date().toISOString()
-      });
-
-    if (memberError) {
-      console.error('[SIGNUP] Error creating organization member:', memberError);
-      // Clean up the organization if member association fails
-      await supabase.from('organizations').delete().eq('id', org.id);
-      throw memberError;
-    }
-
-    // Update profile with org_id
-    const { error: profileUpdateError } = await supabase
-      .from('profiles')
-      .update({ org_id: org.id })
-      .eq('id', userId);
-
-    if (profileUpdateError) {
-      console.error('[SIGNUP] Error updating profile with org_id:', profileUpdateError);
-      // Clean up the organization and member if profile update fails
-      await supabase.from('organization_members').delete().eq('organization_id', org.id);
-      await supabase.from('organizations').delete().eq('id', org.id);
-      throw profileUpdateError;
-    }
-
-    console.log('[SIGNUP] User associated with organization:', { userId, orgId: org.id });
-
-    return org;
-  } catch (error) {
-    console.error('[SIGNUP] Error in createUserOrganization:', error);
-    throw error;
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: GoogleCredentialResponse) => void;
+            auto_select?: boolean;
+            context?: string;
+          }) => void;
+          renderButton: (
+            element: HTMLElement,
+            config: {
+              type?: 'standard' | 'icon';
+              theme?: 'outline' | 'filled_blue' | 'filled_black';
+              size?: 'large' | 'medium' | 'small';
+              text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin';
+              shape?: 'rectangular' | 'pill' | 'circle' | 'square';
+              logo_alignment?: 'left' | 'center';
+              width?: number | string;
+            }
+          ) => void;
+          prompt: () => void;
+        };
+      };
+    };
   }
 }
 
@@ -129,292 +50,294 @@ export default function SignUp() {
   const router = useRouter();
   const supabase = createClientComponentClient({
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   });
-  const [origin, setOrigin] = useState<string>('');
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setOrigin(window.location.origin);
-    }
+    // Log initial configuration
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_AUTH_CLIENT_ID;
+    const redirectUrl = process.env.NEXT_PUBLIC_AUTH_REDIRECT_URL;
+    
+    logger.info('[SIGNUP_PAGE] Environment Configuration:', {
+      supabase: {
+        url: supabaseUrl,
+        hasAnonKey: !!supabaseKey,
+        anonKeyPrefix: supabaseKey?.substring(0, 8) + '...',
+        client: {
+          hasSupabase: !!supabase,
+          hasAuth: !!supabase?.auth,
+        }
+      },
+      google: {
+        hasClientId: !!googleClientId,
+        clientIdPrefix: googleClientId?.substring(0, 8) + '...',
+        redirectUrl: redirectUrl || window.location.origin + '/auth/callback',
+      },
+      env: {
+        nodeEnv: process.env.NODE_ENV,
+        hasSupabaseUrl: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+        hasSupabaseKey: !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        hasGoogleClientId: !!process.env.NEXT_PUBLIC_GOOGLE_AUTH_CLIENT_ID,
+        hasRedirectUrl: !!process.env.NEXT_PUBLIC_AUTH_REDIRECT_URL,
+      },
+      runtime: {
+        origin: window.location.origin,
+        protocol: window.location.protocol,
+        host: window.location.host,
+      }
+    });
   }, []);
 
-  const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
+  useEffect(() => {
+    logger.info('[SIGNUP_PAGE] Mounted', {
+      query: router.query,
+      pathname: router.pathname,
+      origin: window.location.origin
+    });
+  }, [router]);
 
   const handleGoogleSignIn = async () => {
     try {
-      console.log('[SIGNUP] Starting Google sign-in flow');
-      setError(null);
       setLoading(true);
+      setError(null);
+
+      logger.info('========== GOOGLE SIGN-IN START ==========');
+
+      // Log the current URL and origin
+      logger.info('[SIGNUP_PAGE] Current location:', {
+        href: window.location.href,
+        origin: window.location.origin,
+        pathname: window.location.pathname,
+        search: window.location.search
+      });
+
+      // Generate PKCE code verifier and challenge
+      const codeVerifier = generatePKCEVerifier();
+      const codeChallenge = await generatePKCEChallenge(codeVerifier);
+
+      // Store the code verifier in localStorage
+      const codeVerifierKey = `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]}-auth-token-code-verifier`;
       
+      // Clear any existing verifier first
+      localStorage.removeItem(codeVerifierKey);
+      
+      // Store the new verifier
+      localStorage.setItem(codeVerifierKey, codeVerifier);
+
+      // Verify storage was successful
+      const storedVerifier = localStorage.getItem(codeVerifierKey);
+      if (!storedVerifier || storedVerifier !== codeVerifier) {
+        logger.error('Failed to store code verifier in localStorage');
+        setError('Failed to initialize authentication. Please try again.');
+        return;
+      }
+
+      logger.info('[SIGNUP_PAGE] PKCE details:', {
+        codeVerifierKey,
+        hasCodeVerifier: !!codeVerifier,
+        hasCodeChallenge: !!codeChallenge,
+        verifierLength: codeVerifier.length,
+        challengeLength: codeChallenge.length,
+        verifierType: typeof codeVerifier,
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        urlPart: process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1],
+        storedVerifier: localStorage.getItem(codeVerifierKey),
+        redirectUrl: `${window.location.origin}/auth/callback`,
+        fullRedirectUrl: new URL('/auth/callback', window.location.origin).toString()
+      });
+
+      // Log the OAuth configuration
+      logger.info('[SIGNUP_PAGE] OAuth configuration:', {
+        provider: 'google',
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+          code_challenge_method: 'S256'
+        }
+      });
+
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${origin}/auth/callback`,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
+            code_challenge: codeChallenge,
+            code_challenge_method: 'S256'
           },
-        },
-      });
-
-      console.log('[SIGNUP] Google sign-in response:', {
-        success: !error,
-        error: error?.message,
-        hasUrl: !!data?.url,
-        url: data?.url,
-        redirectTo: `${origin}/auth/callback`
+          skipBrowserRedirect: false
+        }
       });
 
       if (error) {
-        console.error('[SIGNUP] Google sign-in error:', error);
-        throw error;
-      }
-
-      // Get user data after successful sign-in
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (user) {
-        try {
-          await createUserOrganization(supabase, user.id, user.email || '');
-          console.log('[SIGNUP] Organization created successfully for Google user');
-        } catch (orgError) {
-          console.error('[SIGNUP] Error creating organization:', orgError);
-          setError('Account created but failed to set up organization. Please contact support.');
-          return;
-        }
-      }
-      
-      // Only redirect if we have a URL
-      if (data?.url) {
-        console.log('[SIGNUP] Redirecting to OAuth URL:', data.url);
-        if (typeof window !== 'undefined') {
-          window.location.href = data.url;
-        }
-      } else {
-        console.error('[SIGNUP] No OAuth URL received in response');
-        throw new Error('No OAuth URL received');
-      }
-    } catch (error: unknown) {
-      console.error('[SIGNUP] Google sign-in error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to start Google sign-in');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    
-    try {
-      setError(null);
-      setLoading(true);
-
-      if (!validateEmail(email)) {
-        setError('Please enter a valid email address');
-        return;
-      }
-
-      if (password.length < 6) {
-        setError('Password must be at least 6 characters');
-        return;
-      }
-
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${origin}/auth/callback`,
-        },
-      });
-
-      if (error) {
-        console.error('[SIGNUP] Error signing up:', error.message);
+        logger.error('OAuth Error:', error);
         setError(error.message);
         return;
       }
 
-      if (data?.user?.identities?.length === 0) {
-        setError('This email is already registered. Please sign in instead.');
+      if (!data) {
+        logger.error('No OAuth data returned');
+        setError('Failed to initiate Google sign in');
         return;
       }
 
-      if (data?.user && !data.session) {
-        // Email confirmation is required
-        router.push('/auth/verify-email');
-        return;
-      }
+      logger.info('Sign in successful:', data);
 
-      // If we have a session, redirect to onboarding
-      if (data?.session) {
-        router.push('/onboarding');
-      }
     } catch (err) {
-      console.error('Unexpected error during signup:', err);
+      logger.error('Unexpected error:', err);
       setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGitHubSignIn = async () => {
+  // PKCE Helper Functions
+  function generatePKCEVerifier(): string {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return base64URLEncode(array);
+  }
+
+  async function generatePKCEChallenge(verifier: string): Promise<string> {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(verifier);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return base64URLEncode(new Uint8Array(hash));
+  }
+
+  function base64URLEncode(array: Uint8Array): string {
+    return btoa(String.fromCharCode.apply(null, Array.from(array)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  }
+
+  const handleEmailSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    
     try {
-      console.log('[SIGNUP] Starting GitHub sign-in flow');
-      setError(null);
       setLoading(true);
+      setError(null);
 
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'github',
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
         options: {
-          redirectTo: `${origin}/auth/callback`,
-        },
-      });
-
-      console.log('[SIGNUP] GitHub sign-in response:', {
-        success: !error,
-        error: error?.message,
-        hasUrl: !!data?.url,
-        url: data?.url
+          emailRedirectTo: `${window.location.origin}/auth/callback`
+        }
       });
 
       if (error) {
-        console.error('[SIGNUP] GitHub sign-in error:', error);
-        throw error;
+        setError(error.message);
+        return;
       }
 
-      // Get user data after successful sign-in
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (user) {
-        try {
-          await createUserOrganization(supabase, user.id, user.email || '');
-          console.log('[SIGNUP] Organization created successfully for GitHub user');
-        } catch (orgError) {
-          console.error('[SIGNUP] Error creating organization:', orgError);
-          setError('Account created but failed to set up organization. Please contact support.');
-          return;
-        }
+      if (!data.user) {
+        setError('Failed to create account');
+        return;
       }
 
-      // Only redirect if we have a URL
-      if (data?.url) {
-        console.log('[SIGNUP] Redirecting to OAuth URL:', data.url);
-        if (typeof window !== 'undefined') {
-          window.location.href = data.url;
-        }
+      // Check if email verification is required
+      if (data.session) {
+        // User is already signed in, redirect to role selection
+        router.push('/onboarding/select-role');
+      } else if (data.user.identities?.length === 0) {
+        // No identities means email verification is required
+        router.push('/auth/verify-email');
       } else {
-        console.error('[SIGNUP] No OAuth URL received in response');
-        throw new Error('No OAuth URL received');
+        // Default to role selection
+        router.push('/onboarding/select-role');
       }
-    } catch (error: unknown) {
-      console.error('[SIGNUP] GitHub sign-in error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to start GitHub sign-in');
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <AuthLayout title="Create your account">
-      <form onSubmit={handleSignUp} className="space-y-6">
-        {error && (
-          <div className="bg-red-50 border border-red-100 text-red-600 p-4 rounded-lg text-sm font-medium animate-fade-in">
-            {error}
+    <AuthLayout title="Create an account">
+      <div className="flex flex-col space-y-4">
+        <form onSubmit={handleEmailSignUp} className="space-y-4">
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+            />
           </div>
-        )}
 
-        <div className="space-y-1">
-          <label htmlFor="email" className="block text-sm font-medium text-gray-900">
-            Work Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-900 placeholder-gray-500 transition-colors duration-200 ease-in-out focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-            placeholder="you@company.com"
-          />
-        </div>
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+            />
+          </div>
 
-        <div className="space-y-1">
-          <label htmlFor="password" className="block text-sm font-medium text-gray-900">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            minLength={6}
-            className="mt-1 block w-full rounded-lg border border-gray-300 px-4 py-2.5 text-gray-900 placeholder-gray-500 transition-colors duration-200 ease-in-out focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-            placeholder="••••••••"
-          />
-          <p className="mt-2 text-sm text-gray-600">
-            Must be at least 6 characters
-          </p>
+          {error && (
+            <div className="rounded-md bg-red-50 p-4">
+              <div className="flex">
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">{error}</h3>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="flex w-full justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
+          >
+            {loading ? 'Creating account...' : 'Sign up with email'}
+          </button>
+        </form>
+
+        <div className="relative">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-300" />
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="bg-white px-2 text-gray-500">Or continue with</span>
+          </div>
         </div>
 
         <button
-          type="submit"
+          onClick={handleGoogleSignIn}
           disabled={loading}
-          className="relative w-full flex justify-center py-2.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out"
+          className="flex w-full items-center justify-center gap-3 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
         >
-          {loading ? (
-            <>
-              <span className="absolute inset-y-0 left-0 flex items-center pl-3">
-                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-              </span>
-              <span className="pl-8">Creating account...</span>
-            </>
-          ) : (
-            'Create account'
-          )}
+          <svg className="h-5 w-5" aria-hidden="true" viewBox="0 0 24 24">
+            <path
+              d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"
+              fill="currentColor"
+            />
+          </svg>
+          <span>{loading ? 'Signing in...' : 'Sign up with Google'}</span>
         </button>
 
-        <div className="mt-6">
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300" />
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">Or sign up with</span>
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <button
-              type="button"
-              onClick={handleGoogleSignIn}
-              disabled={loading}
-              className="w-full inline-flex items-center justify-center py-2.5 px-4 border border-gray-300 rounded-lg shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition duration-150 ease-in-out"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M23.766 12.2764C23.766 11.4607 23.6999 10.6406 23.5588 9.83807H12.24V14.4591H18.7217C18.4528 15.9494 17.5885 17.2678 16.323 18.1056V21.1039H20.19C22.4608 19.0139 23.766 15.9274 23.766 12.2764Z" fill="#4285F4"/>
-                <path d="M12.24 24.0008C15.4764 24.0008 18.2058 22.9382 20.1944 21.1039L16.3274 18.1055C15.2516 18.8375 13.8626 19.252 12.24 19.252C9.07376 19.252 6.39389 17.1399 5.44176 14.3003H1.45166V17.3912C3.50195 21.4434 7.63825 24.0008 12.24 24.0008Z" fill="#34A853"/>
-                <path d="M5.44175 14.3003C5.21164 13.5681 5.08083 12.7862 5.08083 12.0008C5.08083 11.2154 5.21164 10.4335 5.44175 9.70129V6.61041H1.45165C0.524374 8.23827 0 10.0657 0 12.0008C0 13.9359 0.524374 15.7633 1.45165 17.3912L5.44175 14.3003Z" fill="#FBBC05"/>
-                <path d="M12.24 4.74966C14.0291 4.74966 15.6265 5.36715 16.8902 6.56198L20.2694 3.18264C18.1999 1.21215 15.4708 0 12.24 0C7.63825 0 3.50195 2.55737 1.45166 6.61038L5.44176 9.70126C6.39389 6.86173 9.07376 4.74966 12.24 4.74966Z" fill="#EA4335"/>
-              </svg>
-              <span className="ml-2">Continue with Google</span>
-            </button>
-          </div>
-        </div>
-
-        <p className="mt-6 text-center text-sm text-gray-600">
+        <p className="text-center text-sm text-gray-600">
           Already have an account?{' '}
-          <Link href="/auth/signin" className="font-medium text-blue-600 hover:text-blue-700 transition duration-150 ease-in-out">
+          <Link href="/auth/signin" className="font-medium text-indigo-600 hover:text-indigo-500">
             Sign in
           </Link>
         </p>
-      </form>
+      </div>
     </AuthLayout>
   );
 } 

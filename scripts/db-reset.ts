@@ -1,23 +1,31 @@
 import { execSync } from 'child_process';
-import * as dotenv from 'dotenv';
+import { config } from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Load environment variables
+config();
 
 async function resetDatabase() {
   console.log('Saving Gmail tokens...');
   
   try {
-    // Save Gmail tokens
+    // Save Gmail tokens before reset
     execSync('npm run gmail:save-tokens', { stdio: 'inherit' });
-
-    // Load environment variables
-    dotenv.config();
 
     console.log('Resetting database...');
     console.log('Resetting local database...');
 
-    // Reset database first
-    execSync('npx supabase db reset', { stdio: 'inherit' });
+    // Reset the database
+    execSync('npx supabase db reset', {
+      env: {
+        ...process.env,
+        GOOGLE_OAUTH_CLIENT_ID: process.env.NEXT_PUBLIC_GOOGLE_AUTH_CLIENT_ID,
+        GOOGLE_OAUTH_CLIENT_SECRET: process.env.GOOGLE_AUTH_CLIENT_SECRET,
+        GOOGLE_OAUTH_REDIRECT_URI: process.env.NEXT_PUBLIC_AUTH_REDIRECT_URL
+      },
+      stdio: 'inherit'
+    });
 
     // Create SQL file for setting tokens
     const sqlContent = `

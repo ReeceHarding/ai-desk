@@ -68,14 +68,10 @@ export default function Sidebar() {
             <NavLink href="/dashboard">Dashboard</NavLink>
             <NavLink href="/tickets">Tickets</NavLink>
             
-            {isAdmin && (
+            {orgId && (
               <>
-                <NavLink href={`/organizations/${orgId}/settings`}>
-                  Organization Settings
-                </NavLink>
-                <NavLink href={`/organizations/${orgId}/kb`}>
-                  Knowledge Base
-                </NavLink>
+                <NavLink href={`/organizations/${orgId}/settings`}>Organization Settings</NavLink>
+                <NavLink href={`/organizations/${orgId}/knowledge-base`}>Knowledge Base</NavLink>
               </>
             )}
             

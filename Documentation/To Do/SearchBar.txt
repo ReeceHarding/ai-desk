@@ -1,0 +1,200 @@
+Step-by-Step Implementation Instructions for the Junior Development Team
+
+Below is a set of detailed instructions to fix the search bar functionality so that it properly filters and displays organizations from your Supabase database. Follow these instructions exactly and do not deviate. Each checkpoint indicates a place where you should stop, run a simple test, and confirm functionality before moving forward.
+
+1. Confirm Supabase Setup and Trigram Extension
+	1.	Open your supabase/migrations directory.
+	2.	Locate a migration file with lines similar to:
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+This confirms you have the pg_trgm extension enabled, which allows substring searches via a trigram index if you choose to use it.
+
+	3.	Ensure you see no errors or warnings in these migration files.
+	4.	No changes are needed here for this fix if you already have pg_trgm installed and an appropriate index. However, confirm your organizations table likely has a line like:
+
+CREATE TABLE public.organizations (
+  ...
+  name text NOT NULL,
+  ...
+);
+
+
+	5.	Also confirm you have an index for faster searching if desired, for example:
+
+CREATE INDEX IF NOT EXISTS organizations_name_trgm_idx
+ON public.organizations
+USING GIN (name gin_trgm_ops);
+
+This is optional but strongly recommended if you have large datasets.
+
+Checkpoint: In your terminal, run any command you typically use to validate Supabase migrations (for example, a test or a migration status command). Verify no errors.
+
+2. Locate the Search Bar Code
+	1.	You mentioned an “agents and customers page” or a page that has a search bar to filter organizations. Commonly, you might have something like /pages/organizations/index.tsx or a shared component that houses the search bar. If the search bar is in a different file (e.g. customers.tsx or agents.tsx), open that file instead.
+	2.	Search for code referencing setSearchQuery, handleSearchChange, or anything that sets a searchTerm in state. It typically looks like this in React:
+
+const [searchQuery, setSearchQuery] = useState('');
+
+const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  setSearchQuery(e.target.value);
+};
+
+
+	3.	You might also see a function that fetches organizations but does not incorporate this searchQuery at all. This is where the bug likely exists.
+
+Checkpoint: Confirm that your local dev environment can run, that you can see the search bar in the UI, and that typing in it updates some local state (e.g., by logging out searchQuery). Stop here and verify it is indeed not filtering anything.
+
+3. Implement Substring Filtering in the Fetch Function
+	1.	Within that same file that defines searchQuery, locate or create a function that actually fetches organizations from Supabase. It might look similar to:
+
+async function fetchOrganizations() {
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('*');
+
+  if (error) {
+    console.error(error);
+    return [];
+  }
+  return data || [];
+}
+
+
+	2.	Modify that function so it respects searchQuery. For instance:
+
+async function fetchOrganizations(searchQuery: string) {
+  let query = supabase
+    .from('organizations')
+    .select('*')
+    // You can add .order('name', { ascending: true }) if desired
+    
+  // If the user typed something, filter by substring
+  if (searchQuery && searchQuery.trim() !== '') {
+    // Using iLike for partial substring match
+    query = query.ilike('name', `%${searchQuery}%`);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('Error fetching organizations:', error);
+    return [];
+  }
+  return data || [];
+}
+
+
+	3.	Next, make sure that any useEffect or function that calls fetchOrganizations is actually passing searchQuery into it. For example:
+
+useEffect(() => {
+  async function loadOrgs() {
+    const orgs = await fetchOrganizations(searchQuery);
+    setOrganizations(orgs);
+  }
+  loadOrgs();
+}, [searchQuery]);
+
+
+	4.	The above ensures that whenever searchQuery updates, it re-fetches organizations with the new substring filter.
+
+Checkpoint: Create a simple test that calls fetchOrganizations('abc') in your console or a unit test. Inspect the returned data to confirm that it only includes organizations whose name contains “abc”. Confirm no errors.
+
+4. Displaying Organization Logos and Names in the Search Results
+	1.	In the same component or in a child “results” component, you need to show the returned organizations. Typically you might have:
+
+const [organizations, setOrganizations] = useState([]);
+
+return (
+  <div>
+    <input
+      type="text"
+      value={searchQuery}
+      onChange={handleSearchChange}
+      placeholder="Search organizations..."
+    />
+    <ul>
+      {organizations.map((org) => (
+        <li key={org.id}>
+          {/* Show the organization's logo if you have an avatar_url or logo column */}
+          {org.logo_url && (
+            <img
+              src={org.logo_url}
+              alt={org.name}
+              style={{ width: '30px', height: '30px' }}
+            />
+          )}
+          <span>{org.name}</span>
+        </li>
+      ))}
+    </ul>
+  </div>
+);
+
+
+	2.	If your table has a column named avatar_url or logo_url, replace it accordingly. You may also have a fallback image or a placeholder if none is provided:
+
+{org.logo_url ? (
+  <img src={org.logo_url} alt={org.name} />
+) : (
+  <img src="/fallback-logo.png" alt="Fallback Logo" />
+)}
+
+
+
+Checkpoint: Type in the search bar. Verify that the displayed list of organizations changes to only show matches. Try partial matches (substrings) as well as complete matches. Confirm the image (logo) appears if available.
+
+5. Handling Selection of an Organization
+	1.	You mentioned that once the user clicks on an organization and then the “Next page,” it adds the user to that organization. Ensure you have an onClick that records which organization is selected:
+
+function handleSelectOrganization(orgId: string) {
+  setSelectedOrgId(orgId);
+}
+
+
+	2.	Then pass that selection forward to the next step or page (maybe you have a “Next” button). For example:
+
+<button onClick={() => router.push(`/organizations/${selectedOrgId}/add-user`)}>
+  Next
+</button>
+
+or any other approach that fits your flow.
+
+	3.	In the next page or step, you might have logic like:
+
+async function addCurrentUserToOrganization(orgId: string, userId: string) {
+  const { data, error } = await supabase
+    .from('organization_members')
+    .insert([
+      { organization_id: orgId, user_id: userId, role: 'agent' }
+    ]);
+
+  if (error) {
+    console.error('Error adding user to organization:', error);
+  } else {
+    console.log('User added successfully!', data);
+  }
+}
+
+
+	4.	This ensures that once the user picks an organization, you can proceed to add them as an agent or whatever role you want in that organization.
+
+Checkpoint: Attempt to pick an organization from the search results, then proceed to the next page to confirm that the user is indeed added. In your database, verify that the organization_members table now has a new row for that user and organization.
+
+6. Final Testing and Edge Cases
+	1.	Test searching with uppercase/lowercase differences. Confirm results still appear if you used ilike.
+	2.	Test searching with partial strings. Confirm partial matches appear.
+	3.	Test that when the search bar is empty, it displays all organizations or a default set of them.
+	4.	Confirm that if no organizations match a search, you handle the empty state gracefully (e.g., “No results found.”).
+	5.	Ensure that adding a user to an organization doesn’t break if you choose an organization from the filtered list.
+
+Checkpoint: Do a final pass in your local environment or staging environment. Confirm no errors in the console or terminal logs, and confirm the user experience is correct: as soon as they type in the search bar, the organization list filters by substring in real time.
+
+7. Summary
+
+By completing each of these steps:
+	•	Supabase DB remains unchanged except for verifying the pg_trgm extension and possibly your organizations naming columns.
+	•	Frontend code is updated so your search bar pass searchQuery to the actual database call using .ilike('name', \%${searchQuery}%`)`.
+	•	The list properly filters organizations by substring match and displays their logos and names.
+	•	User selection logic remains unchanged except now the user can find organizations by partial name search.
+
+Following these steps precisely should fix the “search not working” issue you described. Ensure you do each checkpoint test thoroughly to confirm that the substring search is functional, organizations are displayed with partial matches, and that the selection process continues to function as expected.

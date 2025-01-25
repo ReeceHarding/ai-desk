@@ -117,12 +117,20 @@ export default function AppLayout({ children }: AppLayoutProps) {
         </div>
       </header>
 
+      {/* Mobile menu overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-20 bg-gray-600 bg-opacity-75 transition-opacity md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
       <div className="flex h-screen pt-14 sm:pt-16">
         {/* Sidebar - hidden on mobile unless menu is open */}
         <div 
           className={`fixed inset-y-0 left-0 transform ${
             isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-          } md:relative md:translate-x-0 transition duration-200 ease-in-out z-40 bg-white w-72 md:w-64 top-14 sm:top-16 border-r border-gray-200 shadow-lg md:shadow-none`}
+          } md:relative md:translate-x-0 transition duration-200 ease-in-out z-40 bg-white w-72 md:w-64 top-14 sm:top-16 border-r border-gray-200 shadow-lg md:shadow-none overflow-hidden`}
         >
           <div className="h-full overflow-y-auto">
             <Sidebar />
@@ -133,7 +141,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <main 
           className={`flex-1 relative overflow-y-auto focus:outline-none
             ${isMobileMenuOpen ? 'md:ml-64' : ''}
-            ${isThreadPanelOpen ? 'mr-[400px]' : ''}
+            ${isThreadPanelOpen ? 'lg:mr-[400px]' : ''}
             bg-gray-50 px-3 sm:px-6 lg:px-8 py-4 sm:py-6`}
         >
           <div className="max-w-7xl mx-auto">
@@ -143,11 +151,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
           </div>
         </main>
 
-        {/* Thread Panel */}
+        {/* Thread Panel - Full width on mobile */}
         <div 
-          className={`fixed top-14 sm:top-16 right-0 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] w-full sm:w-[400px] bg-white shadow-lg transform transition-transform duration-300 ${
+          className={`fixed top-14 sm:top-16 right-0 h-[calc(100vh-3.5rem)] sm:h-[calc(100vh-4rem)] w-full lg:w-[400px] bg-white shadow-lg transform transition-transform duration-300 ${
             isThreadPanelOpen ? 'translate-x-0' : 'translate-x-full'
-          }`}
+          } z-50`}
         >
           {/* Thread panel content */}
         </div>

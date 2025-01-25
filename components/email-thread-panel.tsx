@@ -5,9 +5,8 @@ import { Database } from "@/types/supabase"
 import { useSupabaseClient } from "@supabase/auth-helpers-react"
 import { format } from "date-fns"
 import { AnimatePresence, motion } from "framer-motion"
-import { OAuth2Client } from "google-auth-library"
 import { Forward, Loader2, Mail, MoreHorizontal, Paperclip, Reply, Star, X } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { useInView } from "react-intersection-observer"
 
 interface EmailMessage {
@@ -42,6 +41,7 @@ interface EmailThreadPanelProps {
       email: string | null
     } | null
     created_at?: string | null
+    org_id: string
   } | null
 }
 
@@ -52,7 +52,6 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
   const [page, setPage] = useState(0)
   const { ref, inView } = useInView()
   const supabase = useSupabaseClient<Database>()
-  const oauthClientRef = useRef<OAuth2Client | null>(null)
 
   const fetchMessages = async (pageNum: number) => {
     if (!ticket?.id || isLoading) return
@@ -165,7 +164,32 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
       // Get the latest message for threading info
       const latestMessage = messageList[0];
       
-      // Send email via API
+      // If this is a website-originated ticket (no thread_id), store directly in database
+      if (!ticket.thread_id && !latestMessage?.thread_id) {
+        const { data: newMessage, error } = await supabase
+          .from('ticket_email_chats')
+          .insert({
+            ticket_id: ticket.id,
+            from_address: latestMessage?.to_address?.[0] || "support@yourdomain.com",
+            to_address: [latestMessage?.from_address || ticket.customer?.email],
+            subject: latestMessage ? `Re: ${latestMessage.subject?.replace(/^Re:\s*/i, '')}` : "Re: Support Ticket",
+            body: htmlBody,
+            attachments: attachments,
+            org_id: ticket.org_id
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
+        
+        // Add new message to the list
+        if (newMessage) {
+          setMessageList((prev) => [newMessage, ...prev]);
+        }
+        return;
+      }
+
+      // Otherwise, send via Gmail API
       const response = await fetch('/api/gmail/send', {
         method: 'POST',
         headers: {
@@ -178,7 +202,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
           inReplyTo: latestMessage?.message_id,
           references: latestMessage?.message_id,
           fromAddress: latestMessage?.to_address?.[0] || "support@yourdomain.com",
-          toAddresses: [latestMessage?.from_address || "recipient@example.com"],
+          toAddresses: [latestMessage?.from_address || ticket.customer?.email],
           subject: latestMessage ? `Re: ${latestMessage.subject?.replace(/^Re:\s*/i, '')}` : "Re: Support Ticket",
           htmlBody,
           attachments,
@@ -208,165 +232,153 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
           animate={{ x: 0 }}
           exit={{ x: "100%" }}
           transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-          className="absolute top-0 right-8 w-[600px] h-full bg-white border-l border-gray-200 flex flex-col rounded-l-xl shadow-lg z-50"
+          className="fixed inset-0 sm:absolute sm:inset-auto sm:top-0 sm:right-8 w-full sm:w-[600px] h-full bg-white border-l border-gray-200 flex flex-col sm:rounded-l-xl shadow-lg z-50"
         >
           {/* Header */}
-          <div className="p-4 border-b border-gray-200 bg-white/50 backdrop-blur-sm flex items-center justify-between sticky top-0 z-10">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center">
-                <Mail className="h-5 w-5 text-blue-600" />
+          <div className="p-3 sm:p-4 border-b border-gray-200 bg-white/50 backdrop-blur-sm flex items-center justify-between sticky top-0 z-10">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-50 flex items-center justify-center">
+                <Mail className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900">Email Thread</h2>
-                <p className="text-sm text-gray-500">Ticket #{ticket.id}</p>
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Email Thread</h2>
+                <p className="text-xs sm:text-sm text-gray-500">Ticket #{ticket.id}</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 pr-1">
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100">
-                      <Reply className="h-5 w-5" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-gray-600 hover:text-gray-900"
+                    >
+                      <Star className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Reply</TooltipContent>
+                  <TooltipContent>Star thread</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100">
-                      <Forward className="h-5 w-5" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-gray-600 hover:text-gray-900"
+                    >
+                      <Forward className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Forward</TooltipContent>
+                  <TooltipContent>Forward thread</TooltipContent>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100">
-                      <Star className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Star email</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100">
-                      <MoreHorizontal className="h-5 w-5" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-gray-600 hover:text-gray-900"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>More options</TooltipContent>
                 </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 hover:bg-gray-100" onClick={onClose}>
-                      <X className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Close panel</TooltipContent>
-                </Tooltip>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onClose}
+                  className="text-gray-600 hover:text-gray-900"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
               </TooltipProvider>
             </div>
           </div>
 
           {/* Message List */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4">
             {/* Initial Ticket Description */}
-            {ticket.description && (
-              <div className="mb-6 bg-gray-50 rounded-lg p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex-shrink-0">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-                      {ticket.customer?.display_name ? (
-                        <span className="text-blue-600 font-medium">
-                          {ticket.customer.display_name[0].toUpperCase()}
-                        </span>
-                      ) : (
-                        <span className="text-blue-600 font-medium">U</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-gray-900">
-                        {ticket.customer?.display_name || ticket.customer?.email || 'Unknown User'}
-                      </p>
-                      {ticket.created_at && (
-                        <time className="text-xs text-gray-500">
-                          {format(new Date(ticket.created_at), 'MMM d, yyyy h:mm a')}
-                        </time>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-500">Initial Request</p>
-                  </div>
+            {ticket?.description && (
+              <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="font-medium text-gray-900">
+                    {ticket.customer?.display_name || 'Customer'}
+                  </span>
+                  <span className="text-sm text-gray-500">
+                    {ticket.created_at && format(new Date(ticket.created_at), 'MMM d, yyyy h:mm a')}
+                  </span>
                 </div>
-                <div className="pl-[52px]">
-                  <h3 className="text-base font-medium text-gray-900 mb-2">
-                    {ticket.subject}
-                  </h3>
-                  <div className="prose prose-sm max-w-none text-gray-600">
-                    {ticket.description}
-                  </div>
+                <div className="text-gray-700">
+                  <div className="font-medium mb-1">{ticket.subject || 'Support Ticket'}</div>
+                  <div className="whitespace-pre-wrap">{ticket.description}</div>
                 </div>
               </div>
             )}
-
-            {/* Email Messages */}
-            <div className="space-y-6">
-              {messageList.map((message) => (
-                <div key={message.id} className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="font-medium text-gray-900">{message.from_address}</p>
-                      <div className="text-sm text-gray-500 space-x-2">
-                        <span>To: {message.to_address?.join(", ")}</span>
-                        {message.cc_address && message.cc_address.length > 0 && (
-                          <span>CC: {message.cc_address.join(", ")}</span>
-                        )}
+            
+            {messageList.map((message, index) => (
+              <motion.div
+                key={message.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex flex-col gap-2 sm:gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                        <div className="font-medium text-gray-900 text-sm sm:text-base truncate">
+                          {message.from_address}
+                        </div>
+                        <div className="text-xs sm:text-sm text-gray-500">
+                          {message.gmail_date
+                            ? format(new Date(message.gmail_date), 'PPp')
+                            : format(new Date(message.created_at), 'PPp')}
+                        </div>
+                      </div>
+                      <div className="text-xs sm:text-sm text-gray-500 truncate">
+                        To: {message.to_address?.join(', ')}
                       </div>
                     </div>
-                    <div className="text-sm text-gray-500">
-                      {message.gmail_date && format(new Date(message.gmail_date), "MMM d, yyyy h:mm a")}
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-gray-600 hover:text-gray-900"
+                      >
+                        <Reply className="h-4 w-4" />
+                      </Button>
+                      {message.attachments && message.attachments.length > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-gray-600 hover:text-gray-900"
+                        >
+                          <Paperclip className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
-                  <div className="text-gray-700" dangerouslySetInnerHTML={{ __html: message.body || "" }} />
-                  {message.attachments && message.attachments.length > 0 && (
-                    <div className="border-t border-gray-200 pt-3 mt-3">
-                      <div className="text-sm font-medium text-gray-900 mb-2">Attachments</div>
-                      <div className="flex flex-wrap gap-2">
-                        {message.attachments.map((attachment: any, i: number) => (
-                          <div
-                            key={i}
-                            className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg text-sm text-gray-700"
-                          >
-                            <Paperclip className="h-4 w-4 text-gray-500" />
-                            <span>{attachment.filename}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <div className="text-sm sm:text-base text-gray-600 break-words">
+                    {message.body}
+                  </div>
                 </div>
-              ))}
-            </div>
-
-            {/* Load More Trigger */}
+              </motion.div>
+            ))}
+            
+            {/* Load more trigger */}
             {hasMore && (
-              <div ref={ref} className="py-4 flex justify-center">
-                {isLoading && (
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading more messages...
-                  </div>
-                )}
+              <div ref={ref} className="flex justify-center p-4">
+                {isLoading && <Loader2 className="h-6 w-6 animate-spin text-gray-400" />}
               </div>
             )}
           </div>
 
           {/* Composer */}
-          <div className="border-t border-gray-200 p-4">
+          <div className="border-t border-gray-200 p-3 sm:p-4">
             <EmailComposer onSend={handleSendMessage} />
           </div>
         </motion.div>
       )}
     </AnimatePresence>
-  )
+  );
 } 

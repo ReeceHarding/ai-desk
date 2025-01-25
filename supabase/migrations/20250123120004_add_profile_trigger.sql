@@ -7,6 +7,8 @@ RETURNS TRIGGER AS $$
 DECLARE
   v_email text;
   v_display_name text;
+  v_avatar_url text;
+  v_org_id uuid;
 BEGIN
   -- Get email from either direct field or metadata
   v_email := COALESCE(
@@ -26,25 +28,56 @@ BEGIN
     split_part(v_email, '@', 1)
   );
 
+  -- Get avatar URL from metadata if available
+  v_avatar_url := NEW.raw_user_meta_data->>'avatar_url';
+
+  -- Log start of profile creation
   INSERT INTO public.logs (level, message, metadata)
   VALUES (
     'info',
-    'Creating profile for new user',
+    'Starting profile creation for new user',
     jsonb_build_object(
       'user_id', NEW.id,
       'email', v_email,
       'display_name', v_display_name,
+      'avatar_url', v_avatar_url,
       'trigger', 'handle_new_user'
     )
   );
 
-  -- Create profile
-  INSERT INTO public.profiles (id, email, display_name, role)
+  -- Create profile with complete data
+  INSERT INTO public.profiles (
+    id, 
+    email, 
+    display_name, 
+    role, 
+    avatar_url,
+    metadata
+  )
   VALUES (
     NEW.id,
     v_email,
     v_display_name,
-    'customer'
+    'customer',
+    v_avatar_url,
+    jsonb_build_object(
+      'signup_completed', false,
+      'gmail_setup_pending', true,
+      'created_at', extract(epoch from now())
+    )
+  );
+
+  -- Log successful profile creation
+  INSERT INTO public.logs (level, message, metadata)
+  VALUES (
+    'info',
+    'Profile created successfully',
+    jsonb_build_object(
+      'user_id', NEW.id,
+      'email', v_email,
+      'trigger', 'handle_new_user',
+      'status', 'success'
+    )
   );
 
   RETURN NEW;
@@ -58,6 +91,7 @@ EXCEPTION WHEN OTHERS THEN
       'error', SQLERRM,
       'user_id', NEW.id,
       'email', v_email,
+      'avatar_url', v_avatar_url,
       'trigger', 'handle_new_user'
     )
   );
@@ -76,10 +110,11 @@ CREATE TRIGGER on_auth_user_created
 INSERT INTO public.logs (level, message, metadata)
 VALUES (
   'info',
-  'Added profile creation trigger',
+  'Updated profile creation trigger',
   jsonb_build_object(
     'migration', '20250123120004_add_profile_trigger',
     'trigger_added', 'on_auth_user_created',
-    'function_added', 'handle_new_user'
+    'function_added', 'handle_new_user',
+    'changes', 'Added metadata for signup tracking'
   )
 ); 

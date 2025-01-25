@@ -395,54 +395,48 @@ export interface Database {
       }
       knowledge_base_articles: {
         Row: {
+          id: string
+          title: string
+          content: string
           article_category: string | null
           article_type: string | null
-          author_id: string | null
-          content: string
-          created_at: string
-          deleted_at: string | null
-          extra_json_1: Json
-          extra_text_1: string | null
-          flagged_internal: boolean
-          id: string
-          metadata: Json
-          org_id: string
           published: boolean
-          title: string
+          author_id: string | null
+          org_id: string
+          metadata: Json
+          flagged_internal: boolean
+          deleted_at: string | null
+          created_at: string
           updated_at: string
         }
         Insert: {
+          id?: string
+          title: string
+          content: string
           article_category?: string | null
           article_type?: string | null
-          author_id?: string | null
-          content: string
-          created_at?: string
-          deleted_at?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          flagged_internal?: boolean
-          id?: string
-          metadata?: Json
-          org_id: string
           published?: boolean
-          title: string
+          author_id?: string | null
+          org_id: string
+          metadata?: Json
+          flagged_internal?: boolean
+          deleted_at?: string | null
+          created_at?: string
           updated_at?: string
         }
         Update: {
+          id?: string
+          title?: string
+          content?: string
           article_category?: string | null
           article_type?: string | null
-          author_id?: string | null
-          content?: string
-          created_at?: string
-          deleted_at?: string | null
-          extra_json_1?: Json
-          extra_text_1?: string | null
-          flagged_internal?: boolean
-          id?: string
-          metadata?: Json
-          org_id?: string
           published?: boolean
-          title?: string
+          author_id?: string | null
+          org_id?: string
+          metadata?: Json
+          flagged_internal?: boolean
+          deleted_at?: string | null
+          created_at?: string
           updated_at?: string
         }
         Relationships: [

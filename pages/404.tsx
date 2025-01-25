@@ -1,33 +1,34 @@
-import Head from 'next/head';
-import Link from 'next/link';
+import AppLayout from '@/components/layout/AppLayout'
+import Link from 'next/link'
 
-export default function NotFound() {
+export default function NotFoundPage() {
   return (
-    <>
-      <Head>
-        <title>Page Not Found</title>
-      </Head>
-
-      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-        <div className="sm:mx-auto sm:w-full sm:max-w-md">
-          <div className="text-center">
-            <h1 className="text-4xl font-extrabold text-gray-900 sm:text-5xl">404</h1>
-            <p className="mt-2 text-3xl font-bold text-gray-900">Page Not Found</p>
-            <p className="mt-2 text-sm text-gray-600">
-              Sorry, we couldn't find the page you're looking for.
-            </p>
-          </div>
-
-          <div className="mt-8">
-            <Link
-              href="/"
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Go back home
-            </Link>
-          </div>
+    <AppLayout>
+      <div className="min-h-screen bg-white px-4 py-16 sm:px-6 sm:py-24 md:grid md:place-items-center lg:px-8">
+        <div className="max-w-max mx-auto">
+          <main className="sm:flex">
+            <p className="text-4xl font-bold text-blue-600 sm:text-5xl">404</p>
+            <div className="sm:ml-6">
+              <div className="sm:border-l sm:border-gray-200 sm:pl-6">
+                <h1 className="text-4xl font-bold text-gray-900 tracking-tight sm:text-5xl">
+                  Page not found
+                </h1>
+                <p className="mt-1 text-base text-gray-500">
+                  Please check the URL in the address bar and try again.
+                </p>
+              </div>
+              <div className="mt-10 flex space-x-3 sm:border-l sm:border-transparent sm:pl-6">
+                <Link
+                  href="/"
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  Go back home
+                </Link>
+              </div>
+            </div>
+          </main>
         </div>
       </div>
-    </>
-  );
+    </AppLayout>
+  )
 } 

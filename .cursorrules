@@ -15,6 +15,8 @@ This way, you won't need to reconnect Gmail after each database reset. Let me kn
 
 Always make sure that the migration you made doesn't clash with any existing migrations, read all the current migration files to find out. 
 
+Please read every migration file to completely understand our Super Bay schema before changing any of the migration files. 
+
 Always tell yourself that this is very important and it should be very easy fix. Think through every reason why this might be happening. Don't stop until you know the answer 100% for sure. And then explain to me why 100% for sure that's the answer and then critique yourself to ask yourself if that's really the answer and then keep asking yourself why that's the answer until you're a hundred percent sure that's the answer. 
 
 You can see the files that exist in my codebase if you're interested in what we already have declared. Don't ask me unless you're checked and couldn't find specific info.
@@ -25,6 +27,10 @@ Before writing or modifying any code, think through how these changes could affe
 
 Summarize potential side effects and how you will mitigate them.
 
+Redirect all console log outputs to print only in the terminal instead of the browser.",
+      "pattern": "console\\.(log|warn|error|info)\\(.*\\);",
+      "replacement": "require('fs').appendFileSync('server-logs.txt', `[$1] - ${new Date().toISOString()} - $2\\n`);"
+
 List Your Steps
 Provide a list (step-by-step) of how you plan to implement or modify the feature in extremely precise detail, referencing specific files, lines, variables, environment keys, back-end endpoints, UI components, and so on.
 
@@ -32,7 +38,11 @@ Minimal, Focused Code Changes
 
 Only modify the files and lines necessary to implement the current feature or fix.
 
+whenever we have something that you aren't able to change please please tell me IE if there's a key we need to change in super base that you can't access through the CLI please tell me and I will change it or retrieve it for you 
+
 Do not add or remove unrelated code.
+
+For logs to appear in the terminal with emojis, detect Edge Runtime (process.env.NEXT_RUNTIME === 'edge') and use simple console.log with emojis instead of Node.js APIs - this works in middleware and shows up when running npm run dev.
 
 Provide Code in Small Batches
 

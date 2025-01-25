@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS public.logs (
   level text NOT NULL CHECK (level IN ('info', 'warn', 'error')),
   message text NOT NULL,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  is_client boolean DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 

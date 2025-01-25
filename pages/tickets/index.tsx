@@ -44,10 +44,10 @@ type Ticket = Database['public']['Tables']['tickets']['Row'] & {
     message_id?: string;
     email_date?: string;
   } | null;
-  email_chat: {
+  ticket_email_chats: Array<{
     from_address: string | null;
     subject: string | null;
-  } | null;
+  }> | null;
   last_response_at?: string | null;
 };
 
@@ -149,7 +149,7 @@ export default function TicketList() {
           organization:organizations!tickets_org_id_fkey (
             name
           ),
-          email_chat:ticket_email_chats (
+          ticket_email_chats!ticket_email_chats_ticket_id_fkey (
             from_address,
             subject
           )
@@ -174,9 +174,7 @@ export default function TicketList() {
           ...ticket,
           customer: ticket.customer as Profile,
           organization: ticket.organization as Organization,
-          email_chat: Array.isArray(ticket.email_chat) && ticket.email_chat.length > 0 
-            ? ticket.email_chat[0] 
-            : null
+          ticket_email_chats: Array.isArray(ticket.ticket_email_chats) ? ticket.ticket_email_chats : null
         }));
 
         setTickets(prev => [...prev, ...typedTickets]);
@@ -223,7 +221,7 @@ export default function TicketList() {
           organization:organizations!tickets_org_id_fkey (
             name
           ),
-          email_chat:ticket_email_chats (
+          ticket_email_chats!ticket_email_chats_ticket_id_fkey (
             from_address,
             subject
           )
@@ -249,9 +247,7 @@ export default function TicketList() {
           ...ticket,
           customer: ticket.customer as Profile,
           organization: ticket.organization as Organization,
-          email_chat: Array.isArray(ticket.email_chat) && ticket.email_chat.length > 0 
-            ? ticket.email_chat[0] 
-            : null
+          ticket_email_chats: Array.isArray(ticket.ticket_email_chats) ? ticket.ticket_email_chats : null
         }));
         setTickets(typedTickets);
         setHasMore(data.length === TICKETS_PER_PAGE);
@@ -290,7 +286,7 @@ export default function TicketList() {
                 organization:organizations!tickets_org_id_fkey (
                   name
                 ),
-                email_chat:ticket_email_chats (
+                ticket_email_chats!ticket_email_chats_ticket_id_fkey (
                   from_address,
                   subject
                 )
@@ -303,9 +299,7 @@ export default function TicketList() {
                 ...newTicket,
                 customer: newTicket.customer as Profile,
                 organization: newTicket.organization as Organization,
-                email_chat: Array.isArray(newTicket.email_chat) && newTicket.email_chat.length > 0 
-                  ? newTicket.email_chat[0] 
-                  : null
+                ticket_email_chats: Array.isArray(newTicket.ticket_email_chats) ? newTicket.ticket_email_chats : null
               };
 
               setTickets(currentTickets => {
@@ -368,8 +362,8 @@ export default function TicketList() {
         // Search in organization
         ticket.organization?.name?.toLowerCase().includes(searchLower) ||
         // Search in email fields
-        ticket.email_chat?.subject?.toLowerCase().includes(searchLower) ||
-        ticket.email_chat?.from_address?.toLowerCase().includes(searchLower);
+        ticket.ticket_email_chats?.[0]?.subject?.toLowerCase().includes(searchLower) ||
+        ticket.ticket_email_chats?.[0]?.from_address?.toLowerCase().includes(searchLower);
 
       if (!matchesSearch) return false;
     }
@@ -526,14 +520,14 @@ export default function TicketList() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-gray-900 truncate">
-                              {ticket.customer?.display_name || parseEmailAddress(ticket.email_chat?.from_address || '').name || 'Unknown'}
+                              {ticket.customer?.display_name || parseEmailAddress(ticket.ticket_email_chats?.[0]?.from_address || '').name || 'Unknown'}
                             </span>
                             {ticket.organization?.name && (
                               <span className="text-sm text-gray-500">({ticket.organization.name})</span>
                             )}
                           </div>
                           <div className="text-sm text-gray-600 truncate">
-                            {ticket.email_chat?.subject || 'No subject'}
+                            {ticket.ticket_email_chats?.[0]?.subject || 'No subject'}
                           </div>
                           {ticket.description && (
                             <div className="text-sm text-gray-500 mt-1 line-clamp-2">
@@ -576,7 +570,7 @@ export default function TicketList() {
           <Lock className="h-12 w-12 text-slate-400 mx-auto" />
           <h1 className="text-2xl font-semibold">Please log in to view tickets</h1>
           <Button
-            onClick={() => router.push('/auth/login')}
+            onClick={() => router.push('/auth/signin')}
             className="inline-flex items-center gap-2"
           >
             Log In
@@ -734,7 +728,7 @@ export default function TicketList() {
                                   return ticket.customer.display_name;
                                 }
                                 // Fall back to email parsing for email-based tickets
-                                const sender = parseEmailAddress(ticket.email_chat?.from_address ?? null);
+                                const sender = parseEmailAddress(ticket.ticket_email_chats?.[0]?.from_address ?? null);
                                 return sender.name || sender.email || 'Unknown Sender';
                               })()}
                             </span>

@@ -96,116 +96,120 @@ export function TicketInterface({
     <AppLayout>
       <div className="h-full flex flex-col">
         {/* Header */}
-        <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <Button
-                variant="ghost"
-                onClick={() => router.push('/tickets')}
-                className="text-gray-600 hover:text-gray-900"
-              >
-                <ChevronLeft className="h-4 w-4 mr-2" />
-                Back to Tickets
-              </Button>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-semibold text-gray-900">Ticket #{ticket.id}</h1>
-                <Badge variant={ticket.status === 'open' ? 'default' : 'secondary'}>
-                  <StatusIcon status={ticket.status} />
-                  <span className="ml-1 capitalize">{ticket.status}</span>
-                </Badge>
-                <Badge variant={ticket.priority === 'high' ? 'destructive' : 'secondary'}>
-                  {ticket.priority}
-                </Badge>
+        <div className="border-b border-gray-200 bg-white px-3 py-3 sm:px-6 sm:py-4 lg:px-8">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Button
+                  variant="ghost"
+                  onClick={() => router.push('/tickets')}
+                  className="text-gray-600 hover:text-gray-900 w-fit"
+                >
+                  <ChevronLeft className="h-4 w-4 mr-2" />
+                  Back
+                </Button>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                  <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Ticket #{ticket.id}</h1>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={ticket.status === 'open' ? 'default' : 'secondary'}>
+                      <StatusIcon status={ticket.status} />
+                      <span className="ml-1 capitalize">{ticket.status}</span>
+                    </Badge>
+                    <Badge variant={ticket.priority === 'high' ? 'destructive' : 'secondary'}>
+                      {ticket.priority}
+                    </Badge>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setIsEmailPanelOpen(true)}
-                      className="text-gray-600 hover:text-gray-900"
-                    >
-                      <Mail className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>View Email Thread</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={onStarToggle}
-                      className={isStarred ? 'text-yellow-500' : 'text-gray-600 hover:text-yellow-500'}
-                    >
-                      <Star className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{isStarred ? 'Remove from starred' : 'Add to starred'}</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={onSubscribeToggle}
-                      className="text-gray-600 hover:text-gray-900"
-                    >
-                      {isSubscribed ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {isSubscribed ? 'Unsubscribe from notifications' : 'Subscribe to notifications'}
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-gray-600 hover:text-gray-900"
-                    >
-                      <Share2 className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Share ticket</TooltipContent>
-                </Tooltip>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-gray-600 hover:text-gray-900"
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem>Edit ticket</DropdownMenuItem>
-                    <DropdownMenuItem className="text-red-600">Delete ticket</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TooltipProvider>
+              <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setIsEmailPanelOpen(true)}
+                        className="text-gray-600 hover:text-gray-900 shrink-0"
+                      >
+                        <Mail className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>View Email Thread</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={onStarToggle}
+                        className={`${isStarred ? 'text-yellow-500' : 'text-gray-600 hover:text-yellow-500'} shrink-0`}
+                      >
+                        <Star className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{isStarred ? 'Remove from starred' : 'Add to starred'}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={onSubscribeToggle}
+                        className="text-gray-600 hover:text-gray-900 shrink-0"
+                      >
+                        {isSubscribed ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {isSubscribed ? 'Unsubscribe from notifications' : 'Subscribe to notifications'}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-gray-600 hover:text-gray-900 shrink-0"
+                      >
+                        <Share2 className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Share ticket</TooltipContent>
+                  </Tooltip>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-gray-600 hover:text-gray-900 shrink-0"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem>Edit ticket</DropdownMenuItem>
+                      <DropdownMenuItem className="text-red-600">Delete ticket</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TooltipProvider>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Main content */}
-        <div className="flex-1 overflow-auto px-4 py-6 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="flex-1 overflow-auto px-3 py-4 sm:px-6 sm:py-6 lg:px-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
             {/* Left column - Ticket details */}
             <div className="lg:col-span-2">
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-lg border border-gray-200 p-6 space-y-4"
+                className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6 space-y-4"
               >
-                <h2 className="text-xl font-semibold text-gray-900">{ticket.subject}</h2>
-                <p className="text-gray-600">{ticket.description}</p>
-                <div className="flex items-center gap-4 text-sm text-gray-500">
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900">{ticket.subject}</h2>
+                <p className="text-gray-600 text-sm sm:text-base">{ticket.description}</p>
+                <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-gray-500">
                   <span className="flex items-center gap-1">
                     <Calendar className="h-4 w-4" />
                     {format(new Date(ticket.created_at), 'PPP')}
@@ -225,12 +229,14 @@ export function TicketInterface({
             </div>
 
             {/* Right column - Details Panel */}
-            <TicketDetailsPanel
-              ticket={ticket}
-              isOpen={true}
-              onStatusChange={onStatusChange}
-              onPriorityChange={onPriorityChange}
-            />
+            <div className="lg:block">
+              <TicketDetailsPanel
+                ticket={ticket}
+                isOpen={true}
+                onStatusChange={onStatusChange}
+                onPriorityChange={onPriorityChange}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -239,7 +245,7 @@ export function TicketInterface({
       <EmailThreadPanel
         isOpen={isEmailPanelOpen}
         onClose={() => setIsEmailPanelOpen(false)}
-        ticket={{ id: ticket.id }}
+        ticket={{ id: ticket.id, org_id: ticket.org_id }}
       />
     </AppLayout>
   );

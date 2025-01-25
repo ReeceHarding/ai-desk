@@ -137,7 +137,7 @@ export function TicketConversationPanel({
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="mt-8 space-y-4"
+      className="mt-4 sm:mt-8 space-y-4"
     >
       <h3 className="text-lg font-semibold text-gray-900">Comments</h3>
       <div className="space-y-4">
@@ -152,10 +152,10 @@ export function TicketConversationPanel({
               key={comment.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-lg border border-gray-200 p-4 hover:bg-gray-50 transition-colors"
+              className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 hover:bg-gray-50 transition-colors"
             >
-              <div className="flex items-start gap-4">
-                <Avatar className="ring-2 ring-gray-100">
+              <div className="flex items-start gap-3 sm:gap-4">
+                <Avatar className="ring-2 ring-gray-100 w-8 h-8 sm:w-10 sm:h-10">
                   <Image
                     src={comment.author?.avatar_url || '/default-avatar.png'}
                     alt={comment.author?.display_name || 'User'}
@@ -164,23 +164,23 @@ export function TicketConversationPanel({
                     className="rounded-full"
                   />
                 </Avatar>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <span className="font-medium text-gray-900">
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 mb-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
+                      <span className="font-medium text-gray-900 text-sm sm:text-base truncate">
                         {comment.author?.display_name || 'Unknown User'}
                       </span>
-                      <span className="text-sm text-gray-500 ml-2">
+                      <span className="text-xs sm:text-sm text-gray-500">
                         {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
                       </span>
                     </div>
                     {comment.is_private && (
-                      <Badge variant="outline">
+                      <Badge variant="outline" className="w-fit text-xs">
                         Private
                       </Badge>
                     )}
                   </div>
-                  <p className="text-gray-600 leading-relaxed">{comment.body}</p>
+                  <p className="text-sm sm:text-base text-gray-600 leading-relaxed break-words">{comment.body}</p>
                 </div>
               </div>
             </motion.div>
@@ -189,15 +189,15 @@ export function TicketConversationPanel({
       </div>
 
       {/* Comment form */}
-      <form onSubmit={handleSubmitComment} className="space-y-4">
+      <form onSubmit={handleSubmitComment} className="space-y-3 sm:space-y-4">
         <Textarea
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
           placeholder="Write a comment..."
-          className="min-h-[100px] resize-none"
+          className="min-h-[100px] resize-none text-sm sm:text-base"
         />
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 sm:gap-4">
             <Button type="button" variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900">
               <Paperclip className="h-4 w-4" />
             </Button>
@@ -208,13 +208,13 @@ export function TicketConversationPanel({
                 onChange={(e) => setIsPrivate(e.target.checked)}
                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
-              <span className="text-sm text-gray-600 hover:text-gray-900">Make private</span>
+              <span className="text-xs sm:text-sm text-gray-600 hover:text-gray-900">Make private</span>
             </label>
           </div>
           <Button
             type="submit"
             disabled={!newComment.trim() || submitting}
-            className="inline-flex items-center gap-2"
+            className="inline-flex items-center gap-2 w-full sm:w-auto justify-center"
           >
             {submitting ? (
               <Skeleton className="h-4 w-4" />

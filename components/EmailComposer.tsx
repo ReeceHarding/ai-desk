@@ -74,12 +74,12 @@ export function EmailComposer({ onSend, loading }: EmailComposerProps) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2 sm:space-y-3">
       <ReactQuill
         theme="snow"
         value={editorValue}
         onChange={setEditorValue}
-        className="bg-white text-gray-900 rounded-lg border border-gray-200"
+        className="bg-white text-gray-900 rounded-lg border border-gray-200 text-sm sm:text-base"
         placeholder="Compose your email..."
         modules={{
           toolbar: [
@@ -90,14 +90,14 @@ export function EmailComposer({ onSend, loading }: EmailComposerProps) {
         }}
       />
       
-      <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
         {attachments.map((att) => (
           <div
             key={att.name}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 text-gray-700 rounded-lg border border-gray-200"
+            className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5 bg-gray-50 text-gray-700 rounded-lg border border-gray-200"
           >
-            <Paperclip className="h-4 w-4 text-gray-500" />
-            <span className="text-sm">{att.name}</span>
+            <Paperclip className="h-3 w-3 sm:h-4 sm:w-4 text-gray-500" />
+            <span className="text-xs sm:text-sm truncate max-w-[150px] sm:max-w-[200px]">{att.name}</span>
           </div>
         ))}
       </div>
@@ -114,9 +114,9 @@ export function EmailComposer({ onSend, loading }: EmailComposerProps) {
             variant="ghost"
             size="icon"
             onClick={() => fileInputRef.current?.click()}
-            className="text-gray-500 hover:text-gray-900 hover:bg-gray-100"
+            className="text-gray-500 hover:text-gray-900"
           >
-            <Paperclip className="h-5 w-5" />
+            <Paperclip className="h-4 w-4 sm:h-5 sm:w-5" />
           </Button>
         </div>
         <Button
@@ -124,9 +124,9 @@ export function EmailComposer({ onSend, loading }: EmailComposerProps) {
           variant="default"
           size="sm"
           disabled={loading}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
+          className="bg-blue-600 hover:bg-blue-700 text-white text-sm sm:text-base px-3 sm:px-4 py-1.5 sm:py-2"
         >
-          <Send className="h-4 w-4 mr-1.5" />
+          <Send className="h-3 w-3 sm:h-4 sm:w-4 mr-1.5" />
           Send
         </Button>
       </div>

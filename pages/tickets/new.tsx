@@ -38,7 +38,7 @@ export default function NewTicket() {
 
   useEffect(() => {
     if (!user) {
-      router.push('/auth/login');
+      router.push('/auth/signin');
     }
   }, [user, router]);
 

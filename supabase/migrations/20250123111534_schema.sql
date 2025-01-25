@@ -17,6 +17,20 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Create avatars storage bucket
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'avatars',
+  'avatars',
+  true,
+  5242880, -- 5MB limit
+  ARRAY['image/jpeg', 'image/png', 'image/gif', 'image/webp']::text[]
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
+
 -- =========================================
 -- 2. CREATE ENUMS
 -- =========================================
@@ -140,16 +154,31 @@ $$ LANGUAGE plpgsql;
 -- 4. CREATE BASE TABLES
 -- =========================================
 
-CREATE TABLE public.logs (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  level text NOT NULL CHECK (level IN ('debug', 'info', 'warn', 'error')),
-  message text NOT NULL,
-  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at timestamptz NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS public.logs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    level text NOT NULL,
+    message text NOT NULL,
+    metadata jsonb,
+    timestamp timestamptz DEFAULT now() NOT NULL,
+    is_client boolean DEFAULT false,
+    url text,
+    created_at timestamptz DEFAULT now() NOT NULL
 );
 
--- Add index for faster querying by level and created_at
-CREATE INDEX IF NOT EXISTS logs_level_created_at_idx ON public.logs (level, created_at);
+-- Add RLS policies for logs
+ALTER TABLE public.logs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Enable insert for authenticated users only" 
+    ON public.logs 
+    FOR INSERT 
+    TO authenticated 
+    WITH CHECK (true);
+
+CREATE POLICY "Enable read access for authenticated users" 
+    ON public.logs 
+    FOR SELECT 
+    TO authenticated 
+    USING (true);
 
 CREATE TABLE public.organizations (
   id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
@@ -161,6 +190,12 @@ CREATE TABLE public.organizations (
   sla_tier text DEFAULT 'standard'::text NOT NULL,
   gmail_refresh_token text,
   gmail_access_token text,
+  gmail_watch_expiration timestamptz,
+  gmail_history_id text,
+  avatar_url text,
+  created_by uuid REFERENCES auth.users(id),
+  email text,
+  config jsonb NOT NULL DEFAULT '{}'::jsonb,
   CONSTRAINT organizations_pkey PRIMARY KEY (id),
   CONSTRAINT organizations_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id),
   CONSTRAINT organizations_slug_key UNIQUE (slug)
@@ -286,23 +321,20 @@ CREATE TABLE public.tickets (
   description text NOT NULL,
   status public.ticket_status NOT NULL DEFAULT 'open',
   priority public.ticket_priority NOT NULL DEFAULT 'low',
-  customer_id uuid NOT NULL
-    REFERENCES public.profiles (id) ON DELETE RESTRICT,
-  assigned_agent_id uuid
-    REFERENCES public.profiles (id) ON DELETE SET NULL,
+  customer_id uuid NOT NULL REFERENCES public.profiles (id) ON DELETE RESTRICT,
+  assigned_agent_id uuid REFERENCES public.profiles (id) ON DELETE SET NULL,
   escalation_level int NOT NULL DEFAULT 0,
   due_at timestamptz,
   custom_fields jsonb NOT NULL DEFAULT '{}'::jsonb,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   extra_text_1 text,
   extra_json_1 jsonb NOT NULL DEFAULT '{}'::jsonb,
-  org_id uuid NOT NULL
-    REFERENCES public.organizations (id) ON DELETE CASCADE,
+  org_id uuid NOT NULL REFERENCES public.organizations (id) ON DELETE CASCADE,
   deleted_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT check_escalation_level_nonnegative
-    CHECK (escalation_level >= 0)
+  happiness_score int,
+  CONSTRAINT check_escalation_level_nonnegative CHECK (escalation_level >= 0)
 );
 
 CREATE TABLE public.ticket_co_assignees (
@@ -1043,23 +1075,19 @@ CREATE INDEX IF NOT EXISTS idx_profiles_gmail_watch_expiration
 -- =========================================
 
 CREATE TABLE public.ticket_email_chats (
-  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  ticket_id uuid NOT NULL REFERENCES public.tickets (id) ON DELETE CASCADE,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticket_id uuid NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
   message_id text,
   thread_id text,
-  from_address text,
-  to_address text[],
-  cc_address text[],
-  bcc_address text[],
+  from_address text NOT NULL,
+  to_address text[] NOT NULL,
+  cc_address text[] DEFAULT array[]::text[],
+  bcc_address text[] DEFAULT array[]::text[],
   subject text,
-  body text,
-  attachments jsonb NOT NULL DEFAULT '{}'::jsonb,
-  gmail_date timestamptz,
-  org_id uuid NOT NULL REFERENCES public.organizations (id) ON DELETE CASCADE,
-  ai_classification text CHECK (ai_classification IN ('should_respond','no_response','unknown')) DEFAULT 'unknown',
-  ai_confidence numeric(5,2) DEFAULT 0.00,
-  ai_auto_responded boolean DEFAULT false,
-  ai_draft_response text,
+  body text NOT NULL,
+  attachments jsonb DEFAULT '{}'::jsonb,
+  gmail_date timestamptz DEFAULT now(),
+  org_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
