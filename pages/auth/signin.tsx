@@ -26,10 +26,17 @@ export default function SignIn() {
     setError(null);
     
     try {
-      // Clear any existing PKCE-related items from localStorage
-      localStorage.removeItem('supabase.auth.token.code_verifier');
-      localStorage.removeItem('supabase.auth.token.code_challenge');
-      localStorage.removeItem('supabase.auth.token.code_challenge_method');
+      // Generate PKCE code verifier and challenge
+      const array = new Uint8Array(32);
+      crypto.getRandomValues(array);
+      const codeVerifier = btoa(String.fromCharCode.apply(null, Array.from(array)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      // Store code verifier
+      const codeVerifierKey = `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]}-auth-token-code-verifier`;
+      localStorage.setItem(codeVerifierKey, codeVerifier);
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -38,7 +45,8 @@ export default function SignIn() {
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
-            response_type: 'code'
+            code_challenge: codeVerifier,
+            code_challenge_method: 'plain'
           }
         }
       });
@@ -49,7 +57,12 @@ export default function SignIn() {
         return;
       }
 
-      // Let Supabase handle the redirect
+      if (!data) {
+        setError('Failed to initiate Google sign in');
+        return;
+      }
+
+      // Supabase will handle the redirect
     } catch (err) {
       console.error('Error in Google sign in:', err);
       setError('An unexpected error occurred');
@@ -60,22 +73,29 @@ export default function SignIn() {
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
+    setIsLoading(true);
+    setError(null);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
-      console.error('Error signing in:', error.message);
-      return;
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      // Get the redirect URL from query params or use default
+      const redirectTo = router.query.redirect as string || '/dashboard';
+      router.push(redirectTo);
+    } catch (err) {
+      console.error('Error signing in:', err);
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
-
-    // After successful signin, redirect to dashboard
-    router.push('/dashboard');
   };
 
   const handleGitHubSignIn = async () => {

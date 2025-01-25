@@ -1,7 +1,6 @@
 import { EmailThreadPanel } from '@/components/email-thread-panel';
 import AppLayout from '@/components/layout/AppLayout';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
+import { TicketCard } from '@/components/tickets/TicketCard';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
@@ -9,7 +8,6 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Database } from '@/types/supabase';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
-import { formatDistanceToNow } from 'date-fns';
 import debounce from 'lodash/debounce';
 import {
     AlertCircle,
@@ -19,9 +17,9 @@ import {
     Filter,
     Inbox,
     Lock,
-    MoreHorizontal,
     Plus,
-    Search
+    Search,
+    X
 } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
@@ -402,163 +400,133 @@ export default function TicketList() {
       <AppLayout>
         <div className="h-full flex flex-col">
           {/* Header */}
-          <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6 lg:px-8">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h1 className="text-2xl font-semibold text-gray-900">Tickets</h1>
-                <p className="mt-1 text-sm text-gray-500">
-                  Manage and respond to customer support tickets
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <Button
-                  onClick={() => router.push('/tickets/new')}
-                  className="inline-flex items-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Ticket
-                </Button>
-              </div>
+          <div className="px-4 py-3 border-b bg-white sticky top-0 z-10 space-y-3">
+            <div className="flex items-center justify-between">
+              <h1 className="text-2xl font-semibold text-gray-900">Tickets</h1>
+              <Button
+                onClick={() => router.push('/tickets/new')}
+                size="sm"
+                className="hidden sm:flex"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Ticket
+              </Button>
+              <Button
+                onClick={() => router.push('/tickets/new')}
+                size="icon"
+                className="sm:hidden"
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
             </div>
 
-            {/* Search and filters */}
-            <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
+            {/* Search and Filters */}
+            <div className="flex items-center gap-2">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
                 <Input
                   type="search"
                   placeholder="Search tickets..."
                   value={searchQuery}
                   onChange={handleSearchChange}
-                  className="pl-10"
+                  className="w-full pl-9 pr-4"
                 />
+                {searchQuery && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery('');
+                      setDebouncedSearchQuery('');
+                    }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                  >
+                    <X className="h-4 w-4 text-gray-500" />
+                  </button>
+                )}
               </div>
-              <div className="flex items-center gap-3">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="inline-flex items-center gap-2">
-                      <Filter className="h-4 w-4" />
-                      Filter
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem onClick={() => setStatusFilter('open')}>
-                      Open Tickets
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setStatusFilter('closed')}>
-                      Closed Tickets
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setStatusFilter(null)}>
-                      All Tickets
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon">
+                    <Filter className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => setStatusFilter('open')}>
+                    Open Tickets
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter('pending')}>
+                    Pending Tickets
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter(null)}>
+                    All Tickets
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
-          {/* Ticket list */}
+          {/* Tickets List */}
           <div className="flex-1 overflow-auto">
             {error ? (
-              <div className="flex items-center justify-center p-6">
-                <div className="rounded-lg bg-red-50 p-4">
-                  <div className="flex items-center">
-                    <AlertCircle className="h-5 w-5 text-red-400" />
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-red-800">Error loading tickets</h3>
-                      <div className="mt-2 text-sm text-red-700">{error}</div>
-                    </div>
-                  </div>
-                </div>
+              <div className="p-4 text-center text-red-600">
+                {error}
               </div>
             ) : loading ? (
-              <div className="divide-y divide-gray-200">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="p-4 sm:px-6">
-                    <div className="flex items-center gap-4">
-                      <Skeleton className="h-10 w-10 rounded-full" />
-                      <div className="flex-1">
-                        <Skeleton className="h-4 w-48" />
-                        <Skeleton className="mt-2 h-4 w-32" />
-                      </div>
+              <div className="divide-y">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="p-4">
+                    <Skeleton className="h-4 w-1/4 mb-2" />
+                    <Skeleton className="h-4 w-3/4 mb-4" />
+                    <div className="flex items-center space-x-3">
+                      <Skeleton className="h-6 w-6 rounded-full" />
+                      <Skeleton className="h-4 w-1/3" />
                     </div>
                   </div>
                 ))}
               </div>
             ) : tickets.length === 0 ? (
-              <div className="flex flex-col items-center justify-center p-12 text-center">
-                <Inbox className="h-12 w-12 text-gray-400" />
-                <h3 className="mt-4 text-lg font-medium text-gray-900">No tickets found</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  Get started by creating a new ticket or waiting for customer inquiries.
-                </p>
-                <Button
-                  onClick={() => router.push('/tickets/new')}
-                  className="mt-6 inline-flex items-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Ticket
-                </Button>
+              <div className="p-8 text-center">
+                <h3 className="text-lg font-medium text-gray-900 mb-1">No tickets found</h3>
+                <p className="text-gray-500">Create a new ticket to get started</p>
               </div>
             ) : (
-              <div className="divide-y divide-gray-200">
+              <div className="divide-y">
                 {tickets.map((ticket) => (
-                  <div
+                  <TicketCard
                     key={ticket.id}
-                    className="relative flex flex-col gap-2 p-4 border-b border-gray-100 hover:bg-gray-50 cursor-pointer"
+                    ticket={ticket}
                     onClick={() => {
                       setSelectedTicket(ticket);
                       setIsEmailPanelOpen(true);
                     }}
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage src={ticket.customer?.avatar_url || undefined} />
-                          <AvatarFallback>{ticket.customer?.display_name?.[0] || ticket.customer?.email?.[0] || '?'}</AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-gray-900 truncate">
-                              {ticket.customer?.display_name || parseEmailAddress(ticket.ticket_email_chats?.[0]?.from_address || '').name || 'Unknown'}
-                            </span>
-                            {ticket.organization?.name && (
-                              <span className="text-sm text-gray-500">({ticket.organization.name})</span>
-                            )}
-                          </div>
-                          <div className="text-sm text-gray-600 truncate">
-                            {ticket.ticket_email_chats?.[0]?.subject || 'No subject'}
-                          </div>
-                          {ticket.description && (
-                            <div className="text-sm text-gray-500 mt-1 line-clamp-2">
-                              {ticket.description}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className={statusColors[ticket.status]}>
-                            <StatusIcon status={ticket.status} className="mr-1" />
-                            {ticket.status.replace('_', ' ')}
-                          </Badge>
-                          {ticket.priority && (
-                            <Badge variant="secondary" className={priorityColors[ticket.priority]}>
-                              {ticket.priority}
-                            </Badge>
-                          )}
-                        </div>
-                        <span className="text-sm text-gray-500">
-                          {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
-                        </span>
-                      </div>
+                  />
+                ))}
+                {loadingMore && (
+                  <div className="p-4">
+                    <Skeleton className="h-4 w-1/4 mb-2" />
+                    <Skeleton className="h-4 w-3/4 mb-4" />
+                    <div className="flex items-center space-x-3">
+                      <Skeleton className="h-6 w-6 rounded-full" />
+                      <Skeleton className="h-4 w-1/3" />
                     </div>
                   </div>
-                ))}
+                )}
+                <div ref={loadMoreRef} style={{ height: '1px' }} />
               </div>
             )}
           </div>
         </div>
+
+        {/* Email Thread Panel */}
+        {selectedTicket && (
+          <EmailThreadPanel
+            isOpen={isEmailPanelOpen}
+            onClose={() => {
+              setIsEmailPanelOpen(false);
+              setSelectedTicket(null);
+            }}
+            ticket={selectedTicket}
+          />
+        )}
       </AppLayout>
     );
   }
@@ -583,349 +551,134 @@ export default function TicketList() {
   return (
     <AppLayout>
       <div className="h-full flex flex-col">
-        {isStaff ? (
-          // Existing staff view
-          <>
-            <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6 lg:px-8">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <h1 className="text-2xl font-semibold text-gray-900">Tickets</h1>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="hidden sm:flex"
-                    onClick={() => router.push('/tickets/new')}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    New Ticket
-                  </Button>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
-                    <Input
-                      type="search"
-                      placeholder="Search tickets..."
-                      className="pl-10 w-[300px]"
-                      value={searchQuery}
-                      onChange={handleSearchChange}
-                    />
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="icon">
-                        <Filter className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <div className="p-2">
-                        <div className="space-y-2">
-                          <h4 className="font-medium text-sm">Status</h4>
-                          <div className="grid grid-cols-2 gap-2">
-                            {Object.keys(statusColors).map((status) => (
-                              <Button
-                                key={status}
-                                variant={statusFilter === status ? "default" : "outline"}
-                                size="sm"
-                                className="w-full justify-start"
-                                onClick={() => setStatusFilter(statusFilter === status ? null : status)}
-                              >
-                                <StatusIcon status={status} className="mr-2 h-4 w-4" />
-                                <span className="capitalize">{status}</span>
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="mt-4 space-y-2">
-                          <h4 className="font-medium text-sm">Priority</h4>
-                          <div className="grid grid-cols-2 gap-2">
-                            {Object.keys(priorityColors).map((priority) => (
-                              <Button
-                                key={priority}
-                                variant={priorityFilter.includes(priority) ? "default" : "outline"}
-                                size="sm"
-                                className="w-full justify-start"
-                                onClick={() => {
-                                  setPriorityFilter(current =>
-                                    current.includes(priority)
-                                      ? current.filter(p => p !== priority)
-                                      : [...current, priority]
-                                  );
-                                }}
-                              >
-                                <span className="capitalize">{priority}</span>
-                              </Button>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-              </div>
-            </div>
+        {/* Header */}
+        <div className="px-4 py-3 border-b bg-white sticky top-0 z-10 space-y-3">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-semibold text-gray-900">Tickets</h1>
+            <Button
+              onClick={() => router.push('/tickets/new')}
+              size="sm"
+              className="hidden sm:flex"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Ticket
+            </Button>
+            <Button
+              onClick={() => router.push('/tickets/new')}
+              size="icon"
+              className="sm:hidden"
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+          </div>
 
-            <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
-              {loading ? (
-                <div className="divide-y divide-gray-200">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className="p-4 sm:px-6">
-                      <div className="flex items-center gap-4">
-                        <Skeleton className="h-10 w-10 rounded-full" />
-                        <div className="flex-1">
-                          <Skeleton className="h-4 w-48" />
-                          <Skeleton className="mt-2 h-4 w-32" />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : error ? (
-                <div className="flex items-center justify-center p-6">
-                  <div className="rounded-lg bg-red-50 p-4">
-                    <div className="flex items-center">
-                      <AlertCircle className="h-5 w-5 text-red-400" />
-                      <div className="ml-3">
-                        <h3 className="text-sm font-medium text-red-800">Error loading tickets</h3>
-                        <div className="mt-2 text-sm text-red-700">{error}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : sortedTickets.length === 0 ? (
-                <div className="text-center py-12">
-                  <h3 className="text-lg font-medium text-gray-900">No tickets found</h3>
-                  <p className="mt-2 text-sm text-gray-500">
-                    {debouncedSearchQuery || statusFilter || priorityFilter.length > 0
-                      ? "Try adjusting your search or filters"
-                      : "Create a new ticket to get started"}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {sortedTickets.map((ticket) => (
-                    <div
-                      key={ticket.id}
-                      onClick={() => handleTicketClick(ticket)}
-                      className="group cursor-pointer bg-white p-4 transition-colors hover:bg-gray-50 sm:px-6"
-                    >
-                      <div className="flex items-start gap-4">
-                        <Avatar className="h-10 w-10">
-                          <AvatarImage
-                            src={ticket.customer?.avatar_url || undefined}
-                            alt={ticket.customer?.display_name || ''}
-                          />
-                          <AvatarFallback>
-                            {(ticket.customer?.display_name || 'U')[0].toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 space-y-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-gray-900">
-                              {(() => {
-                                // If we have customer info, use that first
-                                if (ticket.customer?.display_name) {
-                                  return ticket.customer.display_name;
-                                }
-                                // Fall back to email parsing for email-based tickets
-                                const sender = parseEmailAddress(ticket.ticket_email_chats?.[0]?.from_address ?? null);
-                                return sender.name || sender.email || 'Unknown Sender';
-                              })()}
-                            </span>
-                            {ticket.organization?.name && (
-                              <span className="text-sm text-gray-500">
-                                at {ticket.organization.name}
-                              </span>
-                            )}
-                            <Badge
-                              variant={ticket.priority === 'high' ? 'destructive' : 'secondary'}
-                              className="ml-auto"
-                            >
-                              {ticket.priority}
-                            </Badge>
-                          </div>
-                          <h4 className="font-medium text-gray-900">{ticket.subject}</h4>
-                          {ticket.description && (
-                            <p className="text-sm text-gray-600 line-clamp-2">
-                              {ticket.description}
-                            </p>
-                          )}
-                          <div className="flex items-center gap-4 text-sm text-gray-500">
-                            <span className="flex items-center gap-1">
-                              <StatusIcon status={ticket.status} className="h-4 w-4" />
-                              {ticket.status === 'open' ? 'Awaiting Response' : 
-                               ticket.status === 'pending' ? 'Being Worked On' : 
-                               ticket.status === 'solved' ? 'Resolved' : 
-                               ticket.status === 'closed' ? 'Closed' :
-                               ticket.status === 'on_hold' ? 'On Hold' :
-                               ticket.status}
-                            </span>
-                            {ticket.created_at && (
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-4 w-4" />
-                                {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="opacity-0 group-hover:opacity-100"
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                  {/* Infinite scroll trigger */}
-                  {hasMore && (
-                    <div
-                      ref={loadMoreRef}
-                      className="py-4 flex justify-center"
-                    >
-                      {loadingMore ? (
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-500 border-t-transparent" />
-                          Loading more tickets...
-                        </div>
-                      ) : (
-                        <div className="h-4" /> // Invisible trigger element
-                      )}
-                    </div>
-                  )}
-                </div>
+          {/* Search and Filters */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+              <Input
+                type="search"
+                placeholder="Search tickets..."
+                value={searchQuery}
+                onChange={handleSearchChange}
+                className="w-full pl-9 pr-4"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => {
+                    setSearchQuery('');
+                    setDebouncedSearchQuery('');
+                  }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2"
+                >
+                  <X className="h-4 w-4 text-gray-500" />
+                </button>
               )}
             </div>
-          </>
-        ) : (
-          // Customer view
-          <>
-            <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6 lg:px-8">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <h1 className="text-2xl font-semibold text-gray-900">My Support Tickets</h1>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="hidden sm:flex"
-                    onClick={() => router.push('/tickets/new')}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    New Support Request
-                  </Button>
-                </div>
-              </div>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon">
+                  <Filter className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => setStatusFilter('open')}>
+                  Open Tickets
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setStatusFilter('pending')}>
+                  Pending Tickets
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setStatusFilter(null)}>
+                  All Tickets
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
 
-            <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
-              {loading ? (
-                <div className="divide-y divide-gray-200">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className="p-4 sm:px-6">
-                      <div className="flex items-center gap-4">
-                        <Skeleton className="h-10 w-10 rounded-full" />
-                        <div className="flex-1">
-                          <Skeleton className="h-4 w-48" />
-                          <Skeleton className="mt-2 h-4 w-32" />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : error ? (
-                <div className="flex items-center justify-center p-6">
-                  <div className="rounded-lg bg-red-50 p-4">
-                    <div className="flex items-center">
-                      <AlertCircle className="h-5 w-5 text-red-400" />
-                      <div className="ml-3">
-                        <h3 className="text-sm font-medium text-red-800">Error loading tickets</h3>
-                        <div className="mt-2 text-sm text-red-700">{error}</div>
-                      </div>
-                    </div>
+        {/* Tickets List */}
+        <div className="flex-1 overflow-auto">
+          {error ? (
+            <div className="p-4 text-center text-red-600">
+              {error}
+            </div>
+          ) : loading ? (
+            <div className="divide-y">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="p-4">
+                  <Skeleton className="h-4 w-1/4 mb-2" />
+                  <Skeleton className="h-4 w-3/4 mb-4" />
+                  <div className="flex items-center space-x-3">
+                    <Skeleton className="h-6 w-6 rounded-full" />
+                    <Skeleton className="h-4 w-1/3" />
                   </div>
                 </div>
-              ) : tickets.length === 0 ? (
-                <div className="text-center py-12">
-                  <h3 className="text-lg font-medium text-gray-900">No tickets yet</h3>
-                  <p className="mt-2 text-sm text-gray-500">
-                    Need help? Create your first support ticket to get started.
-                  </p>
-                  <Button
-                    onClick={() => router.push('/tickets/new')}
-                    className="mt-4"
-                  >
-                    Create Support Ticket
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {tickets.map((ticket) => (
-                    <div
-                      key={ticket.id}
-                      onClick={() => handleTicketClick(ticket)}
-                      className="group cursor-pointer bg-white rounded-lg shadow-sm p-4 transition-all hover:shadow-md sm:px-6"
-                    >
-                      <div className="flex flex-col space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="font-medium text-gray-900">{ticket.subject}</h4>
-                          <Badge
-                            variant={ticket.priority === 'high' ? 'destructive' : 'secondary'}
-                          >
-                            {ticket.priority}
-                          </Badge>
-                        </div>
-                        
-                        {ticket.description && (
-                          <p className="text-sm text-gray-600 line-clamp-2">
-                            {ticket.description}
-                          </p>
-                        )}
-                        
-                        <div className="flex items-center gap-4 text-sm text-gray-500">
-                          <span className="flex items-center gap-1">
-                            <StatusIcon status={ticket.status} className="h-4 w-4" />
-                            {ticket.status === 'open' ? 'Awaiting Response' : 
-                             ticket.status === 'pending' ? 'Being Worked On' : 
-                             ticket.status === 'solved' ? 'Resolved' : 
-                             ticket.status === 'closed' ? 'Closed' :
-                             ticket.status === 'on_hold' ? 'On Hold' :
-                             ticket.status}
-                          </span>
-                          {ticket.created_at && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-4 w-4" />
-                              {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
-                            </span>
-                          )}
-                        </div>
-
-                        {ticket.last_response_at && (
-                          <div className="text-sm text-gray-500">
-                            Last updated: {formatDistanceToNow(new Date(ticket.last_response_at), { addSuffix: true })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+              ))}
+            </div>
+          ) : tickets.length === 0 ? (
+            <div className="p-8 text-center">
+              <h3 className="text-lg font-medium text-gray-900 mb-1">No tickets found</h3>
+              <p className="text-gray-500">Create a new ticket to get started</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {tickets.map((ticket) => (
+                <TicketCard
+                  key={ticket.id}
+                  ticket={ticket}
+                  onClick={() => {
+                    setSelectedTicket(ticket);
+                    setIsEmailPanelOpen(true);
+                  }}
+                />
+              ))}
+              {loadingMore && (
+                <div className="p-4">
+                  <Skeleton className="h-4 w-1/4 mb-2" />
+                  <Skeleton className="h-4 w-3/4 mb-4" />
+                  <div className="flex items-center space-x-3">
+                    <Skeleton className="h-6 w-6 rounded-full" />
+                    <Skeleton className="h-4 w-1/3" />
+                  </div>
                 </div>
               )}
+              <div ref={loadMoreRef} style={{ height: '1px' }} />
             </div>
-          </>
-        )}
+          )}
+        </div>
       </div>
 
-      <EmailThreadPanel
-        isOpen={isEmailPanelOpen}
-        onClose={() => setIsEmailPanelOpen(false)}
-        ticket={selectedTicket ? {
-          ...selectedTicket,
-          subject: selectedTicket.subject,
-          description: selectedTicket.description,
-          customer: selectedTicket.customer,
-          created_at: selectedTicket.created_at
-        } : null}
-      />
+      {/* Email Thread Panel */}
+      {selectedTicket && (
+        <EmailThreadPanel
+          isOpen={isEmailPanelOpen}
+          onClose={() => {
+            setIsEmailPanelOpen(false);
+            setSelectedTicket(null);
+          }}
+          ticket={selectedTicket}
+        />
+      )}
     </AppLayout>
   );
 } 

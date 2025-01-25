@@ -649,51 +649,54 @@ export interface Database {
         Row: {
           id: string
           ticket_id: string
-          message_id: string
-          thread_id: string
           from_address: string
-          to_address: string[]
-          cc_address: string[]
-          bcc_address: string[]
+          to_address: string
           subject: string | null
-          body: string
-          attachments: Json
-          gmail_date: string
-          org_id: string
+          body: string | null
+          html_body: string | null
+          message_id: string | null
+          thread_id: string | null
+          in_reply_to: string | null
+          reference_ids: string[] | null
+          sent_at: string
+          received_at: string
+          metadata: Json
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
           ticket_id: string
-          message_id: string
-          thread_id: string
           from_address: string
-          to_address: string[]
-          cc_address?: string[]
-          bcc_address?: string[]
+          to_address: string
           subject?: string | null
-          body: string
-          attachments?: Json
-          gmail_date: string
-          org_id: string
+          body?: string | null
+          html_body?: string | null
+          message_id?: string | null
+          thread_id?: string | null
+          in_reply_to?: string | null
+          reference_ids?: string[] | null
+          sent_at: string
+          received_at?: string
+          metadata?: Json
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
           ticket_id?: string
-          message_id?: string
-          thread_id?: string
           from_address?: string
-          to_address?: string[]
-          cc_address?: string[]
-          bcc_address?: string[]
+          to_address?: string
           subject?: string | null
-          body?: string
-          attachments?: Json
-          gmail_date?: string
-          org_id?: string
+          body?: string | null
+          html_body?: string | null
+          message_id?: string | null
+          thread_id?: string | null
+          in_reply_to?: string | null
+          reference_ids?: string[] | null
+          sent_at?: string
+          received_at?: string
+          metadata?: Json
           created_at?: string
           updated_at?: string
         }

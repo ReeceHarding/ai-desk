@@ -901,3 +901,144 @@ VALUES (
   'Completed final combined migration script',
   jsonb_build_object('version','final-no-redundancies')
 );
+
+-- Function to calculate average first response time for an organization
+CREATE OR REPLACE FUNCTION public.fn_get_avg_first_response_time(p_org_id uuid, p_start_date timestamptz DEFAULT NULL, p_end_date timestamptz DEFAULT NULL)
+RETURNS interval AS $$
+BEGIN
+  RETURN (
+    SELECT AVG(first_response_time)
+    FROM (
+      SELECT 
+        t.id,
+        MIN(c.created_at) - t.created_at as first_response_time
+      FROM tickets t
+      LEFT JOIN comments c ON c.ticket_id = t.id
+      JOIN profiles p ON p.id = c.author_id
+      WHERE t.organization_id = p_org_id
+        AND p.role IN ('agent', 'admin', 'super_admin')
+        AND (p_start_date IS NULL OR t.created_at >= p_start_date)
+        AND (p_end_date IS NULL OR t.created_at <= p_end_date)
+      GROUP BY t.id
+    ) subq
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to calculate average resolution time for an organization
+CREATE OR REPLACE FUNCTION public.fn_get_avg_resolution_time(p_org_id uuid, p_start_date timestamptz DEFAULT NULL, p_end_date timestamptz DEFAULT NULL)
+RETURNS interval AS $$
+BEGIN
+  RETURN (
+    SELECT AVG(resolution_time)
+    FROM (
+      SELECT 
+        updated_at - created_at as resolution_time
+      FROM tickets
+      WHERE organization_id = p_org_id
+        AND status = 'solved'
+        AND (p_start_date IS NULL OR created_at >= p_start_date)
+        AND (p_end_date IS NULL OR created_at <= p_end_date)
+    ) subq
+  );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get ticket status breakdown for an organization
+CREATE OR REPLACE FUNCTION public.fn_get_ticket_status_breakdown(p_org_id uuid)
+RETURNS TABLE (
+  status public.ticket_status,
+  count bigint
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT t.status, COUNT(*) as count
+  FROM tickets t
+  WHERE t.organization_id = p_org_id
+  GROUP BY t.status;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get agent performance metrics
+CREATE OR REPLACE FUNCTION public.fn_get_agent_performance(p_org_id uuid, p_start_date timestamptz DEFAULT NULL, p_end_date timestamptz DEFAULT NULL)
+RETURNS TABLE (
+  agent_id uuid,
+  agent_name text,
+  tickets_assigned bigint,
+  tickets_resolved bigint,
+  avg_response_time interval,
+  avg_resolution_time interval
+) AS $$
+BEGIN
+  RETURN QUERY
+  WITH agent_responses AS (
+    SELECT 
+      p.id as agent_id,
+      p.display_name as agent_name,
+      COUNT(DISTINCT t.id) as tickets_assigned,
+      COUNT(DISTINCT CASE WHEN t.status = 'solved' THEN t.id END) as tickets_resolved,
+      AVG(CASE WHEN c.id IS NOT NULL THEN c.created_at - t.created_at END) as avg_response_time,
+      AVG(CASE WHEN t.status = 'solved' THEN t.updated_at - t.created_at END) as avg_resolution_time
+    FROM profiles p
+    LEFT JOIN tickets t ON t.assigned_agent_id = p.id
+    LEFT JOIN comments c ON c.ticket_id = t.id AND c.author_id = p.id
+    WHERE p.org_id = p_org_id
+      AND p.role = 'agent'
+      AND (p_start_date IS NULL OR t.created_at >= p_start_date)
+      AND (p_end_date IS NULL OR t.created_at <= p_end_date)
+    GROUP BY p.id, p.display_name
+  )
+  SELECT * FROM agent_responses;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to get ticket volume over time
+CREATE OR REPLACE FUNCTION public.fn_get_ticket_volume(p_org_id uuid, p_interval text DEFAULT 'day', p_start_date timestamptz DEFAULT NULL, p_end_date timestamptz DEFAULT NULL)
+RETURNS TABLE (
+  time_bucket timestamptz,
+  new_tickets bigint,
+  resolved_tickets bigint
+) AS $$
+BEGIN
+  RETURN QUERY
+  WITH time_series AS (
+    SELECT
+      date_trunc(p_interval, d) as time_bucket
+    FROM generate_series(
+      COALESCE(p_start_date, date_trunc('month', now()) - interval '1 month'),
+      COALESCE(p_end_date, now()),
+      CASE 
+        WHEN p_interval = 'hour' THEN interval '1 hour'
+        WHEN p_interval = 'day' THEN interval '1 day'
+        WHEN p_interval = 'week' THEN interval '1 week'
+        ELSE interval '1 month'
+      END
+    ) d
+  )
+  SELECT 
+    ts.time_bucket,
+    COUNT(DISTINCT CASE WHEN t.created_at >= ts.time_bucket 
+      AND t.created_at < ts.time_bucket + 
+        CASE 
+          WHEN p_interval = 'hour' THEN interval '1 hour'
+          WHEN p_interval = 'day' THEN interval '1 day'
+          WHEN p_interval = 'week' THEN interval '1 week'
+          ELSE interval '1 month'
+        END
+      THEN t.id END) as new_tickets,
+    COUNT(DISTINCT CASE WHEN t.status = 'solved' 
+      AND t.updated_at >= ts.time_bucket 
+      AND t.updated_at < ts.time_bucket + 
+        CASE 
+          WHEN p_interval = 'hour' THEN interval '1 hour'
+          WHEN p_interval = 'day' THEN interval '1 day'
+          WHEN p_interval = 'week' THEN interval '1 week'
+          ELSE interval '1 month'
+        END
+      THEN t.id END) as resolved_tickets
+  FROM time_series ts
+  LEFT JOIN tickets t ON t.organization_id = p_org_id
+  GROUP BY ts.time_bucket
+  ORDER BY ts.time_bucket;
+END;
+$$ LANGUAGE plpgsql;

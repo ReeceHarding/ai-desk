@@ -16,29 +16,32 @@ export default function ConnectGmail() {
     try {
       logger.info('[CONNECT_GMAIL] Starting Gmail OAuth');
 
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-            scope: [
-              'https://www.googleapis.com/auth/gmail.readonly',
-              'https://www.googleapis.com/auth/gmail.send',
-              'https://www.googleapis.com/auth/gmail.modify'
-            ].join(' ')
-          },
-          redirectTo: `${window.location.origin}/auth/callback?next=/tickets`
-        }
-      });
-
-      if (error) {
-        logger.error('[CONNECT_GMAIL] OAuth error:', { error });
-        setError('Failed to connect Gmail');
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        logger.error('[CONNECT_GMAIL] Auth error:', { error: userError });
+        setError('Could not verify your identity');
         return;
       }
 
+      const response = await fetch('/api/gmail/onboarding-auth-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'agent',
+          id: user.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to get auth URL');
+      }
+
       logger.info('[CONNECT_GMAIL] OAuth initiated successfully');
+      window.location.href = data.url;
     } catch (err) {
       logger.error('[CONNECT_GMAIL] Unexpected error:', { error: err });
       setError('An unexpected error occurred');

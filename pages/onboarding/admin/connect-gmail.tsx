@@ -1,5 +1,4 @@
 import { logger } from '@/utils/logger';
-import { generatePKCEChallenge, generatePKCEVerifier, getCodeVerifierKey } from '@/utils/pkce';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
@@ -23,56 +22,37 @@ export default function ConnectGmailAdmin() {
     setError(null);
 
     try {
-      logger.info('[ADMIN_CONNECT_GMAIL] Starting Gmail OAuth');
+      logger.info('[CONNECT_GMAIL] Starting Gmail OAuth');
 
-      // First get the current session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        throw sessionError;
-      }
-
-      if (!session) {
-        throw new Error('No active session found');
-      }
-
-      // Generate PKCE verifier and challenge
-      const pkceVerifier = generatePKCEVerifier();
-      const pkceChallenge = await generatePKCEChallenge(pkceVerifier);
-
-      // Store the verifier in localStorage
-      localStorage.setItem(getCodeVerifierKey(), pkceVerifier);
-
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-            code_challenge: pkceChallenge,
-            code_challenge_method: 'S256',
-            scope: [
-              'https://www.googleapis.com/auth/userinfo.email',
-              'https://www.googleapis.com/auth/userinfo.profile',
-              'https://www.googleapis.com/auth/gmail.readonly',
-              'https://www.googleapis.com/auth/gmail.send',
-              'https://www.googleapis.com/auth/gmail.modify'
-            ].join(' ')
-          },
-          redirectTo: `${window.location.origin}/auth/callback?next=/admin/dashboard`,
-          skipBrowserRedirect: false
-        }
-      });
-
-      if (error) {
-        logger.error('[ADMIN_CONNECT_GMAIL] OAuth error:', { error });
-        setError('Failed to connect Gmail: ' + error.message);
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        logger.error('[CONNECT_GMAIL] Auth error:', { error: userError });
+        setError('Could not verify your identity');
         return;
       }
 
-      logger.info('[ADMIN_CONNECT_GMAIL] OAuth initiated successfully');
+      const response = await fetch('/api/gmail/onboarding-auth-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'admin',
+          id: user.id,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to get auth URL');
+      }
+
+      logger.info('[CONNECT_GMAIL] OAuth initiated successfully');
+      window.location.href = data.url;
     } catch (err) {
-      logger.error('[ADMIN_CONNECT_GMAIL] Unexpected error:', { error: err });
-      setError('An unexpected error occurred while connecting to Gmail');
+      logger.error('[CONNECT_GMAIL] Unexpected error:', { error: err });
+      setError('An unexpected error occurred');
     } finally {
       setIsLoading(false);
     }

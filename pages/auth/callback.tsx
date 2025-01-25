@@ -1,16 +1,15 @@
 import { logger } from '@/utils/logger';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function Callback() {
   const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
   const supabase = createClientComponentClient();
 
   useEffect(() => {
     const handleCallback = async () => {
-      logger.info('========== GOOGLE AUTH CALLBACK START ==========');
-
       try {
         // Check for OAuth errors first
         if (router.query.error) {
@@ -22,9 +21,9 @@ export default function Callback() {
 
         // Get the code verifier from localStorage
         const codeVerifierKey = `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]}-auth-token-code-verifier`;
-        const encodedVerifier = localStorage.getItem(codeVerifierKey);
+        const codeVerifier = localStorage.getItem(codeVerifierKey);
 
-        if (!encodedVerifier) {
+        if (!codeVerifier) {
           logger.error('No code verifier found in localStorage');
           router.push('/auth/error?error=No code verifier found. Please try signing in again.');
           return;
@@ -36,52 +35,49 @@ export default function Callback() {
           return;
         }
 
-        // Create the full URL with the code
-        const callbackURL = new URL(window.location.href);
-        callbackURL.searchParams.set('code_verifier', encodedVerifier);
+        // Exchange code for session
+        const { data, error } = await supabase.auth.exchangeCodeForSession(router.asPath);
 
-        const { data, error } = await supabase.auth.exchangeCodeForSession(callbackURL.toString());
-        
         if (error) {
-          logger.error('Session Exchange Error:', error);
+          logger.error('Error exchanging code for session:', error);
           router.push(`/auth/error?error=${encodeURIComponent(error.message)}`);
           return;
         }
 
-        if (!data.session) {
-          logger.error('No session returned');
-          router.push('/auth/error?error=No session returned from authentication');
-          return;
-        }
-
-        // Clear the code verifier from localStorage
+        // Clear code verifier
         localStorage.removeItem(codeVerifierKey);
 
-        // Redirect to the appropriate page
-        const redirectTo = localStorage.getItem('supabase.auth.redirectTo');
-        if (redirectTo) {
-          localStorage.removeItem('supabase.auth.redirectTo');
-          router.push(redirectTo);
-        } else {
-          router.push('/onboarding/select-role');
-        }
-      } catch (error) {
-        logger.error('Callback Error:', error);
-        router.push('/auth/error?error=An unexpected error occurred during authentication');
+        // Get redirect URL from query params or use default
+        const redirectTo = router.query.next as string || '/dashboard';
+        router.push(redirectTo);
+      } catch (err) {
+        logger.error('Unexpected error in callback:', err);
+        router.push('/auth/error?error=An unexpected error occurred');
       }
     };
 
-    // Only run the callback handler when we have the code parameter
-    if (router.query.code) {
+    // Only run if we have query params
+    if (router.isReady) {
       handleCallback();
     }
   }, [router, supabase]);
+
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-center">
+          <h2 className="mb-2 text-xl font-semibold text-red-600">Authentication Error</h2>
+          <p className="text-gray-600">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center">
       <div className="text-center">
         <h2 className="mb-2 text-xl font-semibold">Completing sign in...</h2>
-        <p className="text-muted-foreground">Please wait while we verify your credentials.</p>
+        <p className="text-gray-600">Please wait while we verify your credentials.</p>
       </div>
     </div>
   );

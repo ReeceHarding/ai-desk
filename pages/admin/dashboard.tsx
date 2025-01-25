@@ -1,151 +1,116 @@
 import { logger } from '@/utils/logger';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Card, Text, Title } from '@tremor/react';
+import { format, subDays } from 'date-fns';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import {
+    Area,
+    AreaChart,
+    Bar,
+    BarChart,
+    CartesianGrid,
+    Cell,
+    Legend,
+    Pie,
+    PieChart,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis
+} from 'recharts';
 
-interface DashboardStats {
-  totalTickets: number;
-  openTickets: number;
-  resolvedTickets: number;
-  averageResponseTime: number;
-  totalAgents: number;
-  totalCustomers: number;
+interface DashboardMetrics {
+  averageFirstResponseTime: string;
+  averageResolutionTime: string;
+  ticketStatusBreakdown: Array<{
+    status: string;
+    count: number;
+  }>;
+  agentPerformance: Array<{
+    agent_id: string;
+    agent_name: string;
+    tickets_assigned: number;
+    tickets_resolved: number;
+    avg_response_time: string;
+    avg_resolution_time: string;
+  }>;
+  ticketVolume: Array<{
+    time_bucket: string;
+    new_tickets: number;
+    resolved_tickets: number;
+  }>;
 }
+
+const COLORS = {
+  open: '#3498db',
+  pending: '#f1c40f',
+  on_hold: '#e67e22',
+  solved: '#27ae60',
+  closed: '#95a5a6',
+  overdue: '#e74c3c'
+};
+
+const CHART_HEIGHT = 300;
 
 export default function AdminDashboard() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [dateRange, setDateRange] = useState({
+    startDate: format(subDays(new Date(), 30), 'yyyy-MM-dd'),
+    endDate: format(new Date(), 'yyyy-MM-dd')
+  });
+  const [interval, setInterval] = useState('day');
   const supabase = createClientComponentClient();
 
-  useEffect(() => {
-    const fetchDashboardStats = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        logger.info('[ADMIN_DASHBOARD] Fetching dashboard stats');
-
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        if (userError || !user) {
-          logger.error('[ADMIN_DASHBOARD] Auth error:', { error: userError });
-          setError('Could not verify your identity');
-          return;
-        }
-
-        // Get user's organization ID
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('org_id')
-          .eq('id', user.id)
-          .single();
-
-        if (profileError || !profile?.org_id) {
-          logger.error('[ADMIN_DASHBOARD] Profile error:', { error: profileError });
-          setError('Could not find your organization');
-          return;
-        }
-
-        // Fetch total tickets
-        const { count: totalTickets, error: ticketsError } = await supabase
-          .from('tickets')
-          .select('*', { count: 'exact', head: true })
-          .eq('organization_id', profile.org_id);
-
-        if (ticketsError) {
-          logger.error('[ADMIN_DASHBOARD] Tickets count error:', { error: ticketsError });
-          setError('Failed to fetch ticket statistics');
-          return;
-        }
-
-        // Fetch open tickets
-        const { count: openTickets, error: openError } = await supabase
-          .from('tickets')
-          .select('*', { count: 'exact', head: true })
-          .eq('organization_id', profile.org_id)
-          .eq('status', 'open');
-
-        if (openError) {
-          logger.error('[ADMIN_DASHBOARD] Open tickets error:', { error: openError });
-          setError('Failed to fetch open tickets');
-          return;
-        }
-
-        // Fetch resolved tickets
-        const { count: resolvedTickets, error: resolvedError } = await supabase
-          .from('tickets')
-          .select('*', { count: 'exact', head: true })
-          .eq('organization_id', profile.org_id)
-          .eq('status', 'resolved');
-
-        if (resolvedError) {
-          logger.error('[ADMIN_DASHBOARD] Resolved tickets error:', { error: resolvedError });
-          setError('Failed to fetch resolved tickets');
-          return;
-        }
-
-        // Fetch total agents
-        const { count: totalAgents, error: agentsError } = await supabase
-          .from('organization_members')
-          .select('*', { count: 'exact', head: true })
-          .eq('organization_id', profile.org_id)
-          .eq('role', 'agent');
-
-        if (agentsError) {
-          logger.error('[ADMIN_DASHBOARD] Agents count error:', { error: agentsError });
-          setError('Failed to fetch agent statistics');
-          return;
-        }
-
-        // Fetch total customers
-        const { count: totalCustomers, error: customersError } = await supabase
-          .from('profiles')
-          .select('*', { count: 'exact', head: true })
-          .eq('org_id', profile.org_id)
-          .eq('role', 'customer');
-
-        if (customersError) {
-          logger.error('[ADMIN_DASHBOARD] Customers count error:', { error: customersError });
-          setError('Failed to fetch customer statistics');
-          return;
-        }
-
-        // Calculate average response time (placeholder for now)
-        const averageResponseTime = 0; // This would need actual calculation logic
-
-        setStats({
-          totalTickets: totalTickets || 0,
-          openTickets: openTickets || 0,
-          resolvedTickets: resolvedTickets || 0,
-          averageResponseTime,
-          totalAgents: totalAgents || 0,
-          totalCustomers: totalCustomers || 0
-        });
-
-        logger.info('[ADMIN_DASHBOARD] Stats fetched successfully');
-      } catch (err) {
-        logger.error('[ADMIN_DASHBOARD] Unexpected error:', { error: err });
-        setError('An unexpected error occurred');
-      } finally {
-        setIsLoading(false);
+  const fetchMetrics = useCallback(async () => {
+    try {
+      const response = await fetch(
+        `/api/admin/dashboard-metrics?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}&interval=${interval}`
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch metrics');
       }
+
+      const data = await response.json();
+      setMetrics(data);
+      setError(null);
+    } catch (err) {
+      logger.error('[ADMIN_DASHBOARD] Failed to fetch metrics:', { error: err });
+      setError('Failed to load dashboard metrics');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [dateRange, interval]);
+
+  useEffect(() => {
+    fetchMetrics();
+  }, [fetchMetrics]);
+
+  // Set up real-time subscription for ticket updates
+  useEffect(() => {
+    const channel = supabase
+      .channel('ticket_updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'tickets'
+        },
+        () => {
+          fetchMetrics();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
     };
-
-    fetchDashboardStats();
-  }, [supabase]);
-
-  const handleInviteAgent = () => {
-    router.push('/admin/invite-agent');
-  };
-
-  const handleManageWorkflows = () => {
-    router.push('/admin/workflows');
-  };
-
-  const handleSettings = () => {
-    router.push('/admin/settings');
-  };
+  }, [supabase, fetchMetrics]);
 
   if (isLoading) {
     return (
@@ -170,134 +135,166 @@ export default function AdminDashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="py-10">
-        <header>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <h1 className="text-3xl font-bold leading-tight text-gray-900">
-              Admin Dashboard
-            </h1>
+        <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="md:flex md:items-center md:justify-between">
+            <div className="flex-1 min-w-0">
+              <h1 className="text-3xl font-bold leading-tight text-gray-900">
+                Admin Dashboard
+              </h1>
+            </div>
+            <div className="mt-4 flex md:mt-0 md:ml-4">
+              <select
+                value={interval}
+                onChange={(e) => setInterval(e.target.value)}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                <option value="hour">Hourly</option>
+                <option value="day">Daily</option>
+                <option value="week">Weekly</option>
+                <option value="month">Monthly</option>
+              </select>
+            </div>
           </div>
         </header>
-        <main>
-          <div className="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            {/* Stats Grid */}
-            <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="bg-white overflow-hidden shadow rounded-lg">
-                <div className="p-5">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-sm font-medium text-gray-500 truncate">
-                          Total Tickets
-                        </dt>
-                        <dd className="flex items-baseline">
-                          <div className="text-2xl font-semibold text-gray-900">
-                            {stats?.totalTickets}
-                          </div>
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
 
-              <div className="bg-white overflow-hidden shadow rounded-lg">
-                <div className="p-5">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-sm font-medium text-gray-500 truncate">
-                          Average Response Time
-                        </dt>
-                        <dd className="flex items-baseline">
-                          <div className="text-2xl font-semibold text-gray-900">
-                            {stats?.averageResponseTime}m
-                          </div>
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
-              </div>
+        <main className="max-w-7xl mx-auto sm:px-6 lg:px-8">
+          {/* KPI Cards */}
+          <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <Card>
+              <Title>Average First Response</Title>
+              <Text className="mt-4 text-2xl font-semibold">
+                {metrics?.averageFirstResponseTime || '0m'}
+              </Text>
+            </Card>
+            <Card>
+              <Title>Average Resolution Time</Title>
+              <Text className="mt-4 text-2xl font-semibold">
+                {metrics?.averageResolutionTime || '0m'}
+              </Text>
+            </Card>
+            <Card>
+              <Title>Total Tickets</Title>
+              <Text className="mt-4 text-2xl font-semibold">
+                {metrics?.ticketStatusBreakdown?.reduce((acc, curr) => acc + curr.count, 0) || 0}
+              </Text>
+            </Card>
+          </div>
 
-              <div className="bg-white overflow-hidden shadow rounded-lg">
-                <div className="p-5">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <svg className="h-6 w-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                      </svg>
-                    </div>
-                    <div className="ml-5 w-0 flex-1">
-                      <dl>
-                        <dt className="text-sm font-medium text-gray-500 truncate">
-                          Total Agents
-                        </dt>
-                        <dd className="flex items-baseline">
-                          <div className="text-2xl font-semibold text-gray-900">
-                            {stats?.totalAgents}
-                          </div>
-                        </dd>
-                      </dl>
-                    </div>
-                  </div>
-                </div>
+          {/* Charts Section */}
+          <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
+            {/* Ticket Volume Over Time */}
+            <Card>
+              <Title>Ticket Volume Over Time</Title>
+              <div className="h-[400px] mt-4">
+                <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+                  <AreaChart data={metrics?.ticketVolume || []}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="time_bucket"
+                      tickFormatter={(value) => format(new Date(value), 'MMM dd')}
+                    />
+                    <YAxis />
+                    <Tooltip
+                      labelFormatter={(value) => format(new Date(value), 'MMM dd, yyyy')}
+                    />
+                    <Legend />
+                    <Area
+                      type="monotone"
+                      dataKey="new_tickets"
+                      name="New Tickets"
+                      stroke="#3498db"
+                      fill="#3498db"
+                      fillOpacity={0.1}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="resolved_tickets"
+                      name="Resolved Tickets"
+                      stroke="#27ae60"
+                      fill="#27ae60"
+                      fillOpacity={0.1}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
+            </Card>
+
+            {/* Ticket Status Distribution */}
+            <Card>
+              <Title>Ticket Status Distribution</Title>
+              <div className="h-[400px] mt-4">
+                <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+                  <PieChart>
+                    <Pie
+                      data={metrics?.ticketStatusBreakdown || []}
+                      dataKey="count"
+                      nameKey="status"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={100}
+                      label
+                    >
+                      {metrics?.ticketStatusBreakdown?.map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={COLORS[entry.status as keyof typeof COLORS]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+          </div>
+
+          {/* Agent Performance */}
+          <Card className="mt-8">
+            <Title>Agent Performance</Title>
+            <div className="h-[400px] mt-4">
+              <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+                <BarChart data={metrics?.agentPerformance || []}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="agent_name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar
+                    dataKey="tickets_assigned"
+                    name="Tickets Assigned"
+                    fill="#3498db"
+                  />
+                  <Bar
+                    dataKey="tickets_resolved"
+                    name="Tickets Resolved"
+                    fill="#27ae60"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
+          </Card>
 
-            {/* Quick Actions */}
-            <div className="mt-8">
-              <h2 className="text-lg leading-6 font-medium text-gray-900">
-                Quick Actions
-              </h2>
-              <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                <button
-                  onClick={handleInviteAgent}
-                  className="relative block w-full border-2 border-gray-300 border-dashed rounded-lg p-6 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  <svg className="mx-auto h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                  </svg>
-                  <span className="mt-2 block text-sm font-medium text-gray-900">
-                    Invite Agent
-                  </span>
-                </button>
-
-                <button
-                  onClick={handleManageWorkflows}
-                  className="relative block w-full border-2 border-gray-300 border-dashed rounded-lg p-6 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  <svg className="mx-auto h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-                  </svg>
-                  <span className="mt-2 block text-sm font-medium text-gray-900">
-                    Manage Workflows
-                  </span>
-                </button>
-
-                <button
-                  onClick={handleSettings}
-                  className="relative block w-full border-2 border-gray-300 border-dashed rounded-lg p-6 text-center hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  <svg className="mx-auto h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  <span className="mt-2 block text-sm font-medium text-gray-900">
-                    Settings
-                  </span>
-                </button>
-              </div>
-            </div>
+          {/* Action Buttons */}
+          <div className="mt-8 flex space-x-4">
+            <button
+              onClick={() => router.push('/admin/invite-agent')}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Invite Agent
+            </button>
+            <button
+              onClick={() => router.push('/admin/workflows')}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Manage Workflows
+            </button>
+            <button
+              onClick={() => router.push('/admin/settings')}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Settings
+            </button>
           </div>
         </main>
       </div>

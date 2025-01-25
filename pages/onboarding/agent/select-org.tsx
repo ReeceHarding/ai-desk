@@ -324,7 +324,10 @@ export default function AgentSelectOrg() {
                   {results.map((org) => (
               <button
                       key={org.id}
-                      onClick={() => setSelectedOrg(org)}
+                      onClick={() => {
+                        setSelectedOrg(org);
+                        setSearchTerm(org.name);
+                      }}
                       className={`w-full px-4 py-3 flex items-center space-x-3 hover:bg-gray-50 focus:outline-none ${
                         selectedOrg?.id === org.id ? 'bg-blue-50' : ''
                       }`}

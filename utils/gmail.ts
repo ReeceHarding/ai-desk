@@ -372,6 +372,53 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       parsedEmail.subject = '(No Subject)';
     }
 
+    // Check if sender already exists as a user
+    const { data: existingUser } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', parsedEmail.from)
+      .single();
+
+    let customerId: string;
+
+    if (existingUser) {
+      customerId = existingUser.id;
+    } else {
+      // Create a new user profile for the sender
+      const { data: auth, error: authError } = await supabase.auth.admin.createUser({
+        email: parsedEmail.from,
+        email_confirm: true,
+        user_metadata: {
+          email: parsedEmail.from,
+          email_verified: true,
+          signup_completed: true
+        }
+      });
+
+      if (authError) {
+        logger.error('Failed to create auth user for sender', { error: authError });
+        throw authError;
+      }
+
+      // Create profile for the new user
+      const { data: newProfile, error: profileCreateError } = await supabase
+        .from('profiles')
+        .insert({
+          id: auth.user.id,
+          email: parsedEmail.from,
+          role: 'customer'
+        })
+        .select()
+        .single();
+
+      if (profileCreateError) {
+        logger.error('Failed to create profile for sender', { error: profileCreateError });
+        throw profileCreateError;
+      }
+
+      customerId = auth.user.id;
+    }
+
     // Create ticket with metadata as JSON string
     const { data: ticket, error } = await supabase
       .from('tickets')
@@ -380,7 +427,7 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
         description: parsedEmail.body.text || parsedEmail.snippet || 'No content',
         status: 'open',
         priority: 'medium',
-        customer_id: userId,
+        customer_id: customerId,
         org_id: profile.org_id,
         metadata: JSON.stringify({
           email_message_id: parsedEmail.messageId,

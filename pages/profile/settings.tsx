@@ -270,8 +270,8 @@ export default function ProfileSettings() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="customer">Customer</SelectItem>
+                    <SelectItem value="agent">Agent</SelectItem>
                     <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="super_admin">Super Admin</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

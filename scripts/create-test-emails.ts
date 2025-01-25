@@ -121,11 +121,15 @@ async function createTestEmailsAndTickets() {
           message_id: `test-${uuidv4()}`,
           thread_id: `thread-${uuidv4()}`,
           from_address: email.from,
-          to_address: ['support@company.com'],
+          to_address: 'support@company.com',
           subject: email.subject,
           body: email.body,
-          gmail_date: new Date().toISOString(),
-          org_id: orgId
+          html_body: email.body,
+          sent_at: new Date().toISOString(),
+          metadata: {
+            source: 'test_script',
+            test_email: true
+          }
         });
 
       if (chatError) {

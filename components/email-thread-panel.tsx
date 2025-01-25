@@ -21,7 +21,7 @@ interface EmailMessage {
   subject: string | null
   body: string | null
   attachments: any
-  gmail_date: string | null
+  sent_at: string | null
   org_id: string
   created_at: string
   updated_at: string
@@ -65,7 +65,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         .from('ticket_email_chats')
         .select('*')
         .eq('ticket_id', ticket.id)
-        .order('gmail_date', { ascending: false })
+        .order('sent_at', { ascending: false })
         .range(from, to)
 
       if (error) throw error
@@ -126,8 +126,8 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
               // Add new message and sort by date
               const updated = [newMessage, ...prev];
               return updated.sort((a, b) => {
-                const dateA = a.gmail_date ? new Date(a.gmail_date) : new Date(a.created_at);
-                const dateB = b.gmail_date ? new Date(b.gmail_date) : new Date(b.created_at);
+                const dateA = a.sent_at ? new Date(a.sent_at) : new Date(a.created_at);
+                const dateB = b.sent_at ? new Date(b.sent_at) : new Date(b.created_at);
                 return dateB.getTime() - dateA.getTime();
               });
             });
@@ -330,8 +330,8 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                           {message.from_address}
                         </div>
                         <div className="text-xs sm:text-sm text-gray-500">
-                          {message.gmail_date
-                            ? format(new Date(message.gmail_date), 'PPp')
+                          {message.sent_at
+                            ? format(new Date(message.sent_at), 'PPp')
                             : format(new Date(message.created_at), 'PPp')}
                         </div>
                       </div>
