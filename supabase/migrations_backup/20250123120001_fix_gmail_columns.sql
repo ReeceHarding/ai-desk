@@ -5,7 +5,9 @@ CREATE TABLE IF NOT EXISTS public.logs (
   message text NOT NULL,
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   is_client boolean DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  url text,
+  runtime text
 );
 
 -- Create indexes for logs table

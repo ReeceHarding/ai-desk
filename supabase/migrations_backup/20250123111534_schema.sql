@@ -9,6 +9,33 @@ GRANT ALL ON SCHEMA public TO anon;
 GRANT ALL ON SCHEMA public TO authenticated;
 GRANT ALL ON SCHEMA public TO service_role;
 
+-- Grant usage on sequences to auth user
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO anon;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO service_role;
+
+-- Grant execute on functions to auth user
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
+
+-- Grant permissions on auth schema
+GRANT USAGE ON SCHEMA auth TO anon;
+GRANT USAGE ON SCHEMA auth TO authenticated;
+GRANT USAGE ON SCHEMA auth TO service_role;
+
+GRANT ALL ON ALL TABLES IN SCHEMA auth TO anon;
+GRANT ALL ON ALL TABLES IN SCHEMA auth TO authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA auth TO service_role;
+
+GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO anon;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO service_role;
+
+GRANT ALL ON ALL ROUTINES IN SCHEMA auth TO anon;
+GRANT ALL ON ALL ROUTINES IN SCHEMA auth TO authenticated;
+GRANT ALL ON ALL ROUTINES IN SCHEMA auth TO service_role;
+
 -- =========================================
 -- 1. ENABLE EXTENSIONS
 -- =========================================
@@ -18,6 +45,9 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Create avatars storage bucket
+DELETE FROM storage.objects WHERE bucket_id = 'avatars';
+DELETE FROM storage.buckets WHERE id = 'avatars';
+
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'avatars',
@@ -34,6 +64,11 @@ ON CONFLICT (id) DO UPDATE SET
 -- =========================================
 -- 2. CREATE ENUMS
 -- =========================================
+
+DROP TYPE IF EXISTS public.user_role CASCADE;
+DROP TYPE IF EXISTS public.ticket_status CASCADE;
+DROP TYPE IF EXISTS public.ticket_priority CASCADE;
+DROP TYPE IF EXISTS public.sla_tier CASCADE;
 
 CREATE TYPE public.user_role AS ENUM (
   'customer',
@@ -158,30 +193,31 @@ CREATE TABLE IF NOT EXISTS public.logs (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
     level text NOT NULL,
     message text NOT NULL,
-    metadata jsonb,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     timestamp timestamptz DEFAULT now() NOT NULL,
-    is_client boolean DEFAULT false,
+    is_client boolean DEFAULT false NOT NULL,
     url text,
-    created_at timestamptz DEFAULT now() NOT NULL
+    runtime text,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT logs_level_check CHECK (level IN ('info', 'warn', 'error'))
 );
 
--- Add RLS policies for logs
-ALTER TABLE public.logs ENABLE ROW LEVEL SECURITY;
+-- Drop all policies for logs table
+DROP POLICY IF EXISTS "Enable insert for authenticated users only" ON public.logs;
+DROP POLICY IF EXISTS "Enable read access for authenticated users" ON public.logs;
+DROP POLICY IF EXISTS "Allow postgres role full access" ON public.logs;
+DROP POLICY IF EXISTS "Service role can do all on logs" ON public.logs;
 
-CREATE POLICY "Enable insert for authenticated users only" 
-    ON public.logs 
-    FOR INSERT 
-    TO authenticated 
-    WITH CHECK (true);
+-- Disable RLS
+ALTER TABLE public.logs DISABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Enable read access for authenticated users" 
-    ON public.logs 
-    FOR SELECT 
-    TO authenticated 
-    USING (true);
+-- Grant permissions
+GRANT ALL ON public.logs TO postgres;
+GRANT ALL ON public.logs TO authenticated;
+GRANT ALL ON public.logs TO service_role;
 
 CREATE TABLE public.organizations (
-  id uuid DEFAULT extensions.uuid_generate_v4() NOT NULL,
+  id uuid DEFAULT gen_random_uuid() NOT NULL,
   created_at timestamp with time zone DEFAULT now() NOT NULL,
   name text NOT NULL,
   owner_id uuid NOT NULL,
@@ -221,11 +257,45 @@ CREATE TABLE public.profiles (
   metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   extra_text_1 text,
   extra_json_1 jsonb NOT NULL DEFAULT '{}'::jsonb,
-  org_id uuid
-    REFERENCES public.organizations (id) ON DELETE CASCADE,
+  org_id uuid REFERENCES public.organizations (id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Enable RLS
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+-- Allow service role to do anything
+CREATE POLICY "Service role can do anything" ON public.profiles
+  FOR ALL
+  TO service_role
+  USING (true)
+  WITH CHECK (true);
+
+-- Allow users to read their own profile
+CREATE POLICY "Users can read own profile" ON public.profiles
+  FOR SELECT
+  TO authenticated
+  USING (auth.uid() = id);
+
+-- Allow users to update their own profile
+CREATE POLICY "Users can update own profile" ON public.profiles
+  FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+-- Allow auth service to create profiles
+CREATE POLICY "Auth service can create profiles" ON public.profiles
+  FOR INSERT
+  TO anon, authenticated
+  WITH CHECK (true);
+
+-- Grant explicit permissions
+GRANT ALL ON public.profiles TO postgres;
+GRANT ALL ON public.profiles TO authenticated;
+GRANT ALL ON public.profiles TO anon;
+GRANT ALL ON public.profiles TO service_role;
 
 -- Separate step to add FK reference to auth.users
 ALTER TABLE public.profiles
@@ -1074,33 +1144,48 @@ CREATE INDEX IF NOT EXISTS idx_profiles_gmail_watch_expiration
 -- EMAIL CHAT TABLES
 -- =========================================
 
-CREATE TABLE public.ticket_email_chats (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  ticket_id uuid NOT NULL REFERENCES public.tickets(id) ON DELETE CASCADE,
-  message_id text,
-  thread_id text,
+CREATE TABLE IF NOT EXISTS public.ticket_email_chats (
+  id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+  ticket_id uuid NOT NULL,
   from_address text NOT NULL,
-  to_address text[] NOT NULL,
-  cc_address text[] DEFAULT array[]::text[],
-  bcc_address text[] DEFAULT array[]::text[],
+  to_address text NOT NULL,
   subject text,
-  body text NOT NULL,
-  attachments jsonb DEFAULT '{}'::jsonb,
-  gmail_date timestamptz DEFAULT now(),
-  org_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  body text,
+  html_body text,
+  message_id text UNIQUE,
+  thread_id text,
+  in_reply_to text,
+  reference_ids text[],
+  sent_at timestamptz NOT NULL,
+  received_at timestamptz NOT NULL DEFAULT now(),
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT ticket_email_chats_ticket_id_fkey 
+    FOREIGN KEY (ticket_id) 
+    REFERENCES public.tickets(id) 
+    ON DELETE CASCADE
 );
 
-CREATE TRIGGER tr_ticket_email_chats_update_timestamp
-BEFORE UPDATE ON public.ticket_email_chats
-FOR EACH ROW
-EXECUTE PROCEDURE public.fn_auto_update_timestamp();
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_ticket_email_chats_ticket_id ON public.ticket_email_chats(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_email_chats_message_id ON public.ticket_email_chats(message_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_email_chats_thread_id ON public.ticket_email_chats(thread_id);
 
-CREATE INDEX ticket_email_chats_ticket_idx ON public.ticket_email_chats (ticket_id);
-CREATE INDEX ticket_email_chats_message_idx ON public.ticket_email_chats (message_id);
-CREATE INDEX ticket_email_chats_thread_idx ON public.ticket_email_chats (thread_id);
-CREATE INDEX ticket_email_chats_org_idx ON public.ticket_email_chats (org_id);
+-- Add trigger for updated_at
+DROP TRIGGER IF EXISTS tr_ticket_email_chats_updated_at ON public.ticket_email_chats;
+
+CREATE TRIGGER tr_ticket_email_chats_updated_at
+  BEFORE UPDATE ON public.ticket_email_chats
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_auto_update_timestamp();
+
+-- Disable RLS since other tables have it disabled
+ALTER TABLE public.ticket_email_chats DISABLE ROW LEVEL SECURITY;
+
+-- Grant access to authenticated users
+GRANT ALL ON public.ticket_email_chats TO authenticated;
+GRANT ALL ON public.ticket_email_chats TO service_role;
 
 -- =========================================
 -- LOGS TABLE
@@ -1382,57 +1467,7 @@ $$;
 -- Function to update agent stats for first response
 CREATE OR REPLACE FUNCTION public.fn_update_agent_first_response_stats()
 RETURNS TRIGGER AS $$
-DECLARE
-  ticket_created_at timestamptz;
-  agent_stats jsonb;
-  response_time_mins int;
 BEGIN
-  -- Only proceed if this is an agent's comment
-  IF NOT EXISTS (
-    SELECT 1 FROM public.profiles 
-    WHERE id = NEW.author_id 
-    AND role IN ('agent', 'admin')
-  ) THEN
-    RETURN NEW;
-  END IF;
-
-  -- Get ticket creation time
-  SELECT created_at INTO ticket_created_at
-  FROM public.tickets
-  WHERE id = NEW.ticket_id;
-
-  -- Calculate response time in minutes
-  response_time_mins := EXTRACT(EPOCH FROM (NEW.created_at - ticket_created_at)) / 60;
-
-  -- Check if this is the first response from any agent
-  IF NOT EXISTS (
-    SELECT 1 FROM public.comments c
-    JOIN public.profiles p ON c.author_id = p.id
-    WHERE c.ticket_id = NEW.ticket_id
-    AND p.role IN ('agent', 'admin')
-    AND c.id != NEW.id
-    AND c.created_at < NEW.created_at
-  ) THEN
-    -- Get current agent stats
-    SELECT COALESCE(extra_json_1->'agentStats', '{}'::jsonb) INTO agent_stats
-    FROM public.profiles
-    WHERE id = NEW.author_id;
-
-    -- Update agent stats
-    UPDATE public.profiles
-    SET extra_json_1 = jsonb_set(
-      COALESCE(extra_json_1, '{}'::jsonb),
-      '{agentStats}',
-      jsonb_build_object(
-        'totalFirstResponseTime', (COALESCE((agent_stats->>'totalFirstResponseTime')::int, 0) + response_time_mins),
-        'totalTicketsResponded', (COALESCE((agent_stats->>'totalTicketsResponded')::int, 0) + 1),
-        'totalResolutionTime', COALESCE((agent_stats->>'totalResolutionTime')::int, 0),
-        'totalTicketsResolved', COALESCE((agent_stats->>'totalTicketsResolved')::int, 0)
-      )
-    )
-    WHERE id = NEW.author_id;
-  END IF;
-
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -1440,42 +1475,7 @@ $$ LANGUAGE plpgsql;
 -- Function to update agent stats when a ticket is solved
 CREATE OR REPLACE FUNCTION public.fn_update_agent_resolution_stats()
 RETURNS TRIGGER AS $$
-DECLARE
-  agent_stats jsonb;
-  resolution_time_mins int;
 BEGIN
-  -- Only proceed if status is changing to 'solved'
-  IF NEW.status != 'solved' OR OLD.status = 'solved' THEN
-    RETURN NEW;
-  END IF;
-
-  -- Only proceed if there's an assigned agent
-  IF NEW.assigned_agent_id IS NULL THEN
-    RETURN NEW;
-  END IF;
-
-  -- Calculate resolution time in minutes
-  resolution_time_mins := EXTRACT(EPOCH FROM (NEW.updated_at - NEW.created_at)) / 60;
-
-  -- Get current agent stats
-  SELECT COALESCE(extra_json_1->'agentStats', '{}'::jsonb) INTO agent_stats
-  FROM public.profiles
-  WHERE id = NEW.assigned_agent_id;
-
-  -- Update agent stats
-  UPDATE public.profiles
-  SET extra_json_1 = jsonb_set(
-    COALESCE(extra_json_1, '{}'::jsonb),
-    '{agentStats}',
-    jsonb_build_object(
-      'totalFirstResponseTime', COALESCE((agent_stats->>'totalFirstResponseTime')::int, 0),
-      'totalTicketsResponded', COALESCE((agent_stats->>'totalTicketsResponded')::int, 0),
-      'totalResolutionTime', (COALESCE((agent_stats->>'totalResolutionTime')::int, 0) + resolution_time_mins),
-      'totalTicketsResolved', (COALESCE((agent_stats->>'totalTicketsResolved')::int, 0) + 1)
-    )
-  )
-  WHERE id = NEW.assigned_agent_id;
-
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

@@ -1,0 +1,1 @@
+-- This migration is now empty since the table is created in the main schema 
