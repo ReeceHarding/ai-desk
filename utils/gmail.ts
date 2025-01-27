@@ -183,7 +183,7 @@ export function parseGmailMessage(message: GmailMessage): ParsedEmail {
     html: ''
   };
 
-  const extractBody = (part: GmailMessagePart) => {
+  const extractBody = (part: GmailMessagePart | undefined | null) => {
     if (!part) return;
 
     if (part.mimeType === 'text/plain' && part.body?.data) {
@@ -366,12 +366,17 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       parsedEmail.subject = '(No Subject)';
     }
 
+    // Extract sender name and email
+    const fromMatch = parsedEmail.from.match(/(?:"?([^"]*)"?\s*)?(?:<?(.+@[^>]+)>?)/);
+    const senderName = fromMatch?.[1]?.trim() || '';
+    const senderEmail = fromMatch?.[2]?.trim() || parsedEmail.from;
+
     // Create ticket with metadata as JSON string
     const { data: ticket, error } = await supabase
       .from('tickets')
       .insert({
         subject: parsedEmail.subject || '(No Subject)',
-        description: parsedEmail.body.text || parsedEmail.snippet || 'No content',
+        description: parsedEmail.body.html || parsedEmail.body.text || parsedEmail.snippet || 'No content',
         status: 'open',
         priority: 'medium',
         customer_id: userId,
@@ -399,12 +404,13 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
         ticket_id: ticket.id,
         message_id: parsedEmail.messageId,
         thread_id: parsedEmail.threadId,
-        from_address: parsedEmail.from,
+        from_name: senderName,
+        from_address: senderEmail,
         to_address: Array.isArray(parsedEmail.to) ? parsedEmail.to : [parsedEmail.to],
         cc_address: parsedEmail.cc || [],
         bcc_address: parsedEmail.bcc || [],
         subject: parsedEmail.subject,
-        body: parsedEmail.body.text || parsedEmail.body.html || parsedEmail.snippet || '',
+        body: parsedEmail.body.html || parsedEmail.body.text || parsedEmail.snippet || '',
         gmail_date: parsedEmail.date,
         org_id: profile.org_id
       });

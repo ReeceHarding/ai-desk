@@ -987,19 +987,20 @@ CREATE INDEX IF NOT EXISTS idx_profiles_gmail_watch_expiration
 CREATE TABLE public.ticket_email_chats (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   ticket_id uuid NOT NULL REFERENCES public.tickets (id) ON DELETE CASCADE,
-  message_id text,
-  thread_id text,
+  message_id text NOT NULL,
+  thread_id text NOT NULL,
+  from_name text,
   from_address text,
   to_address text[],
-  cc_address text[],
-  bcc_address text[],
+  cc_address text[] DEFAULT '{}'::text[],
+  bcc_address text[] DEFAULT '{}'::text[],
   subject text,
   body text,
   attachments jsonb NOT NULL DEFAULT '{}'::jsonb,
   gmail_date timestamptz,
   org_id uuid NOT NULL REFERENCES public.organizations (id) ON DELETE CASCADE,
-  ai_classification text CHECK (ai_classification IN ('should_respond','no_response','unknown')) DEFAULT 'unknown',
-  ai_confidence numeric(5,2) DEFAULT 0.00,
+  ai_classification text DEFAULT 'unknown',
+  ai_confidence numeric DEFAULT 0,
   ai_auto_responded boolean DEFAULT false,
   ai_draft_response text,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -1015,6 +1016,7 @@ CREATE INDEX ticket_email_chats_ticket_idx ON public.ticket_email_chats (ticket_
 CREATE INDEX ticket_email_chats_message_idx ON public.ticket_email_chats (message_id);
 CREATE INDEX ticket_email_chats_thread_idx ON public.ticket_email_chats (thread_id);
 CREATE INDEX ticket_email_chats_org_idx ON public.ticket_email_chats (org_id);
+CREATE INDEX ticket_email_chats_gmail_date_idx ON public.ticket_email_chats (gmail_date);
 
 -- =========================================
 -- LOGS TABLE
@@ -1167,3 +1169,22 @@ CREATE TRIGGER tr_create_personal_organization
   AFTER INSERT ON auth.users
   FOR EACH ROW
   EXECUTE FUNCTION public.fn_create_personal_organization();
+
+-- Add gmail_date column if it doesn't exist
+DO $$ 
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+        AND table_name = 'ticket_email_chats' 
+        AND column_name = 'gmail_date'
+    ) THEN
+        ALTER TABLE public.ticket_email_chats
+        ADD COLUMN gmail_date timestamptz NOT NULL DEFAULT now();
+        
+        -- Add index for the new column
+        CREATE INDEX IF NOT EXISTS ticket_email_chats_gmail_date_idx 
+        ON public.ticket_email_chats (gmail_date);
+    END IF;
+END $$;

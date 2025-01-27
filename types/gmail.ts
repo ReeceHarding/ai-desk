@@ -5,16 +5,19 @@ export interface EmailLog {
   ticket_id: string;
   message_id: string;
   thread_id: string;
-  direction: EmailDirection;
-  timestamp: string;
-  snippet?: string;
-  subject?: string;
   from_address: string;
-  to_address: string;
-  author_id: string;
+  to_address: string[];
+  cc_address: string[];
+  bcc_address: string[];
+  subject: string | null;
+  body: string;
+  attachments: any;
+  gmail_date: string;
   org_id: string;
-  raw_content?: string;
-  labels?: string[];
+  ai_classification: 'should_respond' | 'no_response' | 'unknown';
+  ai_confidence: number;
+  ai_auto_responded: boolean;
+  ai_draft_response: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -79,15 +82,11 @@ export interface EmailLogParams {
   ticketId: string;
   messageId: string;
   threadId: string;
-  direction: EmailDirection;
-  snippet?: string;
-  subject?: string;
   fromAddress: string;
-  toAddress: string;
-  authorId: string;
-  orgId: string;
+  toAddress: string | string[];
+  subject?: string;
   rawContent?: string;
-  labels?: string[];
+  orgId: string;
 }
 
 export interface EmailSearchParams {

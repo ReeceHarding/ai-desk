@@ -28,11 +28,12 @@ BEGIN
   PERFORM set_config('app.settings.seed_gmail_history_id', '${process.env.SEED_GMAIL_HISTORY_ID?.replace(/'/g, "''")}', false);
 END $$;
 `;
-    const sqlPath = path.join(process.cwd(), 'scripts', 'set-tokens.sql');
+    const workspacePath = '/Users/reeceharding/Gauntlet/Zenesk Storage/Zendesk';
+    const sqlPath = path.join(workspacePath, 'scripts', 'set-tokens.sql');
     fs.writeFileSync(sqlPath, sqlContent);
 
     // Execute SQL file
-    execSync(`psql postgresql://postgres:postgres@localhost:54322/postgres -f ${sqlPath}`, { stdio: 'inherit' });
+    execSync(`psql postgresql://postgres:postgres@localhost:54322/postgres -f "${sqlPath}"`, { stdio: 'inherit' });
 
     // Remove SQL file
     fs.unlinkSync(sqlPath);

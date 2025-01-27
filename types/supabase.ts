@@ -666,6 +666,10 @@ export interface Database {
           attachments: Json
           gmail_date: string
           org_id: string
+          ai_classification: 'should_respond' | 'no_response' | 'unknown'
+          ai_confidence: number
+          ai_auto_responded: boolean
+          ai_draft_response: string | null
           created_at: string
           updated_at: string
         }
@@ -683,6 +687,10 @@ export interface Database {
           attachments?: Json
           gmail_date: string
           org_id: string
+          ai_classification?: 'should_respond' | 'no_response' | 'unknown'
+          ai_confidence?: number
+          ai_auto_responded?: boolean
+          ai_draft_response?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -700,6 +708,10 @@ export interface Database {
           attachments?: Json
           gmail_date?: string
           org_id?: string
+          ai_classification?: 'should_respond' | 'no_response' | 'unknown'
+          ai_confidence?: number
+          ai_auto_responded?: boolean
+          ai_draft_response?: string | null
           created_at?: string
           updated_at?: string
         }

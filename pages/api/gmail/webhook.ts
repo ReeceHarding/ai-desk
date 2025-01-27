@@ -395,6 +395,8 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string) {
       const subject = headers.find((h: Schema$MessagePartHeader) => h.name === 'Subject')?.value || '';
       const from = headers.find((h: Schema$MessagePartHeader) => h.name === 'From')?.value || '';
       const to = headers.find((h: Schema$MessagePartHeader) => h.name === 'To')?.value || '';
+      const cc = headers.find((h: Schema$MessagePartHeader) => h.name === 'Cc')?.value || '';
+      const bcc = headers.find((h: Schema$MessagePartHeader) => h.name === 'Bcc')?.value || '';
       const threadId = message.threadId;
 
       await logger.info('Processing message', {
@@ -411,8 +413,8 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string) {
 
       // Extract sender's email and name
       const fromMatch = from.match(/(?:"?([^"]*)"?\s*)?(?:<?(.+@[^>]+)>?)/);
-      const senderName = fromMatch?.[1] || '';
-      const senderEmail = fromMatch?.[2] || '';
+      const senderName = fromMatch?.[1]?.trim() || '';
+      const senderEmail = fromMatch?.[2]?.trim() || '';
 
       if (!senderEmail) {
         throw new Error('Could not extract sender email');
@@ -531,15 +533,25 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string) {
         .from('ticket_email_chats')
         .insert({
           ticket_id: ticketId,
-          content: htmlBody,
-          metadata: {
-            message_id: message.id,
-            thread_id: threadId,
-            from,
-            to,
-            subject
-          },
-          type: 'email'
+          message_id: message.id,
+          thread_id: threadId,
+          from_name: senderName,
+          from_address: senderEmail,
+          to_address: Array.isArray(to) ? to : [to],
+          cc_address: cc ? cc.split(',').map(addr => addr.trim()) : [],
+          bcc_address: bcc ? bcc.split(',').map(addr => addr.trim()) : [],
+          subject: subject,
+          body: htmlBody,
+          attachments: message.payload.parts?.filter(part => part.filename && part.body?.attachmentId).map(part => ({
+            name: part.filename,
+            id: part.body?.attachmentId,
+            mimeType: part.mimeType
+          })) || [],
+          gmail_date: new Date(parseInt(message.internalDate || Date.now().toString())).toISOString(),
+          org_id: orgId,
+          ai_classification: 'unknown',
+          ai_confidence: 0,
+          ai_auto_responded: false
         });
 
       if (emailError) {

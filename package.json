@@ -61,7 +61,7 @@
   "description": "A modern ticket management system built with Next.js and Supabase.",
   "main": "index.js",
   "scripts": {
-    "dev": "next dev",
+    "dev": "lsof -ti :3000 | xargs kill -9 2>/dev/null || true && lsof -ti :3001 | xargs kill -9 2>/dev/null || true && lsof -ti :3002 | xargs kill -9 2>/dev/null || true && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -77,7 +77,8 @@
     "prebuild": "tsc --noEmit",
     "check-env": "ts-node scripts/check-env.ts",
     "verify-build": "npm run check-env && npm run lint && tsc --noEmit && next build",
-    "predeploy": "npm run verify-build"
+    "predeploy": "npm run verify-build",
+    "dev:clean": "lsof -ti :3000 | xargs kill -9 2>/dev/null || true && next dev"
   },
   "repository": {
     "type": "git",

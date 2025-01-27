@@ -122,10 +122,16 @@ async function createTestEmailsAndTickets() {
           thread_id: `thread-${uuidv4()}`,
           from_address: email.from,
           to_address: ['support@company.com'],
+          cc_address: [],
+          bcc_address: [],
           subject: email.subject,
           body: email.body,
+          attachments: {},
           gmail_date: new Date().toISOString(),
-          org_id: orgId
+          org_id: orgId,
+          ai_classification: 'unknown',
+          ai_confidence: 0,
+          ai_auto_responded: false
         });
 
       if (chatError) {

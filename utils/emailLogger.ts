@@ -1,5 +1,5 @@
+import { EmailLog, EmailLogParams, EmailSearchParams } from '@/types/gmail';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { EmailLogParams, EmailLog, EmailSearchParams } from '@/types/gmail';
 
 const supabase = createClientComponentClient();
 
@@ -10,20 +10,23 @@ class EmailLogger {
   public static async logEmail(params: EmailLogParams): Promise<EmailLog> {
     try {
       const { data, error } = await supabase
-        .from('email_logs')
+        .from('ticket_email_chats')
         .insert({
           ticket_id: params.ticketId,
           message_id: params.messageId,
           thread_id: params.threadId,
-          direction: params.direction,
-          snippet: params.snippet,
-          subject: params.subject,
           from_address: params.fromAddress,
-          to_address: params.toAddress,
-          author_id: params.authorId,
+          to_address: Array.isArray(params.toAddress) ? params.toAddress : [params.toAddress],
+          cc_address: [],
+          bcc_address: [],
+          subject: params.subject || null,
+          body: params.rawContent || '',
+          attachments: {},
+          gmail_date: new Date().toISOString(),
           org_id: params.orgId,
-          raw_content: params.rawContent,
-          labels: params.labels || []
+          ai_classification: 'unknown',
+          ai_confidence: 0,
+          ai_auto_responded: false
         })
         .select()
         .single();
@@ -134,4 +137,4 @@ class EmailLogger {
   }
 }
 
-export { EmailLogger }; 
+export { EmailLogger };

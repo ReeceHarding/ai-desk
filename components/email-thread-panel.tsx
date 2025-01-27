@@ -13,17 +13,22 @@ import { useInView } from "react-intersection-observer"
 interface EmailMessage {
   id: string
   ticket_id: string
-  message_id: string | null
-  thread_id: string | null
-  from_address: string | null
-  to_address: string[] | null
-  cc_address: string[] | null
-  bcc_address: string[] | null
+  message_id: string
+  thread_id: string
+  from_name: string | null
+  from_address: string
+  to_address: string[]
+  cc_address: string[]
+  bcc_address: string[]
   subject: string | null
-  body: string | null
+  body: string
   attachments: any
-  gmail_date: string | null
+  gmail_date: string
   org_id: string
+  ai_classification: 'should_respond' | 'no_response' | 'unknown'
+  ai_confidence: number
+  ai_auto_responded: boolean
+  ai_draft_response: string | null
   created_at: string
   updated_at: string
 }
@@ -59,7 +64,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         .from('ticket_email_chats')
         .select('*')
         .eq('ticket_id', ticket.id)
-        .order('gmail_date', { ascending: false })
+        .order('created_at', { ascending: false })
         .range(from, to)
 
       if (error) throw error
@@ -201,100 +206,175 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
           animate={{ x: 0 }}
           exit={{ x: "100%" }}
           transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-          className="absolute top-0 right-8 w-[600px] h-full bg-slate-900 border-l border-slate-800 flex flex-col rounded-l-xl shadow-2xl z-50"
+          className="absolute top-0 right-8 w-[600px] h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col rounded-l-xl shadow-2xl z-50"
         >
           {/* Header */}
-          <div className="p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center">
-                <Mail className="h-5 w-5 text-slate-300" />
+          <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm flex flex-col">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                  <Mail className="h-5 w-5 text-slate-500 dark:text-slate-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Email Thread</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">Ticket #{ticket.id}</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg font-semibold text-white">Email Thread</h2>
-                <p className="text-sm text-slate-400">Ticket #{ticket.id}</p>
+              <div className="flex items-center gap-1.5 pr-1">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
+                        <Reply className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Reply</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
+                        <Forward className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Forward</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
+                        <Star className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Star email</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
+                        <MoreHorizontal className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>More options</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white" onClick={onClose}>
+                        <X className="h-5 w-5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Close</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 pr-1">
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
-                      <Reply className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Reply</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
-                      <Forward className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Forward</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
-                      <Star className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Star email</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white">
-                      <MoreHorizontal className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>More options</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-slate-400 hover:text-white" onClick={onClose}>
-                      <X className="h-5 w-5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Close</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
+
+            {/* First Message Preview */}
+            {messageList.length > 0 && (
+              <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900 dark:text-slate-200">
+                      {messageList[messageList.length - 1].from_name || messageList[messageList.length - 1].from_address}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {format(new Date(messageList[messageList.length - 1].created_at), "MMM d, yyyy h:mm a")}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-sm text-slate-700 dark:text-slate-300 line-clamp-2">
+                  {messageList[messageList.length - 1].subject && (
+                    <span className="font-medium">{messageList[messageList.length - 1].subject} - </span>
+                  )}
+                  <span dangerouslySetInnerHTML={{ __html: messageList[messageList.length - 1].body.substring(0, 150) + '...' }} />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Email Thread */}
           <div className="flex-1 overflow-auto p-4 space-y-4 relative">
             {messageList.map((msg) => {
-              const dateObj = msg.gmail_date ? new Date(msg.gmail_date) : new Date(msg.created_at)
-              const dateLabel = format(dateObj, "MMM d, yyyy h:mm a")
+              const dateObj = new Date(msg.created_at);
+              const dateLabel = format(dateObj, "MMM d, yyyy h:mm a");
               return (
                 <div
                   key={msg.id}
-                  className="bg-slate-800/50 rounded-lg p-4 backdrop-blur-sm mb-2"
+                  className="bg-slate-50/50 dark:bg-slate-800/50 rounded-lg p-4 backdrop-blur-sm mb-2"
                 >
                   <div className="flex justify-between items-start mb-3">
                     <div>
-                      <p className="text-slate-200 font-medium">{msg.from_address || "Unknown"}</p>
-                      <p className="text-sm text-slate-400">
+                      <p className="text-slate-900 dark:text-slate-200 font-medium">
+                        {msg.from_name || msg.from_address}
+                      </p>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
                         To: {(msg.to_address || []).join(", ")}
                       </p>
+                      {msg.cc_address && msg.cc_address.length > 0 && (
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                          CC: {msg.cc_address.join(", ")}
+                        </p>
+                      )}
                     </div>
-                    <span className="text-sm text-slate-400">
-                      {dateLabel}
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="text-sm text-slate-500 dark:text-slate-400">
+                        {dateLabel}
+                      </span>
+                      {msg.ai_classification !== 'unknown' && (
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            msg.ai_classification === 'should_respond' 
+                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200'
+                              : 'bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300'
+                          }`}>
+                            {msg.ai_classification === 'should_respond' ? 'Needs Response' : 'No Response Needed'}
+                          </span>
+                          {msg.ai_confidence > 0 && (
+                            <span className="text-xs text-slate-500 dark:text-slate-400">
+                              {Math.round(msg.ai_confidence)}% confidence
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div
-                    className="prose prose-invert max-w-none text-sm"
+                    className="prose prose-slate dark:prose-invert max-w-none text-sm"
                     dangerouslySetInnerHTML={{ __html: msg.body || "" }}
                   />
+                  {msg.ai_draft_response && !msg.ai_auto_responded && (
+                    <div className="mt-4 p-3 bg-slate-100 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-slate-900 dark:text-slate-300">AI Draft Response</span>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                            onClick={() => handleSendMessage(msg.ai_draft_response!, [])}
+                          >
+                            Send
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                            onClick={() => {/* TODO: Implement edit draft */}}
+                          >
+                            Edit
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="text-sm text-slate-700 dark:text-slate-300">{msg.ai_draft_response}</div>
+                    </div>
+                  )}
                   {msg.attachments && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-slate-700">
-                      <p className="text-sm text-slate-400 mb-2">Attachments:</p>
+                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Attachments:</p>
                       {(msg.attachments as Array<any>).map((att) => (
                         <a
                           key={att.name}
                           href={att.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 mr-4"
+                          className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 mr-4"
                         >
                           <Paperclip className="h-4 w-4" />
                           {att.name}
@@ -318,7 +398,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
           </div>
 
           {/* Composer */}
-          <div className="p-4 border-t border-slate-800 bg-slate-900/50 backdrop-blur-sm">
+          <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
             <EmailComposer
               onSend={handleSendMessage}
               loading={false}
