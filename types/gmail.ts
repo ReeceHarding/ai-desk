@@ -1,3 +1,5 @@
+import { gmail_v1 } from 'googleapis';
+
 export type EmailDirection = 'inbound' | 'outbound';
 
 export interface EmailLog {
@@ -22,7 +24,6 @@ export interface EmailLog {
 export interface GmailTokens {
   access_token: string;
   refresh_token: string;
-  token_type: string;
   scope: string;
   expiry_date: number;
 }
@@ -34,53 +35,72 @@ export interface GmailProfile {
   historyId: string;
 }
 
-export interface GmailMessage {
+export interface GmailMessage extends gmail_v1.Schema$Message {
   id: string;
   threadId: string;
+  labelIds?: string[];
   snippet?: string;
+  historyId?: string;
+  internalDate?: string;
+  sizeEstimate?: number;
   payload?: {
+    partId?: string;
+    mimeType?: string;
+    filename?: string;
     headers?: Array<{
       name: string;
       value: string;
     }>;
-    mimeType?: string;
     body?: {
+      attachmentId?: string;
+      size?: number;
       data?: string;
     };
-    parts?: Array<{
-      mimeType?: string;
-      body?: {
-        data?: string;
-      };
-      parts?: any[];
-    }>;
+    parts?: GmailMessagePart[];
   };
-  labelIds?: string[];
+}
+
+export interface GmailMessagePart {
+  partId?: string;
+  mimeType?: string;
+  filename?: string;
+  headers?: Array<{
+    name: string;
+    value: string;
+  }>;
+  body?: {
+    attachmentId?: string;
+    size?: number;
+    data?: string;
+  };
+  parts?: GmailMessagePart[];
+}
+
+export interface GmailBody {
+  text?: string;
+  html?: string;
 }
 
 export interface GmailAttachment {
-  filename: string;
-  mimeType: string;
+  data: string;
   size: number;
-  attachmentId: string;
-  partId: string;
+  filename?: string;
+  mimeType?: string;
+  partId?: string;
+  attachmentId?: string;
 }
 
 export interface ParsedEmail {
-  messageId: string;
-  threadId: string;
   from: string;
-  to: string | string[];
+  to: string[];
   cc?: string[];
   bcc?: string[];
   subject: string;
-  snippet: string;
-  body: {
-    text: string;
-    html: string;
-  };
-  date: Date;
+  date: string;
+  body: GmailBody;
   attachments: GmailAttachment[];
+  threadId: string;
+  messageId: string;
 }
 
 export interface EmailLogParams {
@@ -130,4 +150,9 @@ export const GMAIL_SCOPES: GmailScope[] = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.compose',
   'https://www.googleapis.com/auth/gmail.send'
-]; 
+];
+
+export interface GmailWatchResponse {
+  historyId: string;
+  expiration: string;
+} 

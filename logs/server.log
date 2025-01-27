@@ -314,3 +314,55 @@
 [INFO] - 2025-01-25T21:08:28.678Z - Successfully fetched dashboard metrics
 [INFO] 2025-01-25T21:08:29.246Z - Successfully fetched dashboard metrics
 [INFO] - 2025-01-25T21:08:29.247Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T22:00:45.274Z - Setting up Gmail watch - {"headers":{"host":"localhost:3000","connection":"keep-alive","content-type":"application/json","accept":"*/*","accept-language":"*","sec-fetch-mode":"cors","user-agent":"node","accept-encoding":"gzip, deflate","content-length":"424","x-forwarded-host":"localhost:3000","x-forwarded-port":"3000","x-forwarded-proto":"http","x-forwarded-for":"::1"},"timestamp":"2025-01-25T22:00:45.274Z"}
+[INFO] - 2025-01-25T22:00:45.274Z - Setting up Gmail watch
+[INFO] 2025-01-25T22:00:45.370Z - No organizations need watch setup
+[INFO] - 2025-01-25T22:00:45.371Z - No organizations need watch setup
+[INFO] 2025-01-25T22:00:45.457Z - Starting initial email import - {"userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[INFO] - 2025-01-25T22:00:45.457Z - Starting initial email import
+[ERROR] 2025-01-25T22:00:46.414Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"1949d171997dab8e","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:46.415Z - Error processing message during initial import
+[ERROR] 2025-01-25T22:00:46.908Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"1949ae94a60e6ca2","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:46.908Z - Error processing message during initial import
+[ERROR] 2025-01-25T22:00:47.440Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"1949ab65c4e04a49","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:47.440Z - Error processing message during initial import
+[ERROR] 2025-01-25T22:00:47.955Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"1949a9ed4b5bb7f3","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:47.956Z - Error processing message during initial import
+[ERROR] 2025-01-25T22:00:48.456Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"1949a9a1da18e47e","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:48.457Z - Error processing message during initial import
+[ERROR] 2025-01-25T22:00:48.934Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"1949a73736e9bac8","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:48.934Z - Error processing message during initial import
+[ERROR] 2025-01-25T22:00:49.450Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"194979cbd7823096","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:49.450Z - Error processing message during initial import
+[ERROR] 2025-01-25T22:00:49.939Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"194961a5fd59ed3e","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:49.939Z - Error processing message during initial import
+[ERROR] 2025-01-25T22:00:50.436Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"194961a4da9fd00b","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:50.436Z - Error processing message during initial import
+[ERROR] 2025-01-25T22:00:50.970Z - Error processing message during initial import - {"error":{"__isAuthError":true,"name":"AuthApiError","status":403,"code":"not_admin"},"messageId":"194952f5f9a25b92","userId":"ef1e8801-6acd-43de-959e-2870984b88c0"}
+[ERROR] - 2025-01-25T22:00:50.970Z - Error processing message during initial import
+[INFO] 2025-01-25T22:00:50.976Z - Completed initial email import - {"userId":"ef1e8801-6acd-43de-959e-2870984b88c0","ticketsCreated":0}
+[INFO] - 2025-01-25T22:00:50.976Z - Completed initial email import
+[INFO] 2025-01-25T22:00:53.193Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T22:00:53.194Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T22:00:53.799Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T22:00:53.799Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T22:01:24.514Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T22:01:24.515Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T22:01:25.202Z - Successfully fetched dashboard metrics
+[INFO] - 2025-01-25T22:01:25.204Z - Successfully fetched dashboard metrics
+[INFO] 2025-01-25T22:45:40.980Z - Setting up Gmail watch - {"headers":{"host":"localhost:3000","connection":"keep-alive","content-type":"application/json","accept":"*/*","accept-language":"*","sec-fetch-mode":"cors","user-agent":"node","accept-encoding":"gzip, deflate","content-length":"424","x-forwarded-host":"localhost:3000","x-forwarded-port":"3000","x-forwarded-proto":"http","x-forwarded-for":"::1"},"timestamp":"2025-01-25T22:45:40.979Z"}
+[INFO] - 2025-01-25T22:45:40.980Z - Setting up Gmail watch
+[INFO] 2025-01-25T22:45:41.076Z - No organizations need watch setup
+[INFO] - 2025-01-25T22:45:41.076Z - No organizations need watch setup
+[INFO] 2025-01-25T22:50:06.506Z - Setting up Gmail watch - {"headers":{"host":"localhost:3000","connection":"keep-alive","content-type":"application/json","accept":"*/*","accept-language":"*","sec-fetch-mode":"cors","user-agent":"node","accept-encoding":"gzip, deflate","content-length":"424","x-forwarded-host":"localhost:3000","x-forwarded-port":"3000","x-forwarded-proto":"http","x-forwarded-for":"::1"},"timestamp":"2025-01-25T22:50:06.506Z"}
+[INFO] - 2025-01-25T22:50:06.506Z - Setting up Gmail watch
+[INFO] 2025-01-25T22:50:06.598Z - No organizations need watch setup
+[INFO] - 2025-01-25T22:50:06.598Z - No organizations need watch setup
+[INFO] 2025-01-25T23:10:11.659Z - Setting up Gmail watch - {"headers":{"host":"localhost:3000","connection":"keep-alive","content-type":"application/json","accept":"*/*","accept-language":"*","sec-fetch-mode":"cors","user-agent":"node","accept-encoding":"gzip, deflate","content-length":"424","x-forwarded-host":"localhost:3000","x-forwarded-port":"3000","x-forwarded-proto":"http","x-forwarded-for":"::1"},"timestamp":"2025-01-25T23:10:11.659Z"}
+[INFO] - 2025-01-25T23:10:11.659Z - Setting up Gmail watch
+[INFO] 2025-01-25T23:10:11.746Z - No organizations need watch setup
+[INFO] - 2025-01-25T23:10:11.746Z - No organizations need watch setup
+[INFO] 2025-01-25T23:33:58.169Z - Setting up Gmail watch - {"headers":{"host":"localhost:3000","connection":"keep-alive","content-type":"application/json","accept":"*/*","accept-language":"*","sec-fetch-mode":"cors","user-agent":"node","accept-encoding":"gzip, deflate","content-length":"424","x-forwarded-host":"localhost:3000","x-forwarded-port":"3000","x-forwarded-proto":"http","x-forwarded-for":"::1"},"timestamp":"2025-01-25T23:33:58.169Z"}
+[INFO] - 2025-01-25T23:33:58.170Z - Setting up Gmail watch
+[INFO] 2025-01-25T23:33:58.249Z - No organizations need watch setup
+[INFO] - 2025-01-25T23:33:58.249Z - No organizations need watch setup

@@ -1,19 +1,15 @@
 import { Database } from '@/types/supabase';
+import { createServerOAuth2Client, gmailServer } from '@/utils/gmail-server-config';
 import { logger } from '@/utils/logger';
 import { createPagesServerClient } from '@supabase/auth-helpers-nextjs';
 import { createClient } from '@supabase/supabase-js';
-import { google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
-
-// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
-google.options({ http2: false });
 
 function encodeBase64(text: string): string {
   return Buffer.from(text)
     .toString('base64')
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
-    .replace(/=+$/, '');
 }
 
 // Initialize Supabase admin client for storage access
@@ -214,12 +210,7 @@ export default async function handler(
     await logger.info('Setting up Gmail OAuth2 client');
 
     // Set up Gmail OAuth2 client
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GMAIL_CLIENT_ID,
-      process.env.GMAIL_CLIENT_SECRET,
-      process.env.GMAIL_REDIRECT_URI
-    );
-
+    const oauth2Client = createServerOAuth2Client();
     oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken,
@@ -247,8 +238,13 @@ export default async function handler(
     await logger.info('Sending email via Gmail API');
 
     // Send email via Gmail API
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const gmail = gmailServer;
+    gmail.users = gmail.users || {};
+    gmail.users.messages = gmail.users.messages || {};
     
+    // Set auth for this request
+    (gmail as any).context = { auth: oauth2Client };
+
     // Prepare the message request
     const messageRequest: any = {
       userId: 'me',

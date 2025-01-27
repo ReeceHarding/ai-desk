@@ -1,24 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
-import { OAuth2Client } from 'google-auth-library';
-import { google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
-import { GmailProfile } from '../../../types/gmail';
+import { GmailTokens } from '../../../types/gmail';
+import { Database } from '../../../types/supabase';
+import { getGmailProfile } from '../../../utils/gmail-server';
 
-const supabase = createClient(
+const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_KEY!
 );
 
-const oauth2Client = new OAuth2Client(
-  process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
-  process.env.GMAIL_CLIENT_SECRET,
-  process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
-);
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Method not allowed' });
   }
@@ -30,7 +21,7 @@ export default async function handler(
       return res.status(400).json({ message: 'Missing organization ID' });
     }
 
-    // Get tokens from organizations table
+    // Get organization's Gmail tokens
     const { data: org, error: orgError } = await supabase
       .from('organizations')
       .select('gmail_access_token, gmail_refresh_token')
@@ -38,37 +29,23 @@ export default async function handler(
       .single();
 
     if (orgError || !org) {
-      console.error('Error getting organization tokens:', orgError);
-      return res.status(404).json({ message: 'Organization not found or missing Gmail tokens' });
+      return res.status(404).json({ message: 'Organization not found' });
     }
 
-    const { gmail_access_token, gmail_refresh_token } = org;
-
-    if (!gmail_access_token || !gmail_refresh_token) {
-      return res.status(400).json({ message: 'Missing required tokens' });
+    if (!org.gmail_access_token || !org.gmail_refresh_token) {
+      return res.status(400).json({ message: 'Organization missing Gmail tokens' });
     }
 
-    oauth2Client.setCredentials({
-      access_token: gmail_access_token,
-      refresh_token: gmail_refresh_token,
-    });
+    // Get Gmail profile
+    const profile = await getGmailProfile({
+      access_token: org.gmail_access_token,
+      refresh_token: org.gmail_refresh_token,
+      expiry_date: 0 // We'll refresh the token if needed
+    } as GmailTokens);
 
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-
-    const { data: profile } = await gmail.users.getProfile({
-      userId: 'me',
-    });
-
-    const gmailProfile: GmailProfile = {
-      emailAddress: profile.emailAddress || '',
-      messagesTotal: profile.messagesTotal || 0,
-      threadsTotal: profile.threadsTotal || 0,
-      historyId: profile.historyId || '',
-    };
-
-    return res.json(gmailProfile);
+    res.status(200).json(profile);
   } catch (error) {
-    console.error('Error in Gmail profile API route:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error('Error fetching Gmail profile:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 } 

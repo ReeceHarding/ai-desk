@@ -1,13 +1,8 @@
-import { GMAIL_SCOPES } from '@/types/gmail';
 import { Database } from '@/types/supabase';
-import { importInitialEmails, setupOrRefreshWatch } from '@/utils/gmail';
+import { getTokensFromCode, setupGmailWatch } from '@/utils/gmail-server';
+import { logger } from '@/utils/logger';
 import { createClient } from '@supabase/supabase-js';
-import axios from 'axios';
-import { google } from 'googleapis';
-import { NextApiRequest, NextApiResponse } from 'next';
-
-// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
-google.options({ http2: false });
+import type { NextApiRequest, NextApiResponse } from 'next/types';
 
 interface GoogleOAuthError extends Error {
   response?: {
@@ -19,15 +14,15 @@ interface GoogleOAuthError extends Error {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  console.log('\n=== Gmail Callback Started ===');
+  logger.info('=== Gmail Callback Started ===');
   
   // Add request ID for tracing
   const requestId = Math.random().toString(36).substring(7);
   const log = (message: string, data?: any) => {
-    console.log(`[${requestId}] ${message}`, data || '');
+    logger.info(`[${requestId}] ${message}`, data);
   };
   
-  log('Request details:', {
+  log('Request details', {
     method: req.method,
     query: req.query,
     headers: {
@@ -38,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   if (req.method !== 'GET') {
-    log('Method not allowed:', req.method);
+    log('Method not allowed', { method: req.method });
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -48,12 +43,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     // Handle OAuth errors
     if (oauthError) {
-      log('OAuth error received:', { error: oauthError, description: error_description });
+      log('OAuth error received', { error: oauthError, description: error_description });
       return res.redirect(`/profile/settings?error=true&message=${encodeURIComponent(error_description as string || 'OAuth error')}`);
     }
 
     if (!code || !state) {
-      log('Missing required parameters:', { code: !!code, state: !!state });
+      log('Missing required parameters', { code: !!code, state: !!state });
       return res.status(400).json({ error: 'Missing code or state parameter' });
     }
 
@@ -66,15 +61,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Handle onboarding flow
       type = stateParts[1]; // 'admin' or 'agent'
       id = stateParts[2];
-      log('Onboarding state parsed:', { type, id, originalState: state });
+      log('Onboarding state parsed', { type, id, originalState: state });
     } else {
       // Handle regular flow
       [type, id] = stateParts;
-      log('Regular state parsed:', { type, id, originalState: state });
+      log('Regular state parsed', { type, id, originalState: state });
     }
 
     if (!type || !id) {
-      log('Invalid state format:', { type, id, state });
+      log('Invalid state format', { type, id, state });
       return res.redirect('/profile/settings?error=true&message=Invalid state parameter');
     }
 
@@ -98,37 +93,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       log('Starting token exchange...');
       
-      // Verify required environment variables
-      if (!process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID || !process.env.GMAIL_CLIENT_SECRET || !process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI) {
-        throw new Error('Missing Gmail OAuth configuration');
-      }
+      // Exchange the authorization code for tokens using our server utility
+      const tokens = await getTokensFromCode(code as string);
 
-      // Exchange the authorization code for tokens
-      const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
-        code,
-        client_id: process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
-        client_secret: process.env.GMAIL_CLIENT_SECRET,
-        redirect_uri: process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI,
-        grant_type: 'authorization_code',
+      log('Token exchange successful', {
+        hasAccessToken: !!tokens.access_token,
+        hasRefreshToken: !!tokens.refresh_token,
+        expiryDate: tokens.expiry_date,
       });
-
-      log('Token exchange successful:', {
-        hasAccessToken: !!tokenResponse.data.access_token,
-        hasRefreshToken: !!tokenResponse.data.refresh_token,
-        expiresIn: tokenResponse.data.expires_in,
-        tokenType: tokenResponse.data.token_type,
-      });
-
-      const { access_token, refresh_token, expires_in } = tokenResponse.data;
-
-      if (!access_token || !refresh_token) {
-        log('Missing tokens in response:', {
-          hasAccessToken: !!access_token,
-          hasRefreshToken: !!refresh_token,
-          responseData: tokenResponse.data,
-        });
-        throw new Error('Invalid token response');
-      }
 
       // Handle different flows
       if (stateParts[0] === 'onboarding') {
@@ -136,7 +108,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const userType = stateParts[1]; // 'admin' or 'agent'
         const userId = stateParts[2];
 
-        log('Handling onboarding flow:', { userType, userId });
+        log('Handling onboarding flow', { userType, userId });
 
         // Get user's organization
         const { data: profile, error: profileError } = await supabase
@@ -146,7 +118,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .single();
 
         if (profileError || !profile?.org_id) {
-          log('Error fetching profile organization:', profileError);
+          log('Error fetching profile organization', { error: profileError });
           throw profileError || new Error('No organization found for profile');
         }
 
@@ -154,60 +126,60 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const { error: profileUpdateError } = await supabase
           .from('profiles')
           .update({
-            gmail_access_token: access_token,
-            gmail_refresh_token: refresh_token,
+            gmail_access_token: tokens.access_token,
+            gmail_refresh_token: tokens.refresh_token,
+            gmail_token_expiry: new Date(tokens.expiry_date).toISOString(),
             updated_at: new Date().toISOString()
           })
           .eq('id', userId);
 
         if (profileUpdateError) {
-          log('Error updating profile:', profileUpdateError);
+          log('Error updating profile', { error: profileUpdateError });
           throw profileUpdateError;
         }
 
         const { error: orgUpdateError } = await supabase
           .from('organizations')
           .update({
-            gmail_access_token: access_token,
-            gmail_refresh_token: refresh_token,
+            gmail_access_token: tokens.access_token,
+            gmail_refresh_token: tokens.refresh_token,
+            gmail_token_expiry: new Date(tokens.expiry_date).toISOString(),
             updated_at: new Date().toISOString(),
           })
           .eq('id', profile.org_id);
 
         if (orgUpdateError) {
-          log('Error updating organization:', orgUpdateError);
+          log('Error updating organization', { error: orgUpdateError });
           // Don't throw, continue with watch setup
         }
 
-        // Set up Gmail watch
+        // Set up Gmail watch using our server utility
         try {
-          const watchResult = await setupOrRefreshWatch({
-            access_token,
-            refresh_token,
-            token_type: 'Bearer',
-            scope: GMAIL_SCOPES.join(' '),
-            expiry_date: Date.now() + (expires_in * 1000)
-          },
-          'profile',
-          userId);
+          const watchResult = await setupGmailWatch(tokens, userId, profile.org_id);
+          
+          // Update profile with watch details
+          const updateData = {
+            gmail_watch_status: 'active',
+            gmail_watch_expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            gmail_watch_resource_id: watchResult.resourceId,
+            updated_at: new Date().toISOString()
+          };
 
-          // Update watch status
-          await supabase
+          const { error: updateError } = await supabase
             .from('profiles')
-            .update({
-              gmail_watch_status: 'active',
-              gmail_watch_expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-              gmail_watch_resource_id: watchResult.resourceId,
-              updated_at: new Date().toISOString()
-            })
+            .update(updateData)
             .eq('id', userId);
+
+          if (updateError) {
+            throw updateError;
+          }
 
           log('Successfully set up Gmail watch for onboarding user', {
             resourceId: watchResult.resourceId,
-            expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+            expiration: updateData.gmail_watch_expiration
           });
         } catch (watchError) {
-          log('Error setting up Gmail watch:', watchError);
+          log('Error setting up Gmail watch', { error: watchError });
           // Update status to failed
           await supabase
             .from('profiles')
@@ -221,16 +193,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Import initial emails
         try {
-          await importInitialEmails(userId, {
-            access_token,
-            refresh_token,
-            token_type: 'Bearer',
-            scope: GMAIL_SCOPES.join(' '),
-            expiry_date: Date.now() + (expires_in * 1000)
+          const response = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/gmail/import-emails`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Cookie: req.headers.cookie || '',
+            },
+            body: JSON.stringify({ 
+              organizationId: profile.org_id,
+            })
           });
-          log('Successfully imported initial emails for onboarding user');
+
+          if (!response.ok) {
+            const error = await response.json();
+            log('Error importing emails', { error });
+            // Don't throw - we want the OAuth flow to complete
+          } else {
+            const result = await response.json();
+            log('Successfully imported initial emails', { result });
+          }
         } catch (importError) {
-          log('Error importing initial emails during onboarding:', importError);
+          log('Error importing initial emails', { error: importError });
           // Continue with redirect even if import fails
         }
 
@@ -242,52 +225,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       } else {
         // Regular flow (organization or profile)
-        // Update the appropriate record with the tokens
         if (type === 'organization') {
-          log('Updating organization:', id);
+          log('Updating organization', { id });
           const { error: updateError } = await supabase
             .from('organizations')
             .update({
-              gmail_access_token: access_token,
-              gmail_refresh_token: refresh_token,
+              gmail_access_token: tokens.access_token,
+              gmail_refresh_token: tokens.refresh_token,
+              gmail_token_expiry: new Date(tokens.expiry_date).toISOString(),
               updated_at: new Date().toISOString(),
             })
             .eq('id', id);
 
           if (updateError) {
-            log('Error updating organization:', updateError);
+            log('Error updating organization', { error: updateError });
             throw updateError;
           }
 
-          // Set up Gmail watch for organization
+          // Set up Gmail watch
           try {
-            const watchResult = await setupOrRefreshWatch({
-              access_token,
-              refresh_token,
-              token_type: 'Bearer',
-              scope: GMAIL_SCOPES.join(' '),
-              expiry_date: Date.now() + (expires_in * 1000)
-            },
-            'organization',
-            id);
+            const watchResult = await setupGmailWatch(tokens, id, id);
+            
+            // Update organization with watch details
+            const updateData = {
+              gmail_watch_status: 'active',
+              gmail_watch_expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              gmail_watch_resource_id: watchResult.resourceId,
+              updated_at: new Date().toISOString()
+            };
 
-            // Update watch status in database
-            await supabase
+            const { error: updateError } = await supabase
               .from('organizations')
-              .update({
-                gmail_watch_status: 'active',
-                gmail_watch_expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                gmail_watch_resource_id: watchResult.resourceId,
-                updated_at: new Date().toISOString()
-              })
+              .update(updateData)
               .eq('id', id);
+
+            if (updateError) {
+              throw updateError;
+            }
 
             log('Successfully set up Gmail watch for organization', {
               resourceId: watchResult.resourceId,
-              expiration: new Date(watchResult.expiration).toISOString()
+              expiration: updateData.gmail_watch_expiration
             });
           } catch (watchError) {
-            log('Error setting up Gmail watch for organization:', watchError);
+            log('Error setting up Gmail watch for organization', { error: watchError });
             // Update status to failed
             await supabase
               .from('organizations')
@@ -302,7 +283,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           log('Organization update successful');
           return res.redirect(`/organizations/${id}/settings?success=true`);
         } else if (type === 'profile') {
-          log('Updating profile:', id);
+          log('Updating profile', { id });
           
           // First get the user's organization
           const { data: profile, error: profileError } = await supabase
@@ -312,71 +293,55 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .single();
 
           if (profileError || !profile?.org_id) {
-            log('Error fetching profile organization:', profileError);
+            log('Error fetching profile organization', { error: profileError });
             throw profileError || new Error('No organization found for profile');
           }
 
-          // Update profile
+          // Update profile only
           const { error: updateError } = await supabase
             .from('profiles')
             .update({
-              gmail_access_token: access_token,
-              gmail_refresh_token: refresh_token,
+              gmail_access_token: tokens.access_token,
+              gmail_refresh_token: tokens.refresh_token,
+              gmail_token_expiry: new Date(tokens.expiry_date).toISOString(),
               updated_at: new Date().toISOString(),
             })
             .eq('id', id);
 
           if (updateError) {
-            log('Error updating profile:', updateError);
+            log('Error updating profile', { error: updateError });
             throw updateError;
           }
 
-          // Update organization
-          const { error: orgUpdateError } = await supabase
-            .from('organizations')
-            .update({
-              gmail_access_token: access_token,
-              gmail_refresh_token: refresh_token,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', profile.org_id);
+          log('Successfully updated profile with Gmail tokens');
 
-          if (orgUpdateError) {
-            log('Error updating organization:', orgUpdateError);
-            // Don't throw, continue with watch setup
-          }
-
-          log('Successfully updated profile and organization with Gmail tokens');
-
-          // Set up Gmail watch for profile
+          // Set up Gmail watch
           try {
-            const watchResult = await setupOrRefreshWatch({
-              access_token,
-              refresh_token,
-              token_type: 'Bearer',
-              scope: GMAIL_SCOPES.join(' '),
-              expiry_date: Date.now() + (expires_in * 1000)
-            },
-            'profile',
-            id);
+            const watchResult = await setupGmailWatch(tokens, id, profile.org_id);
+            
+            // Update profile with watch details
+            const updateData = {
+              gmail_watch_status: 'active',
+              gmail_watch_expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              gmail_watch_resource_id: watchResult.resourceId,
+              updated_at: new Date().toISOString()
+            };
 
-            // Update watch status in database
-            await supabase
+            const { error: updateError } = await supabase
               .from('profiles')
-              .update({
-                gmail_watch_status: 'active',
-                gmail_watch_expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-                gmail_watch_resource_id: watchResult.resourceId,
-                updated_at: new Date().toISOString()
-              })
+              .update(updateData)
               .eq('id', id);
+
+            if (updateError) {
+              throw updateError;
+            }
 
             log('Successfully set up Gmail watch for profile', {
               resourceId: watchResult.resourceId,
-              expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+              expiration: updateData.gmail_watch_expiration
             });
           } catch (watchError) {
-            log('Error setting up Gmail watch for profile:', watchError);
+            log('Error setting up Gmail watch for profile', { error: watchError });
             // Update status to failed
             await supabase
               .from('profiles')
@@ -390,29 +355,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
           // Import initial emails
           try {
-            await importInitialEmails(id, {
-              access_token,
-              refresh_token,
-              token_type: 'Bearer',
-              scope: GMAIL_SCOPES.join(' '),
-              expiry_date: Date.now() + (expires_in * 1000)
+            const response = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL}/api/gmail/import-emails`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Cookie: req.headers.cookie || '',
+              },
+              body: JSON.stringify({ 
+                organizationId: profile.org_id,
+              })
             });
-            log('Successfully imported initial emails');
+
+            if (!response.ok) {
+              const error = await response.json();
+              log('Error importing emails', { error });
+            } else {
+              const result = await response.json();
+              log('Successfully imported emails', { result });
+            }
           } catch (importError) {
-            log('Error importing initial emails:', importError);
+            log('Error importing initial emails', { error: importError });
             // Continue with redirect even if import fails
           }
 
           // Redirect back to profile settings
           return res.redirect('/profile/settings?success=true');
         } else {
-          log('Invalid state type:', type);
+          log('Invalid state type', { type });
           throw new Error('Invalid state parameter');
         }
       }
     } catch (tokenError: unknown) {
       const error = tokenError as GoogleOAuthError;
-      log('Token exchange/update error:', {
+      log('Token exchange/update error', {
         error: error.message,
         response: error.response?.data,
         stack: error.stack,
@@ -422,7 +397,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } catch (error: unknown) {
     const err = error as GoogleOAuthError;
-    log('Gmail OAuth callback error:', {
+    log('Gmail OAuth callback error', {
       error: err.message,
       stack: err.stack,
     });

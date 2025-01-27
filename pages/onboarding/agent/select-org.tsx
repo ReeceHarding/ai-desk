@@ -85,38 +85,34 @@ export default function AgentSelectOrg() {
       }
 
       // First, unset is_current flag on all organizations
-      const { error: updateOldError } = await supabase
-        .from('organizations')
-        .update({ 
-          config: supabase.rpc('jsonb_set', {
-            jsonb: 'config',
-            path: '{is_current}',
-            value: 'false'
-          })
-        })
-        .eq('created_by', user.id);
+      const { data: updateOldData, error: updateOldError } = await supabase
+        .rpc('update_org_config', {
+          p_user_id: user.id,
+          p_is_current: false
+        });
 
-      if (updateOldError) {
-        logger.error('[AGENT_SELECT_ORG] Error unsetting current org:', { error: updateOldError });
-        setError('Failed to update organization settings');
+      if (updateOldError || !updateOldData?.success) {
+        logger.error('[AGENT_SELECT_ORG] Error unsetting current org:', { 
+          error: updateOldError,
+          result: updateOldData
+        });
+        setError(updateOldData?.message || 'Failed to update organization settings');
         return;
       }
 
       // Set is_current flag on the selected organization
-      const { error: updateNewError } = await supabase
-        .from('organizations')
-        .update({ 
-          config: supabase.rpc('jsonb_set', {
-            jsonb: 'config',
-            path: '{is_current}',
-            value: 'true'
-          })
-        })
-        .eq('id', selectedOrg.id);
+      const { data: updateNewData, error: updateNewError } = await supabase
+        .rpc('update_org_config', {
+          p_org_id: selectedOrg.id,
+          p_is_current: true
+        });
 
-      if (updateNewError) {
-        logger.error('[AGENT_SELECT_ORG] Error setting current org:', { error: updateNewError });
-        setError('Failed to update organization settings');
+      if (updateNewError || !updateNewData?.success) {
+        logger.error('[AGENT_SELECT_ORG] Error setting current org:', { 
+          error: updateNewError,
+          result: updateNewData
+        });
+        setError(updateNewData?.message || 'Failed to update organization settings');
         return;
       }
 

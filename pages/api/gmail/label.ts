@@ -1,46 +1,65 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { google } from 'googleapis';
-import { OAuth2Client } from 'google-auth-library';
+import { GmailTokens } from '../../../types/gmail';
+import { getGmailClient } from './utils';
 
-const oauth2Client = new OAuth2Client(
-  process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
-  process.env.GMAIL_CLIENT_SECRET,
-  process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
-);
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const { messageId, labelName, access_token, refresh_token } = req.body;
+    const { messageId, labelName } = req.body;
+    const authHeader = req.headers.authorization;
 
-    if (!messageId || !labelName || !access_token || !refresh_token) {
-      return res.status(400).json({ message: 'Missing required parameters' });
+    if (!messageId || !labelName) {
+      return res.status(400).json({ error: 'Message ID and label name are required' });
     }
 
-    oauth2Client.setCredentials({
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token provided' });
+    }
+
+    const access_token = authHeader.split(' ')[1];
+    const tokens: GmailTokens = {
       access_token,
-      refresh_token,
+      refresh_token: '', // Not needed for this request
+      expiry_date: Date.now() + 3600000 // Default 1 hour
+    };
+
+    const gmail = await getGmailClient(tokens);
+
+    // First, check if the label exists
+    const { data: labels } = await gmail.users.labels.list({
+      userId: 'me'
     });
 
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    let labelId = labels.labels?.find(label => label.name === labelName)?.id;
 
-    await gmail.users.messages.modify({
+    // If label doesn't exist, create it
+    if (!labelId) {
+      const { data: newLabel } = await gmail.users.labels.create({
+        userId: 'me',
+        requestBody: {
+          name: labelName,
+          labelListVisibility: 'labelShow',
+          messageListVisibility: 'show'
+        }
+      });
+      labelId = newLabel.id;
+    }
+
+    // Add label to message
+    const response = await gmail.users.messages.modify({
       userId: 'me',
       id: messageId,
       requestBody: {
-        addLabelIds: [labelName],
-      },
+        addLabelIds: [labelId!]
+      }
     });
 
-    return res.json({ success: true });
-  } catch (error) {
-    console.error('Error in Gmail label API route:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    return res.status(200).json(response.data);
+  } catch (error: any) {
+    console.error('Error adding Gmail label:', error);
+    return res.status(error.code || 500).json({ error: error.message });
   }
 } 

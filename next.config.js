@@ -25,8 +25,18 @@ const nextConfig = {
         http2: false
       };
     }
+
+    // Handle all lodash imports
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'lodash': require.resolve('lodash'),
+      // Handle dynamic lodash submodule imports
+      'lodash/': require.resolve('lodash').replace('/lodash.js', '/')
+    };
+
     return config;
   },
+  transpilePackages: ['recharts', 'lodash', 'd3-*', '@babel/runtime'],
 }
 
 module.exports = nextConfig 

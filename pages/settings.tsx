@@ -1,4 +1,4 @@
-import { NotificationPreferences } from '@/components/notification-preferences';
+import NotificationPreferences from '@/components/notification-preferences';
 import { useUser } from '@supabase/auth-helpers-react';
 import { useRouter } from 'next/router';
 import { useEffect } from 'react';
@@ -14,7 +14,7 @@ export default function Settings() {
   }, [user, router]);
 
   if (!user) {
-    return null;
+    return <div>Loading...</div>;
   }
 
   return (
@@ -32,7 +32,10 @@ export default function Settings() {
             <div className="px-4 py-8 sm:px-0">
               <div className="bg-white shadow sm:rounded-lg">
                 <div className="px-4 py-5 sm:p-6">
-                  <NotificationPreferences />
+                  <div>
+                    <h2>Notification Preferences</h2>
+                    <NotificationPreferences userId={user.id} orgId={user.user_metadata.org_id} />
+                  </div>
                 </div>
               </div>
             </div>

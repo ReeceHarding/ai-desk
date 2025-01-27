@@ -11,13 +11,14 @@ import '../styles/globals.css';
 
 // Routes that should not use AppLayout
 const noLayoutRoutes = [
-  '/auth/signin',
+  '/auth/login',
   '/auth/signup',
-  '/onboarding',
-  '/onboarding/customer/select-org',
-  '/onboarding/agent/select-org',
+  '/auth/callback',
+  '/auth/verify-email',
   '/onboarding/admin/create-org',
-  '/onboarding/select-role'
+  '/onboarding/agent/select-org',
+  '/onboarding/customer/select-org',
+  '/onboarding',
 ];
 
 export default function App({ Component, pageProps, router }: AppProps) {

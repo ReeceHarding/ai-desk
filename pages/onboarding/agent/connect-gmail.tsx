@@ -1,183 +1,162 @@
+import { Database } from '@/types/supabase';
 import { logger } from '@/utils/logger';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
-export default function ConnectGmail() {
+// Gmail scopes - safe to have on client since they're public
+const GMAIL_SCOPES = [
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.labels',
+  'https://www.googleapis.com/auth/gmail.metadata'
+];
+
+export default function ConnectGmailAgent() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const supabase = createClientComponentClient();
+  const [origin, setOrigin] = useState<string>('');
+  const supabase = createClientComponentClient<Database>();
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setOrigin(window.location.origin);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Check for success/error query params
+    if (router.query.success) {
+      // Import emails after successful connection
+      const importEmails = async () => {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) {
+            logger.error('[GMAIL_CONNECT] No user found');
+            return;
+          }
+
+          // Get user's organization
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('org_id')
+            .eq('id', user.id)
+            .single();
+
+          if (!profile?.org_id) {
+            logger.error('[GMAIL_CONNECT] No organization found');
+            return;
+          }
+
+          // Import emails via API call
+          const response = await fetch('/api/gmail/import-emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ organizationId: profile.org_id })
+          });
+
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to import emails');
+          }
+
+          // Redirect to tickets page
+          router.push('/tickets');
+        } catch (err) {
+          logger.error('[GMAIL_CONNECT] Error importing emails:', { error: err });
+          setError('Failed to import emails. Please try again later.');
+        }
+      };
+
+      importEmails();
+      router.replace('/onboarding/agent/connect-gmail', undefined, { shallow: true });
+    } else if (router.query.error) {
+      setError('Failed to connect Gmail account. Please try again.');
+      router.replace('/onboarding/agent/connect-gmail', undefined, { shallow: true });
+    }
+  }, [router.query, supabase, router]);
 
   const handleConnectGmail = async () => {
-    setIsLoading(true);
-    setError(null);
-
     try {
-      logger.info('[CONNECT_GMAIL] Starting Gmail OAuth');
+      setIsLoading(true);
+      setError(null);
 
+      // Get current user
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       if (userError || !user) {
-        logger.error('[CONNECT_GMAIL] Auth error:', { error: userError });
-        setError('Could not verify your identity');
-        return;
+        throw new Error('Could not verify your identity');
       }
 
-      const response = await fetch('/api/gmail/onboarding-auth-url', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          type: 'agent',
-          id: user.id,
-        }),
+      // Initiate OAuth flow
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${origin}/api/integrations/gmail/callback`,
+          scopes: GMAIL_SCOPES.join(' '),
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+            state: `onboarding:agent:${user.id}`
+          }
+        }
       });
 
-      const data = await response.json();
+      if (error) throw error;
+      if (!data?.url) throw new Error('No OAuth URL received');
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to get auth URL');
-      }
-
-      logger.info('[CONNECT_GMAIL] OAuth initiated successfully');
+      // Redirect to Google OAuth
       window.location.href = data.url;
     } catch (err) {
-      logger.error('[CONNECT_GMAIL] Unexpected error:', { error: err });
-      setError('An unexpected error occurred');
+      logger.error('[GMAIL_CONNECT] Error:', err);
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleSkip = async () => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      logger.info('[CONNECT_GMAIL] User skipping Gmail setup');
-
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) {
-        logger.error('[CONNECT_GMAIL] Auth error:', { error: userError });
-        setError('Could not verify your identity');
-        return;
-      }
-
-      // Update profile to mark Gmail setup as skipped
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          metadata: {
-            gmail_setup_skipped: true,
-            gmail_setup_skipped_at: new Date().toISOString()
-          }
-        })
-        .eq('id', user.id);
-
-      if (updateError) {
-        logger.error('[CONNECT_GMAIL] Profile update error:', { error: updateError });
-        setError('Failed to update your preferences');
-        return;
-      }
-
-      logger.info('[CONNECT_GMAIL] Gmail setup skipped successfully');
-      router.push('/tickets');
-    } catch (err) {
-      logger.error('[CONNECT_GMAIL] Unexpected error:', { error: err });
-      setError('An unexpected error occurred');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleSkip = () => {
+    router.push('/tickets');
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="mb-8">
-          <div className="flex items-center justify-center space-x-4">
-            <div className="flex items-center">
-              <div className="flex items-center justify-center w-8 h-8 bg-blue-600 rounded-full">
-                <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <span className="ml-2 text-sm font-medium text-gray-900">Organization</span>
-            </div>
-            <div className="w-12 h-0.5 bg-blue-600"></div>
-            <div className="flex items-center">
-              <div className="flex items-center justify-center w-8 h-8 bg-blue-600 border-2 border-blue-600 rounded-full">
-                <span className="text-white font-bold">2</span>
-              </div>
-              <span className="ml-2 text-sm font-medium text-gray-900">Gmail</span>
-            </div>
-            <div className="w-12 h-0.5 bg-gray-200"></div>
-            <div className="flex items-center">
-              <div className="flex items-center justify-center w-8 h-8 bg-white border-2 border-gray-300 rounded-full">
-                <span className="text-gray-500 font-bold">3</span>
-              </div>
-              <span className="ml-2 text-sm font-medium text-gray-500">Done</span>
-            </div>
-          </div>
-        </div>
-
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          Connect Gmail
+          Connect Gmail Account
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Connect your Gmail account to manage tickets via email
+          Connect your Gmail account to import and manage your emails
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
           {error && (
-            <div className="mb-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded">
-              {error}
+            <div className="mb-4 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded relative" role="alert">
+              <span className="block sm:inline">{error}</span>
             </div>
           )}
 
           <div className="space-y-6">
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="text-lg font-medium text-gray-900">Why connect Gmail?</h3>
-              <div className="mt-2 text-sm text-gray-500">
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>Respond to tickets directly from your email</li>
-                  <li>Automatically create tickets from incoming emails</li>
-                  <li>Keep your email and ticket workflows in sync</li>
-                </ul>
-              </div>
-            </div>
+            <button
+              type="button"
+              onClick={handleConnectGmail}
+              disabled={isLoading}
+              className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${
+                isLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {isLoading ? 'Connecting...' : 'Connect Gmail'}
+            </button>
 
-            <div className="flex flex-col space-y-4">
-              <button
-                onClick={handleConnectGmail}
-                disabled={isLoading}
-                className="flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-              >
-                {isLoading ? (
-                  'Connecting...'
-                ) : (
-                  <>
-                    <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
-                      <path
-                        fill="currentColor"
-                        d="M20 18h-2V9.25L12 13 6 9.25V18H4V6h1.2l6.8 4.25L18.8 6H20m0-2H4c-1.11 0-2 .89-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.11-.9-2-2-2z"
-                      />
-                    </svg>
-                    Connect Gmail
-                  </>
-                )}
-              </button>
-
-              <button
-                onClick={handleSkip}
-                disabled={isLoading}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                Skip for now (you can connect later)
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleSkip}
+              className="w-full flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Skip for now
+            </button>
           </div>
         </div>
       </div>

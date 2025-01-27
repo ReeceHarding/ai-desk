@@ -5,9 +5,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useRouter } from 'next/router';
 
 // Mock the dependencies
-jest.mock('@supabase/auth-helpers-nextjs');
+jest.mock('@supabase/auth-helpers-nextjs', () => ({
+  createClientComponentClient: jest.fn()
+}));
 jest.mock('next/router', () => ({
-  useRouter: () => ({ push: jest.fn() })
+  useRouter: jest.fn()
 }));
 jest.mock('@/utils/logger');
 
@@ -22,7 +24,8 @@ describe('ConnectGmailAdmin', () => {
 
   const mockRouter = {
     query: {},
-    push: jest.fn()
+    push: jest.fn(),
+    replace: jest.fn()
   };
 
   beforeEach(() => {
@@ -48,30 +51,45 @@ describe('ConnectGmailAdmin', () => {
   it('renders the component with benefits list', () => {
     render(<ConnectGmailAdmin />);
     
-    expect(screen.getByText('Connect Gmail (Optional)')).toBeInTheDocument();
-    expect(screen.getByText('Benefits of Gmail Integration')).toBeInTheDocument();
-    expect(screen.getByText('Manage support tickets directly from your email')).toBeInTheDocument();
+    expect(screen.getByText('Connect Gmail')).toBeInTheDocument();
+    expect(screen.getByText('Connect your Gmail account to manage tickets via email')).toBeInTheDocument();
   });
 
   it('renders connect and skip buttons', () => {
     render(<ConnectGmailAdmin />);
     
-    expect(screen.getByText(/connect gmail/i)).toBeInTheDocument();
-    expect(screen.getByText(/skip/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /connect gmail/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /skip for now/i })).toBeInTheDocument();
   });
 
-  it('handles connect button click', () => {
+  it('handles connect button click', async () => {
     render(<ConnectGmailAdmin />);
     
     const connectButton = screen.getByText(/connect gmail/i);
     fireEvent.click(connectButton);
+
+    await waitFor(() => {
+      expect(mockSupabase.auth.signInWithOAuth).toHaveBeenCalledWith({
+        provider: 'google',
+        options: expect.objectContaining({
+          queryParams: expect.objectContaining({
+            access_type: 'offline',
+            prompt: 'consent'
+          })
+        })
+      });
+    });
   });
 
-  it('handles skip button click', () => {
+  it('handles skip button click', async () => {
     render(<ConnectGmailAdmin />);
     
-    const skipButton = screen.getByText(/skip/i);
+    const skipButton = screen.getByRole('button', { name: /skip for now/i });
     fireEvent.click(skipButton);
+
+    await waitFor(() => {
+      expect(mockRouter.push).toHaveBeenCalledWith('/tickets');
+    });
   });
 
   it('handles successful Gmail connection', async () => {
@@ -99,12 +117,12 @@ describe('ConnectGmailAdmin', () => {
   it('handles successful skip action', async () => {
     render(<ConnectGmailAdmin />);
     
-    const skipButton = screen.getByRole('button', { name: /skip/i });
+    const skipButton = screen.getByRole('button', { name: /skip for now/i });
     fireEvent.click(skipButton);
 
     await waitFor(() => {
       expect(mockSupabase.auth.getUser).toHaveBeenCalled();
-      expect(mockRouter.push).toHaveBeenCalledWith('/admin/dashboard');
+      expect(mockRouter.push).toHaveBeenCalledWith('/tickets');
     });
 
     expect(logger.info).toHaveBeenCalledWith('[ADMIN_CONNECT_GMAIL] Gmail setup skipped successfully');

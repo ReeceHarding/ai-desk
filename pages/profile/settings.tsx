@@ -1,4 +1,4 @@
-import { NotificationPreferences } from '@/components/notification-preferences';
+import NotificationPreferences from '@/components/notification-preferences';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -18,13 +18,15 @@ interface Profile {
   role: UserRole;
   gmail_access_token?: string | null;
   gmail_refresh_token?: string | null;
+  org_id: string;
 }
 
 export default function ProfileSettings() {
-  const supabase = useSupabaseClient();
+  const supabase = useSupabaseClient<Database>();
   const user = useUser();
   const router = useRouter();
   const { toast } = useToast();
+  const { success, error } = router.query;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [gmailAddress, setGmailAddress] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -65,7 +67,7 @@ export default function ProfileSettings() {
 
   const fetchGmailProfile = useCallback(async () => {
     try {
-      if (!profile?.gmail_refresh_token || !profile?.gmail_access_token) {
+      if (!profile?.gmail_refresh_token || !profile?.gmail_access_token || !user?.id) {
         setGmailAddress(null);
         return;
       }
@@ -73,16 +75,14 @@ export default function ProfileSettings() {
       const gmailProfile = await getGmailProfile({
         refresh_token: profile.gmail_refresh_token,
         access_token: profile.gmail_access_token,
-        token_type: 'Bearer',
-        scope: 'https://www.googleapis.com/auth/gmail.modify',
-        expiry_date: 0
+        user_id: user.id
       });
       setGmailAddress(gmailProfile.emailAddress);
     } catch (error) {
       console.error('Error fetching Gmail profile:', error);
       setGmailAddress(null);
     }
-  }, [profile?.gmail_refresh_token, profile?.gmail_access_token]);
+  }, [profile?.gmail_refresh_token, profile?.gmail_access_token, user?.id]);
 
   useEffect(() => {
     if (user) {
@@ -91,34 +91,22 @@ export default function ProfileSettings() {
   }, [user, fetchProfile]);
 
   useEffect(() => {
-    // Check for success/error query params
-    if (router.query.success) {
+    if (success) {
       toast({
-        title: "Gmail Connected",
-        description: "Your Gmail account has been successfully connected.",
-        variant: "default",
+        title: 'Success',
+        description: 'Gmail connected successfully',
       });
-      // Remove query params
-      router.replace('/profile/settings', undefined, { shallow: true });
-    } else if (router.query.error) {
+      router.replace('/profile/settings');
+    }
+    if (error) {
       toast({
-        title: "Connection Failed",
-        description: router.query.message as string || "Failed to connect Gmail account. Please try again.",
-        variant: "destructive",
+        title: 'Error',
+        description: 'Failed to connect Gmail',
+        variant: 'destructive',
       });
-      // Remove query params
-      router.replace('/profile/settings', undefined, { shallow: true });
+      router.replace('/profile/settings');
     }
-  }, [router.query, router, toast]);
-
-  useEffect(() => {
-    // Fetch Gmail profile when tokens are available
-    if (profile?.gmail_refresh_token && profile?.gmail_access_token) {
-      fetchGmailProfile();
-    } else {
-      setGmailAddress(null);
-    }
-  }, [profile?.gmail_refresh_token, profile?.gmail_access_token, fetchGmailProfile]);
+  }, [success, error, router, toast]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -128,64 +116,74 @@ export default function ProfileSettings() {
 
   const handleConnectGmail = async () => {
     try {
-      const response = await fetch('/api/gmail/auth-url', {
+      if (!user || !profile?.org_id) {
+        toast({
+          title: 'Error',
+          description: 'Missing user or organization ID',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const response = await fetch('/api/gmail/initiate', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'profile',
-          id: user?.id,
-        }),
+          user_id: user.id,
+          org_id: profile.org_id
+        })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to get auth URL');
+        throw new Error('Failed to initiate Gmail connection');
       }
 
-      const { url } = data;
-
-      if (typeof window !== 'undefined') {
-        window.location.href = url;
-      }
+      const { url } = await response.json();
+      window.location.href = url;
     } catch (error) {
-      console.error('Error getting Gmail auth URL:', error);
+      console.error('Error connecting Gmail:', error);
       toast({
-        title: "Error",
-        description: "Failed to start Gmail connection process. Please try again.",
-        variant: "destructive",
+        title: 'Error',
+        description: 'Failed to connect Gmail',
+        variant: 'destructive',
       });
     }
   };
 
   const handleDisconnectGmail = async () => {
     try {
+      if (!user || !profile?.org_id) {
+        toast({
+          title: 'Error',
+          description: 'Missing user or organization ID',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const { error } = await supabase
         .from('profiles')
         .update({
           gmail_access_token: null,
-          gmail_refresh_token: null
+          gmail_refresh_token: null,
+          gmail_watch_status: null,
+          gmail_watch_expiration: null
         })
-        .eq('id', user?.id);
+        .eq('id', user.id);
 
       if (error) throw error;
 
-      await fetchProfile();
       setGmailAddress(null);
-      
       toast({
-        title: "Gmail Disconnected",
-        description: "Your Gmail account has been successfully disconnected.",
-        variant: "default",
+        title: 'Success',
+        description: 'Gmail disconnected successfully',
       });
     } catch (error) {
       console.error('Error disconnecting Gmail:', error);
       toast({
-        title: "Disconnection Failed",
-        description: "Failed to disconnect Gmail account. Please try again.",
-        variant: "destructive",
+        title: 'Error',
+        description: 'Failed to disconnect Gmail',
+        variant: 'destructive',
       });
     }
   };
@@ -328,7 +326,7 @@ export default function ProfileSettings() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <NotificationPreferences />
+          <NotificationPreferences userId={user?.id || ''} orgId={profile?.org_id || ''} />
         </CardContent>
       </Card>
     </div>

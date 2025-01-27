@@ -14,7 +14,7 @@ export default function Onboarding() {
     const checkSession = async () => {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session) {
-        router.push('/auth/signin');
+        router.push('/auth/login');
       }
     };
     checkSession();
@@ -35,7 +35,12 @@ export default function Onboarding() {
       // Update user's role
       const { error: updateError } = await supabase
         .from('profiles')
-        .update({ role })
+        .update({ 
+          role,
+          metadata: {
+            onboarding_started_at: new Date().toISOString()
+          }
+        })
         .eq('id', user.id);
 
       if (updateError) {

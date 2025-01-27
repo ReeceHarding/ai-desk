@@ -16,6 +16,7 @@ jest.mock('@supabase/auth-helpers-nextjs', () => ({
 describe('LoginPage', () => {
   const mockRouter = {
     push: jest.fn(),
+    query: {},
   };
   const mockSupabaseClient = {
     auth: {

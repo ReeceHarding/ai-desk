@@ -1,11 +1,13 @@
+import { GmailMessage } from '@/types/gmail';
 import { Database } from '@/types/supabase';
-import { downloadAndStoreAttachment, parseGmailMessage } from '@/utils/gmail';
 import { logger } from '@/utils/logger';
 import { createClient } from '@supabase/supabase-js';
 import { gmail_v1 } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
+import { downloadAndStoreAttachment, parseGmailMessage } from './utils';
 
 type Schema$MessagePartHeader = gmail_v1.Schema$MessagePartHeader;
+type Schema$Message = gmail_v1.Schema$Message;
 
 interface MessageHeader {
   name: string;
@@ -18,6 +20,11 @@ interface ProcessingMetrics {
   totalMessages: number;
   successfulMessages: number;
   failedMessages: number;
+}
+
+interface AttachmentResult {
+  data: string;
+  size: number | null;
 }
 
 async function getEmailBody(message: gmail_v1.Schema$Message): Promise<string> {
@@ -132,14 +139,25 @@ async function processAttachments(
     } : undefined
   };
 
-  const parsedEmail = parseGmailMessage(transformedMessage);
+  const parsedMessage = await parseGmailMessage(transformedMessage as GmailMessage);
 
-  const attachmentPromises = parsedEmail.attachments.map(async (attachment) => {
-    return downloadAndStoreAttachment(auth, message.id!, attachment, orgId);
+  const attachmentPromises = parsedMessage.attachments.map(async (attachment) => {
+    if (!attachment.attachmentId) {
+      logger.warn('Attachment missing attachmentId', { messageId: message.id });
+      return null;
+    }
+    return downloadAndStoreAttachment(message.id!, attachment.attachmentId, auth);
   });
 
   const attachmentResults = await Promise.all(attachmentPromises);
-  const validAttachments = attachmentResults.filter((result): result is { filePath: string; metadata: any } => result !== null);
+  const validAttachments = attachmentResults.filter((result): result is AttachmentResult => 
+    result !== null && typeof result === 'object' && 'data' in result && 'size' in result
+  );
+
+  const attachmentInserts = validAttachments.map((att) => ({
+    data: att.data,
+    size: att.size || 0
+  }));
 
   // Insert attachments into the database
   if (validAttachments.length > 0) {
@@ -152,12 +170,6 @@ async function processAttachments(
       .single();
 
     if (comment) {
-      const attachmentInserts = validAttachments.map((att) => ({
-        comment_id: comment.id,
-        file_path: att.filePath,
-        metadata: att.metadata
-      }));
-
       const { error: insertError } = await supabase
         .from('attachments')
         .insert(attachmentInserts);
@@ -202,8 +214,8 @@ export default async function handler(
       success: true,
       body: emailBody,
       attachments: attachments.map(att => ({
-        filePath: att.filePath,
-        metadata: att.metadata
+        data: att.data,
+        size: att.size || 0
       }))
     });
   } catch (error) {

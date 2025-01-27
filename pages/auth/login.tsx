@@ -5,7 +5,7 @@ import { useState } from 'react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { redirect } = router.query;
+  const redirect = router.query.redirect as string | undefined;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -30,7 +30,7 @@ export default function LoginPage() {
       }
 
       // Redirect to the original URL or tickets page
-      router.push(typeof redirect === 'string' ? redirect : '/tickets');
+      router.push(redirect || '/tickets');
     } catch (err: any) {
       console.error('Login error:', err);
       setError(err.message);

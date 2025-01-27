@@ -7,7 +7,7 @@ export default function AuthCodeError() {
   const [error, setError] = useState<string>('');
 
   useEffect(() => {
-    const errorParam = searchParams.get('error');
+    const errorParam = searchParams?.get('error');
     setError(errorParam || 'Unknown authentication error');
   }, [searchParams]);
 

@@ -61,32 +61,26 @@ export function OrganizationSearch({ userId, onSelect, isLoading = false }: Orga
       setError('');
 
       // First, unset is_current flag on all organizations
-      const { error: updateOldError } = await supabase
-        .from('organizations')
-        .update({ 
-          config: supabase.rpc('jsonb_set', {
-            jsonb: 'config',
-            path: '{is_current}',
-            value: 'false'
-          })
-        })
-        .eq('created_by', userId);
+      const { data: updateOldData, error: updateOldError } = await supabase
+        .rpc('update_org_config', {
+          p_user_id: userId,
+          p_is_current: false
+        });
 
-      if (updateOldError) throw updateOldError;
+      if (updateOldError || !updateOldData?.success) {
+        throw new Error(updateOldData?.message || 'Failed to update organization settings');
+      }
 
       // Set is_current flag on the selected organization
-      const { error: updateNewError } = await supabase
-        .from('organizations')
-        .update({ 
-          config: supabase.rpc('jsonb_set', {
-            jsonb: 'config',
-            path: '{is_current}',
-            value: 'true'
-          })
-        })
-        .eq('id', orgId);
+      const { data: updateNewData, error: updateNewError } = await supabase
+        .rpc('update_org_config', {
+          p_org_id: orgId,
+          p_is_current: true
+        });
 
-      if (updateNewError) throw updateNewError;
+      if (updateNewError || !updateNewData?.success) {
+        throw new Error(updateNewData?.message || 'Failed to update organization settings');
+      }
 
       // Associate user with organization
       const { error: memberError } = await supabase

@@ -1,14 +1,5 @@
-import { google } from 'googleapis';
+import { createServerOAuth2Client, GMAIL_SCOPES } from '@/utils/gmail-server-config';
 import { NextApiRequest, NextApiResponse } from 'next';
-
-// Configure Gmail API to use HTTP/1.1 instead of HTTP/2
-google.options({ http2: false });
-
-const oauth2Client = new google.auth.OAuth2(
-  process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
-  process.env.GMAIL_CLIENT_SECRET,
-  process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
-);
 
 export default async function handler(
   req: NextApiRequest,
@@ -38,14 +29,12 @@ export default async function handler(
       state
     });
 
+    const oauth2Client = createServerOAuth2Client();
+
     // Generate the url that will be used for the consent dialog.
     const authorizeUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
-      scope: [
-        'https://www.googleapis.com/auth/gmail.modify',
-        'https://www.googleapis.com/auth/gmail.send',
-        'https://www.googleapis.com/auth/gmail.readonly',
-      ],
+      scope: GMAIL_SCOPES,
       state,
       prompt: 'consent',
     });

@@ -92,14 +92,14 @@ export default function ProfilePage() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
-          router.push('/auth/signin');
+          router.push('/auth/login');
           return;
         }
 
         await fetchProfile(user.id);
       } catch (error) {
         console.error('Error:', error);
-        router.push('/auth/signin');
+        router.push('/auth/login');
       }
     };
 
@@ -345,7 +345,7 @@ export default function ProfilePage() {
           <Button
             onClick={async () => {
               await supabase.auth.signOut();
-              router.push('/auth/signin');
+              router.push('/auth/login');
             }}
             className="bg-red-600 text-white px-3 py-1.5 text-sm rounded-md hover:bg-red-700"
           >

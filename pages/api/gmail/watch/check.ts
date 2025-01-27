@@ -1,144 +1,85 @@
 import { createClient } from '@supabase/supabase-js';
-import { OAuth2Client } from 'google-auth-library';
-import { google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { Database } from '../../../../types/supabase';
+import { setupOrRefreshWatch } from '../../../../utils/gmail';
 
-const oauth2Client = new OAuth2Client(
-  process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID || '',
-  process.env.GMAIL_CLIENT_SECRET || '',
-  process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI || ''
-);
-
+// Initialize Supabase client
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  }
 );
 
-interface WatchResponse {
-  historyId: string;
-  expiration: string;
-  resourceId: string;
-}
-
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ message: 'Method not allowed' });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    // Get expiring watches (within next 24 hours)
-    const expirationThreshold = new Date();
-    expirationThreshold.setHours(expirationThreshold.getHours() + 24);
-    
-    // Check organizations
-    const { data: expiringOrgs } = await supabase
-      .from('organizations')
-      .select('id, gmail_refresh_token, gmail_access_token, gmail_watch_expiration')
-      .lt('gmail_watch_expiration', expirationThreshold.toISOString())
-      .eq('gmail_watch_status', 'active');
-
-    // Check profiles
-    const { data: expiringProfiles } = await supabase
+    // Get all profiles with Gmail watches
+    const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
-      .select('id, gmail_refresh_token, gmail_access_token, gmail_watch_expiration')
-      .lt('gmail_watch_expiration', expirationThreshold.toISOString())
-      .eq('gmail_watch_status', 'active');
+      .select('id, gmail_access_token, gmail_refresh_token, gmail_watch_expiry')
+      .not('gmail_watch_expiry', 'is', null);
 
-    // Refresh organization watches
-    if (expiringOrgs) {
-      for (const org of expiringOrgs) {
-        if (org.gmail_refresh_token && org.gmail_access_token) {
-          try {
-            oauth2Client.setCredentials({
-              access_token: org.gmail_access_token,
-              refresh_token: org.gmail_refresh_token,
-            });
-
-            const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-            
-            const watchResponse = await gmail.users.watch({
-              userId: 'me',
-              requestBody: {
-                labelIds: ['INBOX'],
-                topicName: `projects/${process.env.GOOGLE_PROJECT_ID}/topics/gmail-updates`
-              }
-            });
-
-            const watchData = watchResponse.data as WatchResponse;
-            const expirationDate = new Date(parseInt(watchData.expiration));
-
-            await supabase
-              .from('organizations')
-              .update({
-                gmail_watch_resource_id: watchData.resourceId,
-                gmail_watch_expiration: expirationDate.toISOString(),
-                gmail_watch_status: 'active'
-              })
-              .eq('id', org.id);
-          } catch (error) {
-            console.error(`Error refreshing watch for organization ${org.id}:`, error);
-            await supabase
-              .from('organizations')
-              .update({
-                gmail_watch_status: 'failed'
-              })
-              .eq('id', org.id);
-          }
-        }
-      }
+    if (profilesError) {
+      throw profilesError;
     }
 
-    // Refresh profile watches
-    if (expiringProfiles) {
-      for (const profile of expiringProfiles) {
-        if (profile.gmail_refresh_token && profile.gmail_access_token) {
-          try {
-            oauth2Client.setCredentials({
-              access_token: profile.gmail_access_token,
-              refresh_token: profile.gmail_refresh_token,
-            });
+    const now = new Date();
+    const refreshPromises = profiles.map(async (profile) => {
+      if (!profile.gmail_watch_expiry) return;
 
-            const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-            
-            const watchResponse = await gmail.users.watch({
-              userId: 'me',
-              requestBody: {
-                labelIds: ['INBOX'],
-                topicName: `projects/${process.env.GOOGLE_PROJECT_ID}/topics/gmail-updates`
-              }
-            });
+      const expiryDate = new Date(profile.gmail_watch_expiry);
+      // Refresh if expiring in the next 24 hours
+      if (expiryDate.getTime() - now.getTime() < 24 * 60 * 60 * 1000) {
+        try {
+          const tokens = {
+            access_token: profile.gmail_access_token!,
+            refresh_token: profile.gmail_refresh_token!,
+            expiry_date: Date.now() + 3600000 // Default 1 hour
+          };
 
-            const watchData = watchResponse.data as WatchResponse;
-            const expirationDate = new Date(parseInt(watchData.expiration));
+          const watchResponse = await setupOrRefreshWatch(tokens, 'profile', profile.id);
 
-            await supabase
-              .from('profiles')
-              .update({
-                gmail_watch_resource_id: watchData.resourceId,
-                gmail_watch_expiration: expirationDate.toISOString(),
-                gmail_watch_status: 'active'
-              })
-              .eq('id', profile.id);
-          } catch (error) {
-            console.error(`Error refreshing watch for profile ${profile.id}:`, error);
-            await supabase
-              .from('profiles')
-              .update({
-                gmail_watch_status: 'failed'
-              })
-              .eq('id', profile.id);
-          }
+          // Update watch expiry in database
+          await supabase
+            .from('profiles')
+            .update({
+              gmail_watch_expiry: new Date(parseInt(watchResponse.expiration)).toISOString()
+            })
+            .eq('id', profile.id);
+
+          return {
+            profileId: profile.id,
+            status: 'refreshed',
+            expiry: watchResponse.expiration
+          };
+        } catch (error) {
+          console.error(`Error refreshing watch for profile ${profile.id}:`, error);
+          return {
+            profileId: profile.id,
+            status: 'error',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          };
         }
       }
-    }
+      return {
+        profileId: profile.id,
+        status: 'skipped',
+        expiry: profile.gmail_watch_expiry
+      };
+    });
 
-    return res.status(200).json({ message: 'Watch refresh check completed' });
-  } catch (error) {
-    console.error('Error in Gmail watch check API route:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    const results = await Promise.all(refreshPromises);
+    return res.status(200).json({ results });
+  } catch (error: any) {
+    console.error('Error checking Gmail watches:', error);
+    return res.status(error.code || 500).json({ error: error.message });
   }
 } 

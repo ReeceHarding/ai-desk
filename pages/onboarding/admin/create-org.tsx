@@ -3,6 +3,15 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/router';
 import { useState } from 'react';
 
+// Function to generate a URL-friendly slug
+function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-') // Replace non-alphanumeric chars with hyphens
+    .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
+}
+
 export default function CreateAdminOrg() {
   const router = useRouter();
   const [orgName, setOrgName] = useState('');
@@ -46,11 +55,52 @@ export default function CreateAdminOrg() {
         return;
       }
 
+      // Generate a base slug from the organization name
+      const baseSlug = generateSlug(orgName);
+      
+      // Check if the slug exists and generate a unique one if needed
+      let finalSlug = baseSlug;
+      let counter = 1;
+      
+      while (true) {
+        const { data: existingOrg, error: slugCheckError } = await supabase
+          .from('organizations')
+          .select('id')
+          .eq('slug', finalSlug)
+          .single();
+          
+        if (slugCheckError && slugCheckError.code === 'PGRST116') {
+          // PGRST116 means no rows returned, which is what we want
+          break;
+        }
+        
+        if (slugCheckError) {
+          logger.error('[ADMIN_CREATE_ORG] Error checking slug:', { error: slugCheckError });
+          setError('Failed to generate organization URL');
+          return;
+        }
+        
+        if (!existingOrg) {
+          break;
+        }
+        
+        // If slug exists, try the next number
+        finalSlug = `${baseSlug}-${counter}`;
+        counter++;
+      }
+
       // Create new organization with slug
+      logger.info('[ADMIN_CREATE_ORG] Attempting to create organization:', {
+        name: orgName.trim(),
+        userId: user.id,
+        email: profile.email
+      });
+
       const { data: newOrg, error: createError } = await supabase
         .from('organizations')
         .insert([{
           name: orgName.trim(),
+          slug: finalSlug,
           avatar_url: orgLogoUrl || null,
           created_by: user.id,
           owner_id: user.id,
@@ -62,12 +112,29 @@ export default function CreateAdminOrg() {
         .single();
 
       if (createError) {
-        logger.error('[ADMIN_CREATE_ORG] Org creation error:', { error: createError });
-        setError('Failed to create organization');
+        logger.error('[ADMIN_CREATE_ORG] Org creation error:', { 
+          error: createError,
+          errorCode: createError.code,
+          details: createError.details,
+          hint: createError.hint,
+          message: createError.message
+        });
+        setError('Failed to create organization. Please try again.');
         return;
       }
 
+      logger.info('[ADMIN_CREATE_ORG] Organization created successfully:', {
+        orgId: newOrg.id,
+        name: newOrg.name,
+        slug: finalSlug
+      });
+
       // Update user's profile with org_id and ensure admin role
+      logger.info('[ADMIN_CREATE_ORG] Updating user profile:', {
+        userId: user.id,
+        orgId: newOrg.id
+      });
+
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ 
@@ -82,30 +149,101 @@ export default function CreateAdminOrg() {
         .eq('id', user.id);
 
       if (updateError) {
-        logger.error('[ADMIN_CREATE_ORG] Profile update error:', { error: updateError });
-        setError('Failed to update your profile');
+        logger.error('[ADMIN_CREATE_ORG] Profile update error:', { 
+          error: updateError,
+          errorCode: updateError.code,
+          details: updateError.details,
+          hint: updateError.hint,
+          message: updateError.message
+        });
+        
+        // If profile update fails, clean up the organization
+        const { error: deleteError } = await supabase
+          .from('organizations')
+          .delete()
+          .eq('id', newOrg.id);
+          
+        if (deleteError) {
+          logger.error('[ADMIN_CREATE_ORG] Failed to cleanup organization after profile update failed:', {
+            error: deleteError,
+            orgId: newOrg.id
+          });
+        }
+        
+        setError('Failed to update your profile. Please try again.');
         return;
       }
 
+      logger.info('[ADMIN_CREATE_ORG] Profile updated successfully');
+
       // Add user as an admin in organization_members
+      logger.info('[ADMIN_CREATE_ORG] Adding user as organization admin:', {
+        userId: user.id,
+        orgId: newOrg.id
+      });
+
       const { error: memberError } = await supabase
         .from('organization_members')
         .insert([{
           organization_id: newOrg.id,
           user_id: user.id,
-          role: 'admin'
+          role: 'admin',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         }]);
 
       if (memberError) {
-        logger.error('[ADMIN_CREATE_ORG] Member insert error:', { error: memberError });
-        setError('Failed to add you as an admin');
+        logger.error('[ADMIN_CREATE_ORG] Member insert error:', { 
+          error: memberError,
+          errorCode: memberError.code,
+          details: memberError.details,
+          hint: memberError.hint,
+          message: memberError.message
+        });
+        
+        // If member creation fails, clean up the organization and profile update
+        const { error: deleteError } = await supabase
+          .from('organizations')
+          .delete()
+          .eq('id', newOrg.id);
+          
+        if (deleteError) {
+          logger.error('[ADMIN_CREATE_ORG] Failed to cleanup organization after member creation failed:', {
+            error: deleteError,
+            orgId: newOrg.id
+          });
+        }
+        
+        // Reset the profile
+        const { error: resetError } = await supabase
+          .from('profiles')
+          .update({ 
+            org_id: null,
+            role: 'customer',
+            metadata: {
+              signup_completed: false
+            }
+          })
+          .eq('id', user.id);
+          
+        if (resetError) {
+          logger.error('[ADMIN_CREATE_ORG] Failed to reset profile after member creation failed:', {
+            error: resetError,
+            userId: user.id
+          });
+        }
+        
+        setError('Failed to add you as an admin. Please try again.');
         return;
       }
 
-      logger.info('[ADMIN_CREATE_ORG] Organization created successfully:', {
+      logger.info('[ADMIN_CREATE_ORG] Organization member created successfully:', {
         orgId: newOrg.id,
-        userId: user.id
+        userId: user.id,
+        role: 'admin'
       });
+
+      logger.info('[ADMIN_CREATE_ORG] Organization creation process completed successfully');
 
       // Redirect to Gmail connection
       router.push('/onboarding/admin/connect-gmail');
@@ -194,13 +332,17 @@ export default function CreateAdminOrg() {
               </p>
             </div>
 
-            <button
-              type="submit"
-              disabled={isLoading || !orgName.trim()}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-            >
-              {isLoading ? 'Creating Organization...' : 'Create Organization'}
-            </button>
+            <div>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                  isLoading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {isLoading ? 'Creating...' : 'Create Organization'}
+              </button>
+            </div>
           </form>
         </div>
       </div>

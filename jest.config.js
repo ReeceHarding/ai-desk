@@ -1,26 +1,23 @@
-const nextJest = require('next/jest');
-
-const createJestConfig = nextJest({
-  dir: './',
-});
-
-const customJestConfig = {
+module.exports = {
+  testEnvironment: 'jsdom',
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-  testEnvironment: 'jest-environment-jsdom',
+  testPathIgnorePatterns: ['<rootDir>/.next/', '<rootDir>/node_modules/'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
   },
-  testMatch: ['**/__tests__/**/*.test.ts?(x)'],
   transform: {
-    '^.+\\.(ts|tsx)$': 'ts-jest',
+    '^.+\\.(js|jsx|ts|tsx)$': ['babel-jest', { presets: ['next/babel'] }],
   },
-  globals: {
-    'ts-jest': {
-      tsconfig: 'tsconfig.test.json'
-    }
-  },
-  moduleDirectories: ['node_modules', '<rootDir>'],
-  testPathIgnorePatterns: ['/node_modules/', '/tests/'] // Ignore Playwright tests
-};
-
-module.exports = createJestConfig(customJestConfig); 
+  testMatch: [
+    '**/__tests__/**/*.test.(ts|tsx|js|jsx)',
+    '**/?(*.)+(spec|test).(ts|tsx|js|jsx)'
+  ],
+  collectCoverageFrom: [
+    '**/*.{js,jsx,ts,tsx}',
+    '!**/*.d.ts',
+    '!**/node_modules/**',
+    '!**/.next/**',
+    '!**/coverage/**',
+  ],
+}; 

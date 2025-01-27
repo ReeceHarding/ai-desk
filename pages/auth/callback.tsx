@@ -20,7 +20,7 @@ export default function Callback() {
         }
 
         // Get the code verifier from localStorage
-        const codeVerifierKey = `sb-${process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1]}-auth-token-code-verifier`;
+        const codeVerifierKey = `sb-${process.env.NEXT_PUBLIC_SUPABASE_PROJECT_ID}-auth-token-code-verifier`;
         const codeVerifier = localStorage.getItem(codeVerifierKey);
 
         if (!codeVerifier) {
@@ -36,7 +36,7 @@ export default function Callback() {
         }
 
         // Exchange code for session
-        const { data, error } = await supabase.auth.exchangeCodeForSession(router.asPath);
+        const { data, error } = await supabase.auth.exchangeCodeForSession(router.query.code as string);
 
         if (error) {
           logger.error('Error exchanging code for session:', error);
