@@ -1,7 +1,12 @@
 {
   "/_app": "pages/_app.js",
-  "/_document": "pages/_document.js",
   "/_error": "pages/_error.js",
-  "/organizations/[id]/kb": "pages/organizations/[id]/kb.js",
-  "/dashboard": "pages/dashboard.js"
+  "/_document": "pages/_document.js",
+  "/dashboard": "pages/dashboard.js",
+  "/profile/settings": "pages/profile/settings.js",
+  "/api/gmail/auth-url": "pages/api/gmail/auth-url.js",
+  "/api/integrations/gmail/callback": "pages/api/integrations/gmail/callback.js",
+  "/api/gmail/watch": "pages/api/gmail/watch.js",
+  "/api/gmail/profile": "pages/api/gmail/profile.js",
+  "/tickets": "pages/tickets.js"
 }

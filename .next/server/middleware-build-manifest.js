@@ -7,7 +7,10 @@ self.__BUILD_MANIFEST = {
   ],
   "ampDevFiles": [],
   "lowPriorityFiles": [],
-  "rootMainFiles": [],
+  "rootMainFiles": [
+    "static/chunks/webpack.js",
+    "static/chunks/main-app.js"
+  ],
   "pages": {
     "/_app": [
       "static/chunks/webpack.js",
@@ -24,15 +27,15 @@ self.__BUILD_MANIFEST = {
       "static/chunks/main.js",
       "static/chunks/pages/dashboard.js"
     ],
-    "/organizations/[id]/kb": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/organizations/[id]/kb.js"
-    ],
     "/profile/settings": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
       "static/chunks/pages/profile/settings.js"
+    ],
+    "/tickets": [
+      "static/chunks/webpack.js",
+      "static/chunks/main.js",
+      "static/chunks/pages/tickets.js"
     ]
   },
   "ampFirstPages": []
