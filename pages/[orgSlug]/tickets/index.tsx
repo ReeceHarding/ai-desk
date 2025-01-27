@@ -135,20 +135,16 @@ export default function TicketsList({ organization, tickets }: Props) {
 
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="md:flex md:items-center md:justify-between">
-            <div className="flex-1 min-w-0">
-              <h2 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
-                My Support Tickets
-              </h2>
-            </div>
-            <div className="mt-4 flex md:mt-0 md:ml-4">
-              <Link
-                href={`/${organization.slug}/new-ticket`}
-                className="ml-3 inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
-                New Ticket
-              </Link>
-            </div>
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-semibold text-gray-900">
+              Tickets
+            </h2>
+            <Link
+              href={`/${organization.slug}/new-ticket`}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-colors duration-200"
+            >
+              Add Ticket
+            </Link>
           </div>
 
           <div className="mt-4">

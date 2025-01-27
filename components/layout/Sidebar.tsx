@@ -70,6 +70,7 @@ export default function Sidebar() {
             
             {orgId && (
               <>
+                <NavLink href="/tickets/new">Add Ticket</NavLink>
                 <NavLink href={`/organizations/${orgId}/settings`}>Organization Settings</NavLink>
                 <NavLink href={`/organizations/${orgId}/knowledge-base`}>Knowledge Base</NavLink>
               </>

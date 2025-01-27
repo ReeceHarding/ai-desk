@@ -40,6 +40,8 @@ export default function NewTicket() {
   useEffect(() => {
     if (!user) {
       router.push('/auth/signin');
+    } else {
+      setLoading(false);
     }
   }, [user, router]);
 
@@ -48,38 +50,40 @@ export default function NewTicket() {
     if (!user) return;
 
     setSubmitting(true);
+    setError(null);
+    
     try {
-      // First get the user's org_id
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('org_id')
-        .eq('id', user.id)
-        .single();
+      // First get all organizations
+      const { data: organizations, error: orgsError } = await supabase
+        .from('organizations')
+        .select('id, name');
 
-      if (profileError) throw profileError;
-      if (!profile?.org_id) throw new Error('User is not associated with an organization');
+      if (orgsError) throw orgsError;
+      if (!organizations?.length) throw new Error('No organizations found');
 
-      // Create the ticket
-      const { data: ticket, error: ticketError } = await supabase
+      // Create tickets for all organizations
+      const ticketsToInsert = organizations.map(org => ({
+        subject: `[${org.name}] ${subject}`,
+        description,
+        priority,
+        status: 'open',
+        customer_id: user.id,
+        org_id: org.id,
+        metadata: { is_demo: true }
+      }));
+
+      const { data: tickets, error: ticketError } = await supabase
         .from('tickets')
-        .insert([
-          {
-            subject,
-            description,
-            priority,
-            status: 'open',
-            customer_id: user.id,
-            org_id: profile.org_id,
-          },
-        ])
-        .select()
-        .single();
+        .insert(ticketsToInsert)
+        .select();
 
       if (ticketError) throw ticketError;
 
-      router.push(`/tickets/${ticket.id}`);
+      // Show success message and redirect to tickets list
+      router.push('/tickets');
     } catch (error) {
-      console.error('Error creating ticket:', error);
+      console.error('Error creating tickets:', error);
+      setError(error instanceof Error ? error.message : 'Failed to create tickets');
     } finally {
       setSubmitting(false);
     }
