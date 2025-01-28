@@ -1,3 +1,11 @@
+-- First drop existing objects to ensure clean slate
+DROP TYPE IF EXISTS public.user_role CASCADE;
+DROP TYPE IF EXISTS public.ticket_status CASCADE;
+DROP TYPE IF EXISTS public.ticket_priority CASCADE;
+DROP TYPE IF EXISTS public.sla_tier CASCADE;
+
+-- Now proceed with the rest of the schema
+
 --------------------------------------------------------------------------------
 -- MASSIVE MIGRATION FILE (REWRITTEN TO AVOID BREAKING CHANGES)
 --------------------------------------------------------------------------------
@@ -20,6 +28,7 @@ GRANT ALL ON SCHEMA public TO service_role;
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 --------------------------------------------------------------------------------
 -- ============ 2. CREATE ENUMS ============
@@ -324,7 +333,7 @@ CREATE TABLE public.audit_logs (
 );
 
 CREATE TABLE public.email_logs (
-  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   ticket_id uuid REFERENCES public.tickets(id) ON DELETE CASCADE,
   message_id text NOT NULL,
   thread_id text NOT NULL,
@@ -777,20 +786,18 @@ CREATE TRIGGER on_auth_user_created
 -- ============ 12. STORAGE BUCKET & POLICIES FOR AVATARS ============
 --------------------------------------------------------------------------------
 
+-- Insert bucket if it doesn't exist
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+SELECT 'avatars', 'avatars', true, 50000000, ARRAY['image/*']::text[]
+WHERE NOT EXISTS (
+    SELECT 1 FROM storage.buckets WHERE id = 'avatars'
+);
+
+-- Drop and recreate policies safely
 DROP POLICY IF EXISTS "Avatar images are publicly accessible" ON storage.objects;
 DROP POLICY IF EXISTS "Authenticated users can upload avatar image" ON storage.objects;
 DROP POLICY IF EXISTS "Authenticated users can update avatar image" ON storage.objects;
 DROP POLICY IF EXISTS "Authenticated users can delete avatar image" ON storage.objects;
-DELETE FROM storage.buckets WHERE id = 'avatars';
-
-INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES (
-  'avatars',
-  'avatars',
-  true,
-  50000000, -- 50MB
-  ARRAY['image/*']::text[]
-);
 
 CREATE POLICY "Avatar images are publicly accessible"
 ON storage.objects FOR SELECT
@@ -806,6 +813,10 @@ WITH CHECK (
 CREATE POLICY "Authenticated users can update avatar image"
 ON storage.objects FOR UPDATE
 USING (
+  bucket_id = 'avatars' AND
+  auth.role() = 'authenticated'
+)
+WITH CHECK (
   bucket_id = 'avatars' AND
   auth.role() = 'authenticated'
 );
@@ -850,10 +861,37 @@ WITH CHECK (
 );
 
 --------------------------------------------------------------------------------
--- ============ OPTIONAL: RETAIN OLD RLS ON organization_members OR OVERRIDE ============
--- We simply keep your existing approach, not forcing new "id" PK or referencing auth.users.
+-- ============ NEW OPTIONAL COLUMNS FOR TICKETS, PROFILES, ETC. ============
 --------------------------------------------------------------------------------
 
+-- organizations: store additional brand/outreach settings, subscription_plan, etc.
+ALTER TABLE public.organizations
+  ADD COLUMN IF NOT EXISTS outreach_preferences jsonb DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS brand_voice text,
+  ADD COLUMN IF NOT EXISTS domain_verified boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS next_scrape_at timestamptz,
+  ADD COLUMN IF NOT EXISTS subscription_plan text;
+
+-- profiles: store optional agent_rank + preferences
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS agent_rank int,
+  ADD COLUMN IF NOT EXISTS preferences jsonb DEFAULT '{}'::jsonb;
+
+-- tickets: store next_followup_at & feedback_score
+ALTER TABLE public.tickets
+  ADD COLUMN IF NOT EXISTS next_followup_at timestamptz,
+  ADD COLUMN IF NOT EXISTS feedback_score numeric;
+
+-- knowledge_base_articles: pinned + rating
+ALTER TABLE public.knowledge_base_articles
+  ADD COLUMN IF NOT EXISTS pinned boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS rating numeric;
+
+-- email_logs: AI classification columns
+ALTER TABLE public.email_logs
+  ADD COLUMN IF NOT EXISTS ai_classification text,
+  ADD COLUMN IF NOT EXISTS ai_confidence numeric,
+  ADD COLUMN IF NOT EXISTS auto_replied boolean DEFAULT false;
 
 --------------------------------------------------------------------------------
 -- ============ 13. ADD GMAIL WATCH TRACKING COLUMNS (SAFE, IF NOT EXISTS) ============
@@ -886,7 +924,7 @@ CREATE TABLE IF NOT EXISTS public.ticket_email_chats (
   thread_id text NOT NULL,
   from_name text,
   from_address text,
-  to_address text[],
+  to_address text[] DEFAULT '{}'::text[],
   cc_address text[] DEFAULT '{}'::text[],
   bcc_address text[] DEFAULT '{}'::text[],
   subject text,
@@ -941,52 +979,7 @@ USING (true)
 WITH CHECK (true);
 
 --------------------------------------------------------------------------------
--- ============ 16. OPTIONAL: Additional Column & Index for ticket_email_chats.gmail_date ============
--- Already included above if you want it. No conflict with old code.
---------------------------------------------------------------------------------
-
-
---------------------------------------------------------------------------------
--- ============ KEEP OLD AUTO-ORGANIZATION CREATION (do not drop it) ============
--- We do not remove it or replace with a minimal handle_new_user
---------------------------------------------------------------------------------
-
-
---------------------------------------------------------------------------------
--- ============ NEW OPTIONAL COLUMNS FOR TICKETS, PROFILES, ETC. ============
---------------------------------------------------------------------------------
-
--- organizations: store additional brand/outreach settings, subscription_plan, etc.
-ALTER TABLE public.organizations
-  ADD COLUMN IF NOT EXISTS outreach_preferences jsonb DEFAULT '{}'::jsonb,
-  ADD COLUMN IF NOT EXISTS brand_voice text,
-  ADD COLUMN IF NOT EXISTS domain_verified boolean DEFAULT false,
-  ADD COLUMN IF NOT EXISTS next_scrape_at timestamptz,
-  ADD COLUMN IF NOT EXISTS subscription_plan text;
-
--- profiles: store optional agent_rank + preferences
-ALTER TABLE public.profiles
-  ADD COLUMN IF NOT EXISTS agent_rank int,
-  ADD COLUMN IF NOT EXISTS preferences jsonb DEFAULT '{}'::jsonb;
-
--- tickets: store next_followup_at & feedback_score
-ALTER TABLE public.tickets
-  ADD COLUMN IF NOT EXISTS next_followup_at timestamptz,
-  ADD COLUMN IF NOT EXISTS feedback_score numeric;
-
--- knowledge_base_articles: pinned + rating
-ALTER TABLE public.knowledge_base_articles
-  ADD COLUMN IF NOT EXISTS pinned boolean DEFAULT false,
-  ADD COLUMN IF NOT EXISTS rating numeric;
-
--- email_logs: AI classification columns
-ALTER TABLE public.email_logs
-  ADD COLUMN IF NOT EXISTS ai_classification text,
-  ADD COLUMN IF NOT EXISTS ai_confidence numeric,
-  ADD COLUMN IF NOT EXISTS auto_replied boolean DEFAULT false;
-
---------------------------------------------------------------------------------
--- ============ 17. CREATE 40+ NEW TABLES (No Conflicts With Old) ============
+-- ============ 16. CREATE 40+ NEW TABLES (No Conflicts With Old) ============
 --------------------------------------------------------------------------------
 -- (All are new. They do not overwrite or rename old tables.)
 
@@ -1678,20 +1671,23 @@ ALTER TABLE public.voice_outreach DISABLE ROW LEVEL SECURITY;
 -- ============ 20. CREATE A NEW STORAGE BUCKET (EXAMPLE) "scrapedfiles" ============
 --------------------------------------------------------------------------------
 
+-- Insert bucket if it doesn't exist
 INSERT INTO storage.buckets (id, name, public)
-VALUES ('scrapedfiles', 'scrapedfiles', true)
-ON CONFLICT (id) DO NOTHING;
+SELECT 'scrapedfiles', 'scrapedfiles', true
+WHERE NOT EXISTS (
+    SELECT 1 FROM storage.buckets WHERE id = 'scrapedfiles'
+);
 
+-- Drop and recreate policies safely
 DROP POLICY IF EXISTS "Public read for scrapedfiles" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated can create scrapedfiles" ON storage.objects;
+
 CREATE POLICY "Public read for scrapedfiles"
-ON storage.objects
-FOR SELECT
+ON storage.objects FOR SELECT
 USING (bucket_id = 'scrapedfiles');
 
-DROP POLICY IF EXISTS "Authenticated can create scrapedfiles" ON storage.objects;
 CREATE POLICY "Authenticated can create scrapedfiles"
-ON storage.objects
-FOR INSERT
+ON storage.objects FOR INSERT
 WITH CHECK (
   bucket_id = 'scrapedfiles' 
   AND auth.role() = 'authenticated'
