@@ -17,6 +17,7 @@
 .env*.local
 .env
 .env.test
+.env-backups/
 
 # Debug
 npm-debug.log*
