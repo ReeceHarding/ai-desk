@@ -24,34 +24,42 @@ export default async function handler(
   }
 
   try {
-    const { org_id } = req.body;
+    const { access_token, refresh_token, org_id } = req.body;
 
-    if (!org_id) {
-      return res.status(400).json({ message: 'Missing organization ID' });
+    // If tokens are provided directly, use them
+    if (access_token && refresh_token) {
+      oauth2Client.setCredentials({
+        access_token,
+        refresh_token,
+      });
+    } 
+    // Otherwise try to get tokens from organization
+    else if (org_id) {
+      // Get tokens from organizations table
+      const { data: org, error: orgError } = await supabase
+        .from('organizations')
+        .select('gmail_access_token, gmail_refresh_token')
+        .eq('id', org_id)
+        .single();
+
+      if (orgError || !org) {
+        console.error('Error getting organization tokens:', orgError);
+        return res.status(404).json({ message: 'Organization not found or missing Gmail tokens' });
+      }
+
+      const { gmail_access_token, gmail_refresh_token } = org;
+
+      if (!gmail_access_token || !gmail_refresh_token) {
+        return res.status(400).json({ message: 'Missing required tokens' });
+      }
+
+      oauth2Client.setCredentials({
+        access_token: gmail_access_token,
+        refresh_token: gmail_refresh_token,
+      });
+    } else {
+      return res.status(400).json({ message: 'Missing required tokens or organization ID' });
     }
-
-    // Get tokens from organizations table
-    const { data: org, error: orgError } = await supabase
-      .from('organizations')
-      .select('gmail_access_token, gmail_refresh_token')
-      .eq('id', org_id)
-      .single();
-
-    if (orgError || !org) {
-      console.error('Error getting organization tokens:', orgError);
-      return res.status(404).json({ message: 'Organization not found or missing Gmail tokens' });
-    }
-
-    const { gmail_access_token, gmail_refresh_token } = org;
-
-    if (!gmail_access_token || !gmail_refresh_token) {
-      return res.status(400).json({ message: 'Missing required tokens' });
-    }
-
-    oauth2Client.setCredentials({
-      access_token: gmail_access_token,
-      refresh_token: gmail_refresh_token,
-    });
 
     const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 

@@ -170,7 +170,15 @@ export function parseGmailMessage(message: GmailMessage): ParsedEmail {
   const headers = message.payload?.headers || [];
   const getHeader = (name: string) => headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
 
-  const from = getHeader('from');
+  const fromHeader = getHeader('from');
+  // Extract name and email from the From header
+  const fromMatch = fromHeader.match(/(?:"?([^"]*)"?\s*)?(?:<?(.+@[^>]+)>?)/);
+  const senderName = fromMatch?.[1]?.trim() || '';
+  const senderEmail = fromMatch?.[2]?.trim() || fromHeader;
+
+  // If no name was found, use the local part of the email as a fallback
+  const displayName = senderName || senderEmail.split('@')[0];
+
   const to = getHeader('to');
   const cc = getHeader('cc');
   const bcc = getHeader('bcc');
@@ -213,7 +221,9 @@ export function parseGmailMessage(message: GmailMessage): ParsedEmail {
   return {
     messageId: message.id || '',
     threadId: message.threadId || '',
-    from,
+    from: fromHeader,
+    fromName: displayName,
+    fromEmail: senderEmail,
     to: parseAddresses(to),
     cc: parseAddresses(cc),
     bcc: parseAddresses(bcc),

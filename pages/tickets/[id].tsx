@@ -1,11 +1,17 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/router';
-import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
-import { Database } from '@/types/supabase';
-import { TicketInterface } from '@/components/ticket-interface';
-import { Skeleton } from '@/components/ui/skeleton';
-import { AlertCircle, ArrowLeft } from 'lucide-react';
+import AppLayout from '@/components/layout/AppLayout';
+import { TicketConversationPanel } from '@/components/ticket-conversation-panel';
+import { TicketDetailsPanel } from '@/components/ticket-details-panel';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Database } from '@/types/supabase';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { format, formatDistanceToNow } from 'date-fns';
+import { Calendar, ChevronLeft, Clock, MoreHorizontal, Share2 } from 'lucide-react';
+import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
 
 type Profile = {
   display_name: string | null;
@@ -22,185 +28,253 @@ type Ticket = Database['public']['Tables']['tickets']['Row'] & {
   organization: Organization | null;
 };
 
+type RealtimePayload = {
+  commit_timestamp: string;
+  errors: null | string[];
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  new: { [key: string]: any };
+  old: { [key: string]: any };
+  schema: string;
+  table: string;
+};
+
 export default function TicketPage() {
-  const [ticket, setTicket] = useState<Ticket | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isStarred, setIsStarred] = useState(false);
-  const [isSubscribed, setIsSubscribed] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const supabase = useSupabaseClient<Database>();
-  const user = useUser();
   const router = useRouter();
-
-  const fetchTicket = useCallback(async () => {
-    try {
-      const id = Array.isArray(router.query.id) ? router.query.id[0] : router.query.id;
-      if (!id) return;
-
-      const { data, error } = await supabase
-        .from('tickets')
-        .select(`
-          *,
-          customer:profiles!tickets_customer_id_fkey (
-            display_name,
-            email,
-            avatar_url
-          ),
-          organization:organizations!tickets_org_id_fkey (
-            name
-          )
-        `)
-        .eq('id', id)
-        .single();
-
-      if (error) throw error;
-      
-      if (data) {
-        const typedTicket: Ticket = {
-          ...data,
-          customer: data.customer as Profile,
-          organization: data.organization as Organization,
-        };
-        setTicket(typedTicket);
-      } else {
-        setError('Ticket not found');
-      }
-    } catch (err) {
-      console.error('Error fetching ticket:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch ticket');
-    } finally {
-      setLoading(false);
-    }
-  }, [router.query.id, supabase]);
+  const { id } = router.query;
+  const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const supabase = useSupabaseClient<Database>();
 
   useEffect(() => {
-    if (router.query.id) {
-      fetchTicket();
-    }
-  }, [router.query.id, fetchTicket]);
+    if (!id) return;
 
-  const handleStatusChange = async (newStatus: Ticket['status']) => {
-    if (!ticket || !user) return;
+    const fetchTicket = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('tickets')
+          .select('*, customer:profiles(*), organization:organizations(*)')
+          .eq('id', id)
+          .single();
+
+        if (error) throw error;
+        setTicket(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch ticket');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchTicket();
+
+    // Subscribe to changes
+    const subscription = supabase
+      .channel(`ticket-${id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'tickets',
+        filter: `id=eq.${id}`,
+      }, async (payload: RealtimePayload) => {
+        const { data, error } = await supabase
+          .from('tickets')
+          .select('*, customer:profiles(*), organization:organizations(*)')
+          .eq('id', id)
+          .single();
+
+        if (!error && data) {
+          setTicket(data);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [id]);
+
+  const handleStatusChange = async (status: Ticket['status']) => {
+    if (!ticket) return;
 
     try {
       const { error } = await supabase
         .from('tickets')
-        .update({ status: newStatus })
+        .update({ status })
         .eq('id', ticket.id);
 
       if (error) throw error;
-
-      setTicket({ ...ticket, status: newStatus });
-    } catch (error) {
-      console.error('Error updating ticket status:', error);
+    } catch (err) {
+      console.error('Failed to update ticket status:', err);
     }
   };
 
-  const handlePriorityChange = async (newPriority: Ticket['priority']) => {
-    if (!ticket || !user) return;
+  const handlePriorityChange = async (priority: Ticket['priority']) => {
+    if (!ticket) return;
 
     try {
       const { error } = await supabase
         .from('tickets')
-        .update({ priority: newPriority })
+        .update({ priority })
         .eq('id', ticket.id);
 
       if (error) throw error;
-
-      setTicket({ ...ticket, priority: newPriority });
-    } catch (error) {
-      console.error('Error updating ticket priority:', error);
+    } catch (err) {
+      console.error('Failed to update ticket priority:', err);
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white p-8 animate-fade-in">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center space-x-4 mb-8 animate-pulse">
-            <Skeleton className="h-8 w-8 rounded-full" />
-            <Skeleton className="h-8 w-48" />
-          </div>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-6">
-              <div className="space-y-4">
-                <Skeleton className="h-8 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
-              </div>
-              
-              <div className="space-y-4">
-                <Skeleton className="h-32 w-full" />
-                <div className="grid grid-cols-2 gap-4">
-                  <Skeleton className="h-10 w-full" />
-                  <Skeleton className="h-10 w-full" />
-                </div>
-              </div>
+      <AppLayout>
+        <div className="p-4 sm:p-8">
+          <Skeleton className="h-6 sm:h-8 w-48 sm:w-64 mb-4" />
+          <Skeleton className="h-4 w-24 sm:w-32 mb-2" />
+          <Skeleton className="h-4 w-36 sm:w-48 mb-8" />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
+            <div className="lg:col-span-2">
+              <Skeleton className="h-36 sm:h-48 w-full mb-4 sm:mb-8" />
+              <Skeleton className="h-72 sm:h-96 w-full" />
             </div>
-            
-            <div className="space-y-6">
-              <div className="bg-slate-800/50 rounded-lg p-6 space-y-4">
-                <Skeleton className="h-6 w-24" />
-                <Skeleton className="h-24 w-full" />
-              </div>
-              <div className="bg-slate-800/50 rounded-lg p-6 space-y-4">
-                <Skeleton className="h-6 w-32" />
-                <Skeleton className="h-16 w-full" />
-              </div>
-            </div>
+            <Skeleton className="h-[calc(100vh-16rem)] w-full" />
           </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   if (error || !ticket) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white">
-        <div className="max-w-7xl mx-auto p-8">
-          <Button
-            onClick={() => router.push('/tickets')}
-            variant="ghost"
-            className="mb-8 text-slate-400 hover:text-white"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to tickets
-          </Button>
-          
-          <div className="flex flex-col items-center justify-center space-y-6 animate-fade-in">
-            <div className="rounded-full bg-red-500/10 p-4">
-              <AlertCircle className="h-12 w-12 text-red-500" />
-            </div>
-            <div className="text-center space-y-2">
-              <h1 className="text-2xl font-semibold">
-                {error || 'Ticket not found'}
-              </h1>
-              <p className="text-slate-400 max-w-md mx-auto">
-                We couldn&apos;t find the ticket you&apos;re looking for. It may have been deleted or you may not have permission to view it.
-              </p>
-            </div>
-            <Button
-              onClick={() => router.push('/tickets')}
-              className="bg-white/10 hover:bg-white/20 text-white"
-            >
-              View all tickets
-            </Button>
+      <AppLayout>
+        <div className="p-4 sm:p-8">
+          <div className="text-red-500">
+            {error || 'Ticket not found'}
           </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   return (
-    <TicketInterface
-      ticket={ticket}
-      onStatusChange={handleStatusChange}
-      onPriorityChange={handlePriorityChange}
-      isStarred={isStarred}
-      onStarToggle={() => setIsStarred(!isStarred)}
-      isSubscribed={isSubscribed}
-      onSubscribeToggle={() => setIsSubscribed(!isSubscribed)}
-    />
+    <AppLayout>
+      <div className="p-4 sm:p-8">
+        {/* Back button and header */}
+        <div className="mb-6 sm:mb-8">
+          <button
+            onClick={() => router.push('/tickets')}
+            className="group mb-4 inline-flex items-center gap-2 text-base font-medium text-slate-600 hover:text-slate-900 transition-colors duration-200 min-h-[44px] px-2 -ml-2"
+          >
+            <ChevronLeft className="h-5 w-5 transition-transform duration-200 group-hover:-translate-x-1" />
+            Back to tickets
+          </button>
+          
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
+                {ticket.subject}
+              </h1>
+              <p className="mt-1 text-sm sm:text-base text-slate-500">
+                Ticket #{ticket.id.split('-')[0]}
+              </p>
+            </div>
+            
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-[44px] w-full sm:w-auto inline-flex items-center gap-2 px-3 sm:px-4"
+              >
+                <Share2 className="h-5 w-5" />
+                <span className="hidden sm:inline">Share</span>
+              </Button>
+              
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="min-h-[44px] w-full sm:w-auto inline-flex items-center gap-2 px-3 sm:px-4"
+                  >
+                    <MoreHorizontal className="h-5 w-5" />
+                    <span className="hidden sm:inline">More</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem className="h-11">Edit ticket</DropdownMenuItem>
+                  <DropdownMenuItem className="h-11 text-red-500">
+                    Delete ticket
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </div>
+
+        {/* Main content */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-8">
+          {/* Left column - Ticket details and conversation */}
+          <div className="lg:col-span-2 space-y-4 sm:space-y-8">
+            {/* Ticket details card */}
+            <div className="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/50 p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-4">
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-10 w-10 ring-2 ring-white">
+                    <AvatarImage
+                      src={ticket.customer?.avatar_url || undefined}
+                      alt={ticket.customer?.display_name || ''}
+                    />
+                    <AvatarFallback className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+                      {(ticket.customer?.display_name || 'U')[0].toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div>
+                    <div className="font-medium text-slate-900">
+                      {ticket.customer?.display_name || ticket.customer?.email || 'Unknown User'}
+                    </div>
+                    {ticket.organization?.name && (
+                      <div className="text-sm text-slate-500">
+                        at {ticket.organization.name}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 sm:ml-auto">
+                  <Badge variant={ticket.priority === 'high' ? 'destructive' : 'secondary'}>
+                    {ticket.priority}
+                  </Badge>
+                  <Badge variant={ticket.status === 'open' ? 'default' : 'secondary'}>
+                    {ticket.status}
+                  </Badge>
+                </div>
+              </div>
+              <p className="text-base text-slate-600">{ticket.description}</p>
+              <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-500">
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-4 w-4" />
+                  {format(new Date(ticket.created_at), 'PPP')}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-4 w-4" />
+                  {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
+                </span>
+              </div>
+            </div>
+
+            {/* Conversation */}
+            <TicketConversationPanel ticket={ticket} isOpen={true} />
+          </div>
+
+          {/* Right column - Details panel */}
+          <div className="lg:block">
+            <TicketDetailsPanel
+              ticket={ticket}
+              isOpen={true}
+              onStatusChange={handleStatusChange}
+              onPriorityChange={handlePriorityChange}
+            />
+          </div>
+        </div>
+      </div>
+    </AppLayout>
   );
 } 

@@ -1,80 +1,56 @@
-import React, { useEffect, useState, useCallback } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { useRouter } from 'next/router';
-import AppLayout from '../components/layout/AppLayout';
 import { User } from '@supabase/supabase-js';
+import { useRouter } from 'next/router';
+import { useEffect, useState } from 'react';
+import AppLayout from '../components/layout/AppLayout';
 
 export default function Dashboard() {
-  const supabase = createClientComponentClient();
   const router = useRouter();
+  const supabase = createClientComponentClient();
   const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const getUser = useCallback(async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        router.push('/auth/signin');
-        return;
-      }
-
-      setUser(session.user);
-    } catch (err) {
-      console.error('Session check error:', err);
-      router.push('/auth/signin');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [router, supabase.auth]);
 
   useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setUser(user);
+      } else {
+        router.push('/auth/signin');
+      }
+    };
     getUser();
-  }, [getUser]);
-
-  if (isLoading) {
-    return (
-      <AppLayout>
-        <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center">
-          <div className="text-center">
-            <svg className="animate-spin h-8 w-8 text-blue-600 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <p className="text-gray-600 text-sm font-medium">Loading your dashboard...</p>
-          </div>
-        </div>
-      </AppLayout>
-    );
-  }
+  }, [supabase, router]);
 
   if (!user) {
-    return null; // Will redirect in useEffect
+    return null;
   }
 
   return (
     <AppLayout>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Welcome back!</h1>
-          <p className="mt-2 text-sm text-gray-600">{user?.email}</p>
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
+            Welcome back!
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">{user?.email}</p>
         </div>
 
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {/* Quick Actions Card */}
-          <div className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200 transition duration-150 ease-in-out hover:shadow-md">
-            <div className="p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Quick Actions</h3>
+          <div className="group relative overflow-hidden rounded-xl bg-gradient-to-b from-white to-slate-50 border border-slate-200/50 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-1">
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/5 to-blue-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"/>
+            <div className="relative p-6">
+              <h3 className="text-lg font-medium text-slate-900 mb-4">Quick Actions</h3>
               <div className="space-y-3">
                 <button
                   onClick={() => router.push('/tickets/new')}
-                  className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out"
+                  className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-sm shadow-blue-500/10 hover:shadow-md hover:shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200"
                 >
                   Create New Ticket
                 </button>
                 <button
                   onClick={() => router.push('/profile')}
-                  className="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out"
+                  className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium rounded-lg text-slate-700 bg-white border border-slate-200/50 hover:bg-slate-50 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200"
                 >
                   View Profile
                 </button>
@@ -83,27 +59,29 @@ export default function Dashboard() {
           </div>
 
           {/* Recent Activity Card */}
-          <div className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200 transition duration-150 ease-in-out hover:shadow-md">
-            <div className="p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Recent Activity</h3>
+          <div className="group relative overflow-hidden rounded-xl bg-gradient-to-b from-white to-slate-50 border border-slate-200/50 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-1">
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/5 to-blue-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"/>
+            <div className="relative p-6">
+              <h3 className="text-lg font-medium text-slate-900 mb-4">Recent Activity</h3>
               <div className="space-y-4">
-                <p className="text-sm text-gray-500">No recent activity to show</p>
+                <p className="text-sm text-slate-500">No recent activity to show</p>
               </div>
             </div>
           </div>
 
           {/* Stats Card */}
-          <div className="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200 transition duration-150 ease-in-out hover:shadow-md">
-            <div className="p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Overview</h3>
+          <div className="group relative overflow-hidden rounded-xl bg-gradient-to-b from-white to-slate-50 border border-slate-200/50 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-1">
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/5 to-blue-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"/>
+            <div className="relative p-6">
+              <h3 className="text-lg font-medium text-slate-900 mb-4">Overview</h3>
               <dl className="grid grid-cols-2 gap-4">
                 <div>
-                  <dt className="text-sm font-medium text-gray-500">Open Tickets</dt>
-                  <dd className="mt-1 text-2xl font-semibold text-gray-900">0</dd>
+                  <dt className="text-sm font-medium text-slate-500">Open Tickets</dt>
+                  <dd className="mt-1 text-2xl font-semibold text-slate-900">0</dd>
                 </div>
                 <div>
-                  <dt className="text-sm font-medium text-gray-500">Resolved</dt>
-                  <dd className="mt-1 text-2xl font-semibold text-gray-900">0</dd>
+                  <dt className="text-sm font-medium text-slate-500">Resolved</dt>
+                  <dd className="mt-1 text-2xl font-semibold text-slate-900">0</dd>
                 </div>
               </dl>
             </div>

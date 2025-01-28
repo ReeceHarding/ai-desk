@@ -1,12 +1,13 @@
-import { EmailComposer } from "@/components/EmailComposer"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Database } from "@/types/supabase"
 import { useSupabaseClient } from "@supabase/auth-helpers-react"
-import { format } from "date-fns"
-import { AnimatePresence, motion } from "framer-motion"
+import { formatDistanceToNow } from "date-fns"
 import { OAuth2Client } from "google-auth-library"
-import { Forward, Loader2, Mail, MoreHorizontal, Paperclip, Reply, Star, X } from "lucide-react"
+import { Loader2, Mail, Paperclip, Send, Smile, X } from "lucide-react"
+import md5 from "md5"
 import { useEffect, useRef, useState } from "react"
 import { useInView } from "react-intersection-observer"
 
@@ -33,63 +34,97 @@ interface EmailMessage {
   updated_at: string
 }
 
-interface EmailThreadPanelProps {
-  isOpen: boolean
-  onClose: () => void
+export interface EmailThreadPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
   ticket: {
-    id: string
-    thread_id?: string | null
-    message_id?: string | null
-  } | null
+    id: string;
+    thread_id?: string | null;
+    message_id?: string | null;
+    subject?: string | null;
+  } | null;
 }
 
 export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelProps) {
-  const [messageList, setMessageList] = useState<EmailMessage[]>([])
+  const [messages, setMessages] = useState<EmailMessage[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(0)
   const { ref, inView } = useInView()
   const supabase = useSupabaseClient<Database>()
   const oauthClientRef = useRef<OAuth2Client | null>(null)
+  const limit = 20
+  const [replyText, setReplyText] = useState('')
+  const [sending, setSending] = useState(false)
 
   const fetchMessages = async (pageNum: number) => {
-    if (!ticket?.id || isLoading) return
-    setIsLoading(true)
+    if (!ticket?.id || isLoading) {
+      console.log("Skipping fetch:", { ticketId: ticket?.id, isLoading });
+      return;
+    }
+    setIsLoading(true);
     try {
-      const limit = 20
-      const from = pageNum * limit
-      const to = from + limit - 1
+      const from = pageNum * limit;
+      const to = from + limit - 1;
+
+      console.log("Fetching messages for ticket:", {
+        ticketId: ticket.id,
+        from,
+        to,
+        pageNum
+      });
 
       const { data, error } = await supabase
         .from('ticket_email_chats')
         .select('*')
         .eq('ticket_id', ticket.id)
         .order('created_at', { ascending: false })
-        .range(from, to)
+        .range(from, to);
 
-      if (error) throw error
+      if (error) {
+        console.error("Error fetching ticket email thread:", error);
+        return;
+      }
+
+      console.log("Fetched messages:", {
+        count: data?.length || 0,
+        messages: data,
+        ticketId: ticket.id
+      });
 
       if (pageNum === 0) {
-        setMessageList(data)
+        setMessages(data || []);
       } else {
-        setMessageList((prev) => [...prev, ...data])
+        setMessages((prev) => [...prev, ...(data || [])]);
       }
-      setHasMore(data.length === limit)
+      setHasMore(data && data.length === limit);
     } catch (error) {
-      console.error("Error fetching ticket email thread:", error)
+      console.error("Error fetching ticket email thread:", error);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
   useEffect(() => {
-    if (isOpen && ticket?.id) {
+    if (ticket?.id) {
       setPage(0)
-      setMessageList([])
+      setMessages([])
       setHasMore(true)
+      
+      // First check if there are any emails for this ticket
+      const checkEmails = async () => {
+        const { count, error } = await supabase
+          .from('ticket_email_chats')
+          .select('*', { count: 'exact', head: true })
+          .eq('ticket_id', ticket.id);
+          
+        console.log("Email count for ticket:", { ticketId: ticket.id, count, error });
+      };
+      
+      checkEmails();
       fetchMessages(0)
     }
-  }, [isOpen, ticket?.id])
+  }, [ticket?.id])
 
   useEffect(() => {
     if (inView && hasMore && !isLoading) {
@@ -117,7 +152,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
           if (payload.eventType === 'INSERT') {
             // Add new message to the list
             const newMessage = payload.new as EmailMessage;
-            setMessageList((prev) => {
+            setMessages((prev) => {
               // Check if message already exists
               const exists = prev.some(msg => msg.id === newMessage.id);
               if (exists) return prev;
@@ -133,13 +168,13 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
           } else if (payload.eventType === 'UPDATE') {
             // Update existing message
             const updatedMessage = payload.new as EmailMessage;
-            setMessageList((prev) => 
+            setMessages((prev) => 
               prev.map(msg => msg.id === updatedMessage.id ? updatedMessage : msg)
             );
           } else if (payload.eventType === 'DELETE') {
             // Remove deleted message
             const deletedMessage = payload.old as EmailMessage;
-            setMessageList((prev) => 
+            setMessages((prev) => 
               prev.filter(msg => msg.id !== deletedMessage.id)
             );
           }
@@ -157,11 +192,15 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
     };
   }, [ticket?.id, supabase]);
 
-  const handleSendMessage = async (htmlBody: string, attachments: any[]) => {
-    if (!ticket) return;
+  const handleSendMessage = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    if (!replyText.trim() || sending || !ticket) return;
+    
     try {
+      setSending(true);
+      
       // Get the latest message for threading info
-      const latestMessage = messageList[0];
+      const latestMessage = messages[0];
       
       // Send email via API
       const response = await fetch('/api/gmail/send', {
@@ -175,11 +214,11 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
           messageId: latestMessage?.message_id,
           inReplyTo: latestMessage?.message_id,
           references: latestMessage?.message_id,
-          fromAddress: latestMessage?.to_address?.[0] || "support@yourdomain.com",
+          fromAddress: latestMessage?.to_address || "support@yourdomain.com",
           toAddresses: [latestMessage?.from_address || "recipient@example.com"],
           subject: latestMessage ? `Re: ${latestMessage.subject?.replace(/^Re:\s*/i, '')}` : "Re: Support Ticket",
-          htmlBody,
-          attachments,
+          htmlBody: replyText,
+          attachments: [],
         }),
       });
 
@@ -191,221 +230,171 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
       const data = await response.json();
 
       // Add new message to the list
-      setMessageList((prev) => [data, ...prev]);
+      setMessages((prev) => [data, ...prev]);
+      
+      // Clear the reply text
+      setReplyText('');
     } catch (error) {
-      console.error("Send message error:", error);
-      throw error; // Re-throw to be handled by the UI
+      console.error('Error sending reply:', error);
+    } finally {
+      setSending(false);
     }
   };
 
-  return (
-    <AnimatePresence>
-      {isOpen && ticket?.id && (
-        <motion.div
-          initial={{ x: "100%" }}
-          animate={{ x: 0 }}
-          exit={{ x: "100%" }}
-          transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-          className="absolute top-0 right-8 w-[600px] h-full bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 flex flex-col rounded-l-xl shadow-2xl z-50"
-        >
-          {/* Header */}
-          <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm flex flex-col">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                  <Mail className="h-5 w-5 text-slate-500 dark:text-slate-400" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Email Thread</h2>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">Ticket #{ticket.id}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 pr-1">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
-                        <Reply className="h-5 w-5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Reply</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
-                        <Forward className="h-5 w-5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Forward</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
-                        <Star className="h-5 w-5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Star email</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
-                        <MoreHorizontal className="h-5 w-5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>More options</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white" onClick={onClose}>
-                        <X className="h-5 w-5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Close</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            </div>
+  function extractSenderName(subject: string | null, body: string | null): string | null {
+    console.log('Extracting sender name from:', {
+      subject,
+      bodyLength: body?.length,
+      bodyPreview: body?.substring(0, 200) // Show first 200 chars of body
+    });
+    
+    if (!subject && !body) {
+      console.log('No subject or body provided');
+      return null;
+    }
+    
+    // Try to extract from subject first
+    if (subject) {
+      console.log('Attempting to extract from subject:', subject);
+      // Match patterns like "Name sent you" or "Name sent"
+      const subjectMatch = subject.match(/^([^<]+?)\s+sent\s+(?:you\s+)?/i);
+      if (subjectMatch) {
+        console.log('Found name in subject:', subjectMatch[1].trim());
+        return subjectMatch[1].trim();
+      }
+      console.log('No name pattern found in subject');
+    }
+    
+    // If no name found in subject, try to find in body
+    if (body) {
+      console.log('Attempting to extract from body');
+      const doc = new DOMParser().parseFromString(body, 'text/html');
+      const titleElement = doc.querySelector('title');
+      if (titleElement) {
+        console.log('Found title element:', titleElement.textContent);
+        const titleMatch = titleElement.textContent?.match(/^([^<]+?)\s+sent\s+(?:you\s+)?/i);
+        if (titleMatch) {
+          console.log('Found name in title:', titleMatch[1].trim());
+          return titleMatch[1].trim();
+        }
+        console.log('No name pattern found in title');
+      } else {
+        console.log('No title element found in body');
+      }
+    }
+    
+    console.log('No sender name found in either subject or body');
+    return null;
+  }
 
-            {/* First Message Preview */}
-            {messageList.length > 0 && (
-              <div className="mt-4 p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900 dark:text-slate-200">
-                      {messageList[messageList.length - 1].from_name || messageList[messageList.length - 1].from_address}
-                    </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {format(new Date(messageList[messageList.length - 1].created_at), "MMM d, yyyy h:mm a")}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-sm text-slate-700 dark:text-slate-300 line-clamp-2">
-                  {messageList[messageList.length - 1].subject && (
-                    <span className="font-medium">{messageList[messageList.length - 1].subject} - </span>
-                  )}
-                  <span dangerouslySetInnerHTML={{ __html: messageList[messageList.length - 1].body.substring(0, 150) + '...' }} />
-                </div>
-              </div>
-            )}
+  return (
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="w-full sm:max-w-xl overflow-y-auto bg-white text-slate-900 border-l border-slate-200">
+        <SheetTitle className="sr-only">Email Thread</SheetTitle>
+        <SheetDescription className="sr-only">Email conversation thread for ticket</SheetDescription>
+        <div className="flex flex-col h-full">
+          {/* Header */}
+          <div className="flex items-center justify-between pb-4 border-b border-slate-200">
+            <div className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-slate-600" />
+              <h2 className="text-lg font-semibold text-slate-900">Email Thread</h2>
+            </div>
+            <Button variant="ghost" size="icon" onClick={onClose} className="text-slate-600 hover:text-slate-900">
+              <X className="h-4 w-4" />
+            </Button>
           </div>
 
-          {/* Email Thread */}
-          <div className="flex-1 overflow-auto p-4 space-y-4 relative">
-            {messageList.map((msg) => {
-              const dateObj = new Date(msg.created_at);
-              const dateLabel = format(dateObj, "MMM d, yyyy h:mm a");
-              return (
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto py-4 space-y-4">
+            {isLoading && messages.length === 0 ? (
+              // Loading skeleton
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-20 w-full" />
+                </div>
+              ))
+            ) : messages.length > 0 ? (
+              messages.map((message, index) => (
                 <div
-                  key={msg.id}
-                  className="bg-slate-50/50 dark:bg-slate-800/50 rounded-lg p-4 backdrop-blur-sm mb-2"
+                  key={message.id}
+                  className="p-4 rounded-lg bg-slate-50 space-y-2"
+                  ref={index === messages.length - 1 ? ref : undefined}
                 >
-                  <div className="flex justify-between items-start mb-3">
-                    <div>
-                      <p className="text-slate-900 dark:text-slate-200 font-medium">
-                        {msg.from_name || msg.from_address}
-                      </p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">
-                        To: {(msg.to_address || []).join(", ")}
-                      </p>
-                      {msg.cc_address && msg.cc_address.length > 0 && (
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                          CC: {msg.cc_address.join(", ")}
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-8 w-8">
+                        <AvatarImage
+                          src={`https://www.gravatar.com/avatar/${md5(message.from_address.toLowerCase())}?d=mp`}
+                          alt={message.from_name || message.from_address}
+                        />
+                        <AvatarFallback>
+                          {(message.from_name || message.from_address).charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <p className="font-medium text-slate-900">{message.from_name || message.from_address}</p>
+                        <p className="text-sm text-slate-500">
+                          {formatDistanceToNow(new Date(message.gmail_date || message.created_at), {
+                            addSuffix: true,
+                          })}
                         </p>
-                      )}
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-sm text-slate-500 dark:text-slate-400">
-                        {dateLabel}
-                      </span>
-                      {msg.ai_classification !== 'unknown' && (
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${
-                            msg.ai_classification === 'should_respond' 
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200'
-                              : 'bg-slate-100 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300'
-                          }`}>
-                            {msg.ai_classification === 'should_respond' ? 'Needs Response' : 'No Response Needed'}
-                          </span>
-                          {msg.ai_confidence > 0 && (
-                            <span className="text-xs text-slate-500 dark:text-slate-400">
-                              {Math.round(msg.ai_confidence)}% confidence
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                    {message.attachments?.length > 0 && (
+                      <div className="flex items-center gap-1 text-sm text-slate-500">
+                        <Paperclip className="h-4 w-4" />
+                        <span>{message.attachments.length}</span>
+                      </div>
+                    )}
                   </div>
                   <div
-                    className="prose prose-slate dark:prose-invert max-w-none text-sm"
-                    dangerouslySetInnerHTML={{ __html: msg.body || "" }}
+                    className="prose max-w-none text-sm text-slate-700 whitespace-pre-wrap"
+                    dangerouslySetInnerHTML={{
+                      __html: message.body,
+                    }}
                   />
-                  {msg.ai_draft_response && !msg.ai_auto_responded && (
-                    <div className="mt-4 p-3 bg-slate-100 dark:bg-slate-700/50 rounded-lg border border-slate-200 dark:border-slate-600">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium text-slate-900 dark:text-slate-300">AI Draft Response</span>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-                            onClick={() => handleSendMessage(msg.ai_draft_response!, [])}
-                          >
-                            Send
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-                            onClick={() => {/* TODO: Implement edit draft */}}
-                          >
-                            Edit
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="text-sm text-slate-700 dark:text-slate-300">{msg.ai_draft_response}</div>
-                    </div>
-                  )}
-                  {msg.attachments && Array.isArray(msg.attachments) && msg.attachments.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
-                      <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">Attachments:</p>
-                      {(msg.attachments as Array<any>).map((att) => (
-                        <a
-                          key={att.name}
-                          href={att.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 mr-4"
-                        >
-                          <Paperclip className="h-4 w-4" />
-                          {att.name}
-                        </a>
-                      ))}
-                    </div>
-                  )}
                 </div>
-              )
-            })}
-
-            {/* Loading indicator */}
-            {isLoading && (
-              <div className="flex justify-center py-4">
-                <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
-              </div>
+              ))
+            ) : (
+              <div className="text-center text-slate-500">No messages found</div>
             )}
-
-            {/* Intersection Observer sentinel */}
-            <div ref={ref} className="h-4" />
           </div>
 
-          {/* Composer */}
-          <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm">
-            <EmailComposer
-              onSend={handleSendMessage}
-              loading={false}
-            />
+          {/* Reply box */}
+          <div className="pt-4 border-t border-slate-200">
+            <div className="relative">
+              <textarea
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                placeholder="Type your reply..."
+                className="w-full h-32 px-4 py-2 bg-slate-50 text-slate-900 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 border border-slate-200"
+              />
+              <div className="absolute bottom-2 right-2 flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <Smile className="h-4 w-4" />
+                </Button>
+                <Button
+                  onClick={handleSendMessage}
+                  disabled={!replyText.trim() || sending}
+                  className="bg-blue-500 hover:bg-blue-600 text-white"
+                >
+                  {sending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                  <span className="ml-2">Send</span>
+                </Button>
+              </div>
+            </div>
           </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  )
-} 
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}

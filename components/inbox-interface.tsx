@@ -39,26 +39,6 @@ export default function InboxInterface() {
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-b from-slate-900 to-slate-950">
-      {/* Trial Banner */}
-      <div className="bg-gradient-to-r from-indigo-500/90 via-purple-500/90 to-pink-500/90 backdrop-blur-sm text-white p-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="border-white/20 bg-white/10">
-            Trial
-          </Badge>
-          <span className="text-sm font-medium">
-            You have <strong>13 days</strong> left in your Advanced trial
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="sm" className="bg-white text-black hover:bg-white/90 transition-colors">
-            Buy Intercom
-          </Button>
-          <Button variant="ghost" size="sm" className="text-white hover:text-white hover:bg-white/10 transition-colors">
-            Apply for an Early Stage 90% discount
-          </Button>
-        </div>
-      </div>
-
       <div className="flex flex-1 relative overflow-hidden">
         {/* Left Sidebar */}
         <div className="w-16 bg-slate-950/50 backdrop-blur-sm flex flex-col items-center py-4 border-r border-slate-800 z-10">

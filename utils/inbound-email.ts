@@ -1,8 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-import { Database } from '../types/supabase';
-import { ParsedEmail } from '../types/gmail';
-import { v4 as uuidv4 } from 'uuid';
 import { config } from 'dotenv';
+import { v4 as uuidv4 } from 'uuid';
+import { ParsedEmail } from '../types/gmail';
+import { Database } from '../types/supabase';
 import { EmailLogger } from './emailLogger';
 
 // Load environment variables
@@ -64,18 +64,14 @@ export async function handleInboundEmail(
 
       // Log the email
       await EmailLogger.logEmail({
-        ticketId,
+        ticketId: ticketId,
         messageId: parsedEmail.messageId,
         threadId: parsedEmail.threadId,
-        direction: 'inbound',
-        snippet: parsedEmail.snippet,
-        subject: parsedEmail.subject,
         fromAddress: parsedEmail.from,
         toAddress: parsedEmail.to,
-        authorId: customerProfile.id,
-        orgId: orgId,
+        subject: parsedEmail.subject,
         rawContent: parsedEmail.body.text || parsedEmail.body.html,
-        labels: parsedEmail.labels
+        orgId: orgId
       });
 
       console.log(`Added comment to ticket: ${ticketId}`);
@@ -116,20 +112,66 @@ export async function handleInboundEmail(
       throw new Error('Failed to create ticket');
     }
 
+    // Create corresponding email chat entry
+    if (!parsedEmail.from || !parsedEmail.to || !parsedEmail.date) {
+      console.error('Missing required fields for email chat:', {
+        from: parsedEmail.from,
+        to: parsedEmail.to,
+        date: parsedEmail.date
+      });
+      throw new Error('Missing required fields for email chat');
+    }
+
+    const { error: emailChatError } = await supabase
+      .from('ticket_email_chats')
+      .insert({
+        ticket_id: ticket.id,
+        message_id: parsedEmail.messageId,
+        thread_id: parsedEmail.threadId,
+        from_name: parsedEmail.fromName || null,
+        from_address: parsedEmail.from,
+        to_address: Array.isArray(parsedEmail.to) ? parsedEmail.to : [parsedEmail.to],
+        cc_address: parsedEmail.cc ? (Array.isArray(parsedEmail.cc) ? parsedEmail.cc : [parsedEmail.cc]) : [],
+        bcc_address: parsedEmail.bcc ? (Array.isArray(parsedEmail.bcc) ? parsedEmail.bcc : [parsedEmail.bcc]) : [],
+        subject: parsedEmail.subject || null,
+        body: parsedEmail.body.text || parsedEmail.body.html || 'No content available',
+        gmail_date: parsedEmail.date,
+        org_id: orgId,
+        ai_classification: 'unknown',
+        ai_confidence: 0,
+        ai_auto_responded: false,
+        ai_draft_response: null
+      });
+
+    if (emailChatError) {
+      console.error('Error creating email chat:', {
+        error: emailChatError,
+        ticket_id: ticket.id,
+        message_id: parsedEmail.messageId,
+        thread_id: parsedEmail.threadId,
+        org_id: orgId,
+        error_details: emailChatError.details,
+        error_message: emailChatError.message,
+        error_hint: emailChatError.hint
+      });
+      throw new Error(`Failed to create email chat: ${emailChatError.message}`);
+    } else {
+      console.log('Successfully created email chat for ticket:', {
+        ticket_id: ticket.id,
+        message_id: parsedEmail.messageId
+      });
+    }
+
     // Log the email
     await EmailLogger.logEmail({
       ticketId: ticket.id,
       messageId: parsedEmail.messageId,
       threadId: parsedEmail.threadId,
-      direction: 'inbound',
-      snippet: parsedEmail.snippet,
-      subject: parsedEmail.subject,
       fromAddress: parsedEmail.from,
       toAddress: parsedEmail.to,
-      authorId: customerProfile.id,
-      orgId: orgId,
+      subject: parsedEmail.subject,
       rawContent: parsedEmail.body.text || parsedEmail.body.html,
-      labels: parsedEmail.labels
+      orgId: orgId
     });
 
     console.log(`Created new ticket: ${ticket.id}`);

@@ -65,6 +65,8 @@ export interface ParsedEmail {
   messageId: string;
   threadId: string;
   from: string;
+  fromName: string;
+  fromEmail: string;
   to: string | string[];
   cc?: string[];
   bcc?: string[];

@@ -7,17 +7,18 @@ type UserRole = Database['public']['Enums']['user_role'];
 export function useUserRole() {
   const [role, setRole] = useState<UserRole>('customer');
   const [loading, setLoading] = useState(true);
+  const [isUserLoading, setIsUserLoading] = useState(true);
   const supabase = useSupabaseClient<Database>();
   const user = useUser();
 
   useEffect(() => {
-    const fetchUserRole = async () => {
-      if (!user) {
-        console.log('useUserRole - No user found');
-        setLoading(false);
-        return;
-      }
+    setIsUserLoading(true);
+    if (!user) {
+      setIsUserLoading(false);
+      return;
+    }
 
+    const fetchUserRole = async () => {
       console.log('useUserRole - Fetching role for user:', user.id);
 
       // Subscribe to role changes
@@ -48,12 +49,14 @@ export function useUserRole() {
       if (error) {
         console.error('useUserRole - Error fetching user role:', error);
         setLoading(false);
+        setIsUserLoading(false);
         return;
       }
 
       console.log('useUserRole - Fetched role:', data?.role);
       setRole(data?.role || 'customer');
       setLoading(false);
+      setIsUserLoading(false);
     };
 
     fetchUserRole();
@@ -64,5 +67,5 @@ export function useUserRole() {
     };
   }, [user, supabase]);
 
-  return { role, loading };
+  return { role, loading, isUserLoading };
 } 

@@ -49,21 +49,31 @@ export default function Sidebar() {
     return (
       <Link
         href={href}
-        className={`flex items-center px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200 ${
-          isActive
-            ? 'bg-gray-100 text-gray-900'
-            : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-        }`}
+        className={`
+          group flex items-center px-4 py-3 sm:py-2.5 
+          text-base sm:text-sm font-medium rounded-lg
+          transition-all duration-200
+          active:scale-[0.98]
+          ${isActive
+            ? 'bg-blue-50 text-blue-700 dark:bg-slate-800 dark:text-blue-400'
+            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800'
+          }
+        `}
       >
-        {children}
+        <span className="relative">
+          {children}
+          {isActive && (
+            <span className="absolute inset-x-1 -bottom-1 h-px bg-gradient-to-r from-blue-500/0 via-blue-500/70 to-blue-500/0"></span>
+          )}
+        </span>
       </Link>
     );
   };
 
   return (
-    <div className="w-64 h-full bg-white border-r border-gray-200">
+    <div className="w-full h-full bg-white dark:bg-slate-900 border-r border-slate-200/50 dark:border-slate-700/50">
       <div className="flex flex-col h-full">
-        <div className="space-y-4 flex-1 px-3 py-4">
+        <div className="flex-1 px-3 py-6 space-y-2">
           <nav className="space-y-1">
             <NavLink href="/dashboard">Dashboard</NavLink>
             <NavLink href="/tickets">Tickets</NavLink>
@@ -84,10 +94,23 @@ export default function Sidebar() {
           </nav>
         </div>
 
-        <div className="p-4 border-t border-gray-200">
+        <div className="p-4 border-t border-slate-200/50 dark:border-slate-700/50">
           <button
             onClick={handleSignOut}
-            className="w-full flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-200"
+            className="
+              w-full flex items-center justify-center 
+              px-4 py-3 sm:py-2.5 
+              text-base sm:text-sm font-medium rounded-lg
+              text-white
+              bg-gradient-to-r from-red-500 to-red-600
+              hover:from-red-600 hover:to-red-700
+              active:from-red-700 active:to-red-800
+              shadow-sm shadow-red-500/10
+              hover:shadow-md hover:shadow-red-500/20
+              focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2
+              transition-all duration-200
+              active:scale-[0.98]
+            "
           >
             Sign Out
           </button>
