@@ -1,9 +1,11 @@
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { motion } from 'framer-motion';
 import { debounce } from 'lodash';
-import Link from 'next/link';
+import { Briefcase, Building, Lock, Mail, User } from 'lucide-react';
+import Head from 'next/head';
 import { useRouter } from 'next/router';
 import React, { useEffect, useState } from 'react';
-import AuthLayout from '../../components/auth/AuthLayout';
 
 interface Organization {
   id: string;
@@ -11,10 +13,10 @@ interface Organization {
 }
 
 // Helper function to create organization and associate user
-async function createUserOrganization(supabase: any, userId: string, email: string, orgName?: string) {
+async function createUserOrganization(supabase: any, userId: string, email: string, orgName?: string, selectedOrgId?: string) {
   try {
     console.group('[SIGNUP] Starting User Organization Creation');
-    console.log('📝 Initial Parameters:', { userId, email, orgName });
+    console.log('📝 Initial Parameters:', { userId, email, orgName, selectedOrgId });
 
     if (!userId || !email) {
       console.error('❌ Missing required parameters');
@@ -58,6 +60,53 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
     }
     console.log('✨ No existing profile found');
 
+    // Agent flow
+    if (selectedOrgId) {
+      console.group('[SIGNUP] Agent Flow - Joining Organization');
+      console.log('📝 Creating agent profile...');
+      
+      const { data: newProfile, error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          email: email,
+          display_name: email.split('@')[0],
+          role: 'agent',
+          org_id: selectedOrgId
+        })
+        .select()
+        .single();
+
+      if (profileError) {
+        console.error('❌ Agent profile creation failed:', profileError);
+        console.groupEnd();
+        console.groupEnd();
+        throw profileError;
+      }
+      console.log('✅ Agent profile created successfully:', newProfile);
+
+      console.log('📝 Creating organization membership...');
+      const { error: memberError } = await supabase
+        .from('organization_members')
+        .insert({ 
+          organization_id: selectedOrgId,
+          user_id: userId,
+          role: 'agent',
+          created_at: new Date().toISOString()
+        });
+
+      if (memberError) {
+        console.error('❌ Organization membership creation failed:', memberError);
+        console.groupEnd();
+        console.groupEnd();
+        throw memberError;
+      }
+      console.log('✅ Organization membership created successfully');
+      console.groupEnd();
+      console.groupEnd();
+      return;
+    }
+
     // Admin flow
     if (orgName) {
       console.group('[SIGNUP] Admin Flow - Creating New Organization');
@@ -67,9 +116,13 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
         .from('organizations')
         .insert({ 
           name: orgName.slice(0, 100),
-          email: email,
-          created_by: userId,
-          created_at: new Date().toISOString()
+          sla_tier: 'basic',
+          config: {
+            is_personal: false,
+            created_at_timestamp: new Date().toISOString(),
+            created_by: userId,
+            created_by_email: email
+          }
         })
         .select()
         .single();
@@ -109,8 +162,7 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
         .insert({ 
           organization_id: org.id,
           user_id: userId,
-          role: 'admin',
-          created_at: new Date().toISOString()
+          role: 'admin'
         });
 
       if (memberError) {
@@ -173,25 +225,33 @@ async function searchOrganizations(supabase: any, query: string): Promise<Organi
   return data || [];
 }
 
+type UserType = 'customer' | 'agent' | 'admin';
+
 export default function SignUp() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [orgName, setOrgName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [searchResults, setSearchResults] = useState<Organization[]>([]);
-  const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
+  const supabase = useSupabaseClient();
   const router = useRouter();
   const { type } = router.query;
-  const supabase = createClientComponentClient({
-    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  });
+  
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [organizationName, setOrganizationName] = useState('');
+  const [organizationCode, setOrganizationCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<Organization[]>([]);
+  const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
   const serviceRoleClient = createClientComponentClient({
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
     supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
   });
   const [origin, setOrigin] = useState<string>('');
+
+  useEffect(() => {
+    if (!type || !['customer', 'agent', 'admin'].includes(type as string)) {
+      router.push('/');
+    }
+  }, [type, router]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -214,14 +274,14 @@ export default function SignUp() {
   }, 300);
 
   const handleOrgSearch = (query: string) => {
-    setOrgName(query);
+    setOrganizationName(query);
     setSelectedOrg(null);
     debouncedSearch(query);
   };
 
   const selectOrganization = (org: Organization) => {
     setSelectedOrg(org);
-    setOrgName(org.name);
+    setOrganizationName(org.name);
     setSearchResults([]);
   };
 
@@ -272,144 +332,300 @@ export default function SignUp() {
     }
   };
 
-  const handleSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.group('[SIGNUP] Starting Sign Up Process');
-    console.time('signup-process');
-    
+    setError(null);
+    setLoading(true);
+
     try {
-      setError(null);
-      setLoading(true);
-      console.log('📝 Validating input fields...');
-
-      if (!validateEmail(email)) {
-        console.warn('❌ Invalid email format');
-        setError('Please enter a valid email address');
-        return;
-      }
-      console.log('✅ Email format valid');
-
-      if (password.length < 6) {
-        console.warn('❌ Password too short');
-        setError('Password must be at least 6 characters');
-        return;
-      }
-      console.log('✅ Password length valid');
-
-      if (type === 'admin' && !orgName) {
-        console.warn('❌ Missing organization name');
-        setError('Please enter an organization name');
-        return;
-      }
-
-      console.log('🔐 Attempting user signup...', {
-        email,
-        redirectTo: `${origin}/auth/callback`,
-        type,
-        orgName: orgName || undefined
-      });
-
-      // Use regular client for auth operations
-      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      // Create user account
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${origin}/auth/callback`,
           data: {
-            signup_type: type,
-            org_name: orgName || undefined
-          }
+            name,
+            user_type: type,
+          },
         },
       });
 
-      if (signUpError) {
-        console.error('❌ Signup failed:', {
-          error: signUpError,
-          code: signUpError.status,
-          message: signUpError.message
-        });
-        throw signUpError;
-      }
+      if (authError) throw authError;
+      if (!authData.user) throw new Error('No user data returned');
 
-      if (!signUpData?.user) {
-        console.error('❌ No user data received from signup');
-        throw new Error('No user data received from signup');
-      }
+      // Check if profile already exists
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id, org_id, role')
+        .eq('id', authData.user.id)
+        .single();
 
-      console.log('✅ User signup successful:', {
-        userId: signUpData.user.id,
-        email: signUpData.user.email,
-        type,
-        orgName: orgName || undefined,
-        hasSession: !!signUpData.session
-      });
+      if (existingProfile) {
+        // Profile already exists, update it instead
+        if (type === 'admin') {
+          // Create organization for admin
+          const { data: orgData, error: orgError } = await supabase
+            .from('organizations')
+            .insert([
+              {
+                name: organizationName,
+                sla_tier: 'basic',
+                config: {
+                  is_personal: false,
+                  created_at_timestamp: new Date().toISOString(),
+                  created_by: authData.user.id,
+                  created_by_email: email
+                }
+              },
+            ])
+            .select()
+            .single();
 
-      // Create organization and profile regardless of session status
-      // since email confirmation is disabled
-      console.log('👤 Creating organization and profile...');
-      try {
-        await createUserOrganization(
-          serviceRoleClient,
-          signUpData.user.id,
-          email,
-          type === 'admin' ? orgName : undefined
-        );
-        console.log('✅ Organization and profile setup complete');
-        
-        if (signUpData.session) {
-          console.log('🚀 Redirecting to dashboard...');
-          router.push('/dashboard');
+          if (orgError) throw orgError;
+          if (!orgData) throw new Error('No organization data returned');
+
+          // Update existing profile
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update({
+              email: email,
+              display_name: name || email.split('@')[0],
+              role: 'admin',
+              org_id: orgData.id
+            })
+            .eq('id', authData.user.id);
+
+          if (profileError) throw profileError;
+
+          // Create organization membership
+          const { error: memberError } = await supabase
+            .from('organization_members')
+            .insert([
+              {
+                organization_id: orgData.id,
+                user_id: authData.user.id,
+                role: 'admin'
+              },
+            ]);
+
+          if (memberError) throw memberError;
+        } else if (type === 'agent') {
+          // Get organization by code
+          const { data: orgData, error: orgError } = await supabase
+            .from('organizations')
+            .select('id')
+            .eq('code', organizationCode)
+            .single();
+
+          if (orgError) throw new Error('Invalid organization code');
+          if (!orgData) throw new Error('Organization not found');
+
+          // Update existing profile
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update({
+              email: email,
+              display_name: name || email.split('@')[0],
+              role: 'agent',
+              org_id: orgData.id
+            })
+            .eq('id', authData.user.id);
+
+          if (profileError) throw profileError;
+
+          // Create organization membership
+          const { error: memberError } = await supabase
+            .from('organization_members')
+            .insert([
+              {
+                organization_id: orgData.id,
+                user_id: authData.user.id,
+                role: 'agent'
+              },
+            ]);
+
+          if (memberError) throw memberError;
         } else {
-          console.log('📧 Signup successful, session pending');
-          setError('Signup successful! Please check your email to complete registration.');
+          // Update existing profile for customer
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .update({
+              email: email,
+              display_name: name || email.split('@')[0],
+              role: 'customer'
+            })
+            .eq('id', authData.user.id);
+
+          if (profileError) throw profileError;
         }
-      } catch (orgError: any) {
-        console.error('❌ Error setting up organization:', {
-          error: orgError,
-          message: orgError.message
-        });
-        throw new Error('Failed to set up organization: ' + orgError.message);
+      } else {
+        // No profile exists yet (rare case if trigger failed)
+        if (type === 'admin') {
+          // Create organization for admin
+          const { data: orgData, error: orgError } = await supabase
+            .from('organizations')
+            .insert([
+              {
+                name: organizationName,
+                sla_tier: 'basic',
+                config: {
+                  is_personal: false,
+                  created_at_timestamp: new Date().toISOString(),
+                  created_by: authData.user.id,
+                  created_by_email: email
+                }
+              },
+            ])
+            .select()
+            .single();
+
+          if (orgError) throw orgError;
+          if (!orgData) throw new Error('No organization data returned');
+
+          // Create profile for admin
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .insert([
+              {
+                id: authData.user.id,
+                email: email,
+                display_name: name || email.split('@')[0],
+                role: 'admin',
+                org_id: orgData.id
+              },
+            ]);
+
+          if (profileError) throw profileError;
+
+          // Create organization membership
+          const { error: memberError } = await supabase
+            .from('organization_members')
+            .insert([
+              {
+                organization_id: orgData.id,
+                user_id: authData.user.id,
+                role: 'admin'
+              },
+            ]);
+
+          if (memberError) throw memberError;
+        } else if (type === 'agent') {
+          // Get organization by code
+          const { data: orgData, error: orgError } = await supabase
+            .from('organizations')
+            .select('id')
+            .eq('code', organizationCode)
+            .single();
+
+          if (orgError) throw new Error('Invalid organization code');
+          if (!orgData) throw new Error('Organization not found');
+
+          // Create profile for agent
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .insert([
+              {
+                id: authData.user.id,
+                email: email,
+                display_name: name || email.split('@')[0],
+                role: 'agent',
+                org_id: orgData.id
+              },
+            ]);
+
+          if (profileError) throw profileError;
+
+          // Create organization membership
+          const { error: memberError } = await supabase
+            .from('organization_members')
+            .insert([
+              {
+                organization_id: orgData.id,
+                user_id: authData.user.id,
+                role: 'agent'
+              },
+            ]);
+
+          if (memberError) throw memberError;
+        } else {
+          // Create profile for customer
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .insert([
+              {
+                id: authData.user.id,
+                email: email,
+                display_name: name || email.split('@')[0],
+                role: 'customer'
+              },
+            ]);
+
+          if (profileError) throw profileError;
+        }
       }
-    } catch (error: any) {
-      console.error('❌ Error during signup:', {
-        error,
-        message: error.message,
-        stack: error.stack
-      });
-      setError(error.message || 'An error occurred during signup');
+
+      router.push('/auth/verify');
+    } catch (err: any) {
+      console.error('Signup error:', err);
+      setError(err.message);
     } finally {
       setLoading(false);
-      console.timeEnd('signup-process');
-      console.groupEnd();
+    }
+  };
+
+  const getTitle = () => {
+    switch (type) {
+      case 'customer': return 'Sign Up for Support';
+      case 'agent': return 'Join as Support Agent';
+      case 'admin': return 'Create Your Organization';
+      default: return 'Sign Up';
     }
   };
 
   return (
-    <AuthLayout title={
-      type === 'admin' 
-        ? 'Create Your Organization' 
-        : type === 'agent'
-        ? 'Join Your Organization'
-        : 'Create an Account'
-    }>
-      <div className="flex min-h-full flex-1 flex-col justify-center px-6 py-12 lg:px-8">
-        <div className="sm:mx-auto sm:w-full sm:max-w-sm">
-          <h2 className="mt-10 text-center text-2xl font-bold leading-9 tracking-tight text-gray-900">
-            {type === 'admin' 
-              ? 'Create Your Organization' 
-              : type === 'agent'
-              ? 'Join Your Organization'
-              : 'Create an Account'}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <Head>
+        <title>{getTitle()} - Zendesk</title>
+      </Head>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="max-w-md w-full space-y-8 bg-white dark:bg-slate-800 p-8 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700"
+      >
+        <div>
+          <h2 className="text-center text-3xl font-extrabold text-slate-900 dark:text-white">
+            {getTitle()}
           </h2>
         </div>
 
-        <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
-          <form className="space-y-6" onSubmit={handleSignUp}>
+        <form className="mt-8 space-y-6" onSubmit={handleSignUp}>
+          <div className="space-y-4">
             <div>
-              <label htmlFor="email" className="block text-sm font-medium leading-6 text-gray-900">
-                Email address
-              </label>
-              <div className="mt-2">
+              <label htmlFor="name" className="sr-only">Name</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <User className="h-5 w-5" />
+                </div>
+                <input
+                  id="name"
+                  name="name"
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                  placeholder="Full name"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="email" className="sr-only">Email address</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <Mail className="h-5 w-5" />
+                </div>
                 <input
                   id="email"
                   name="email"
@@ -418,16 +634,18 @@ export default function SignUp() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                  className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                  placeholder="Email address"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium leading-6 text-gray-900">
-                Password
-              </label>
-              <div className="mt-2">
+              <label htmlFor="password" className="sr-only">Password</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <Lock className="h-5 w-5" />
+                </div>
                 <input
                   id="password"
                   name="password"
@@ -436,108 +654,83 @@ export default function SignUp() {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                  className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                  placeholder="Password"
                 />
               </div>
             </div>
 
-            {(type === 'admin' || type === 'agent') && (
+            {type === 'admin' && (
               <div>
-                <label htmlFor="organization" className="block text-sm font-medium leading-6 text-gray-900">
-                  {type === 'admin' ? 'Organization Name' : 'Search Organization'}
-                </label>
-                <div className="mt-2 relative">
+                <label htmlFor="organizationName" className="sr-only">Organization Name</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Building className="h-5 w-5" />
+                  </div>
                   <input
-                    id="organization"
-                    name="organization"
+                    id="organizationName"
+                    name="organizationName"
                     type="text"
                     required
-                    value={orgName}
-                    onChange={(e) => handleOrgSearch(e.target.value)}
-                    className="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-indigo-600 sm:text-sm sm:leading-6"
+                    value={organizationName}
+                    onChange={(e) => setOrganizationName(e.target.value)}
+                    className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                    placeholder="Organization name"
                   />
-                  {type === 'agent' && searchResults.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md border border-gray-200">
-                      {searchResults.map((org) => (
-                        <div
-                          key={org.id}
-                          className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
-                          onClick={() => selectOrganization(org)}
-                        >
-                          {org.name}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
             )}
 
-            {error && (
-              <div className="text-red-600 text-sm">{error}</div>
+            {type === 'agent' && (
+              <div>
+                <label htmlFor="organizationCode" className="sr-only">Organization Code</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <Briefcase className="h-5 w-5" />
+                  </div>
+                  <input
+                    id="organizationCode"
+                    name="organizationCode"
+                    type="text"
+                    required
+                    value={organizationCode}
+                    onChange={(e) => setOrganizationCode(e.target.value)}
+                    className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                    placeholder="Organization code"
+                  />
+                </div>
+              </div>
             )}
-
-            <div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-semibold leading-6 text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50"
-              >
-                {loading ? 'Loading...' : 'Sign up'}
-              </button>
-            </div>
-          </form>
-
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="bg-white px-2 text-gray-500">Or continue with</span>
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <button
-                onClick={handleGoogleSignIn}
-                disabled={loading}
-                className="flex w-full items-center justify-center gap-3 rounded-md bg-white px-3 py-1.5 text-sm font-semibold leading-6 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-              >
-                <svg className="h-5 w-5" aria-hidden="true" viewBox="0 0 24 24">
-                  <path
-                    d="M12.0003 4.75C13.7703 4.75 15.3553 5.36002 16.6053 6.54998L20.0303 3.125C17.9502 1.19 15.2353 0 12.0003 0C7.31028 0 3.25527 2.69 1.28027 6.60998L5.27028 9.70498C6.21525 6.86002 8.87028 4.75 12.0003 4.75Z"
-                    fill="#EA4335"
-                  />
-                  <path
-                    d="M23.49 12.275C23.49 11.49 23.415 10.73 23.3 10H12V14.51H18.47C18.18 15.99 17.34 17.25 16.08 18.1L19.945 21.1C22.2 19.01 23.49 15.92 23.49 12.275Z"
-                    fill="#4285F4"
-                  />
-                  <path
-                    d="M5.26498 14.2949C5.02498 13.5699 4.88501 12.7999 4.88501 11.9999C4.88501 11.1999 5.01998 10.4299 5.27028 9.7049L1.28027 6.60986C0.47027 8.22986 0 10.0599 0 11.9999C0 13.9399 0.47027 15.7699 1.28027 17.3899L5.26498 14.2949Z"
-                    fill="#FBBC05"
-                  />
-                  <path
-                    d="M12.0004 24C15.2354 24 17.9504 22.935 19.9454 21.095L16.0804 18.095C15.0054 18.82 13.6204 19.245 12.0004 19.245C8.87043 19.245 6.21542 17.135 5.26544 14.29L1.27545 17.385C3.25045 21.31 7.31046 24 12.0004 24Z"
-                    fill="#34A853"
-                  />
-                </svg>
-                <span>Google</span>
-              </button>
-            </div>
           </div>
 
-          <p className="mt-10 text-center text-sm text-gray-500">
-            Already have an account?{' '}
-            <Link
-              href="/auth/signin"
-              className="font-semibold leading-6 text-indigo-600 hover:text-indigo-500"
+          {error && (
+            <div className="rounded-md bg-red-50 dark:bg-red-900/50 p-4">
+              <div className="text-sm text-red-700 dark:text-red-200">
+                {error}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Sign in
-            </Link>
-          </p>
+              {loading ? 'Creating account...' : 'Sign up'}
+            </button>
+          </div>
+        </form>
+
+        <div className="text-center">
+          <button
+            onClick={() => router.push('/auth/signin')}
+            className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300"
+          >
+            Already have an account? Sign in
+          </button>
         </div>
-      </div>
-    </AuthLayout>
+      </motion.div>
+    </div>
   );
 } 
