@@ -1,0 +1,441 @@
+---
+description: rules for developing frontend code
+globs: 
+---
+
+
+for all ui you generate:
+
+
+# Premium Responsive Design System
+
+## Design Philosophy
+- Create moments of joy through thoughtful interactions and animations
+- Maintain perfect visual harmony across all screen sizes
+- Use motion to guide and delight users
+- Implement a "fluid" design system that scales seamlessly
+- Prioritize emotional connection through design
+- Follow "Preservation of Experience" principle across devices
+
+## Typography Excellence
+```typescript
+const typography = {
+  fontFamily: 'Inter var, system-ui, sans-serif',
+  features: 'ss01, ss02, cv01, cv02, cv03', // Enhanced character variants
+  scale: {
+    // Fluid typography using clamp
+    display: 'clamp(2.5rem, 2rem + 3vw, 4rem)',     // 40-64px
+    h1: 'clamp(2rem, 1.8rem + 2vw, 3rem)',          // 32-48px
+    h2: 'clamp(1.5rem, 1.3rem + 1.5vw, 2.25rem)',   // 24-36px
+    h3: 'clamp(1.25rem, 1.1rem + 1vw, 1.75rem)',    // 20-28px
+    body: 'clamp(1rem, 0.95rem + 0.5vw, 1.125rem)', // 16-18px
+    small: 'clamp(0.875rem, 0.85rem, 1rem)',        // 14-16px
+  },
+  lineHeight: {
+    display: '1.1',
+    heading: '1.2',
+    body: '1.6'
+  }
+}
+```
+
+## Responsive Space System
+```typescript
+const space = {
+  // Fluid spacing that scales with viewport
+  page: 'clamp(1rem, 3vw, 2rem)',
+  section: 'clamp(2rem, 5vw, 4rem)',
+  component: 'clamp(1rem, 2vw, 1.5rem)',
+  element: 'clamp(0.5rem, 1vw, 0.75rem)',
+  
+  // Grid system
+  grid: {
+    container: 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8',
+    gap: 'gap-4 md:gap-6 lg:gap-8',
+    cols: 'grid-cols-4 md:grid-cols-8 lg:grid-cols-12'
+  }
+}
+```
+
+## Enhanced Color System
+```typescript
+const colors = {
+  brand: {
+    primary: {
+      light: '#60A5FA',  // Vibrant but soft blue
+      default: '#3B82F6', // Core brand blue
+      dark: '#2563EB'    // Rich, deep blue
+    },
+    gradient: {
+      primary: 'bg-gradient-to-r from-blue-500 via-blue-600 to-blue-700',
+      subtle: 'bg-gradient-to-r from-slate-50 to-slate-100',
+      glass: 'bg-gradient-to-r from-white/80 to-white/60 backdrop-blur-md'
+    }
+  },
+  surface: {
+    primary: 'bg-white dark:bg-slate-900',
+    secondary: 'bg-slate-50 dark:bg-slate-800',
+    tertiary: 'bg-slate-100 dark:bg-slate-700'
+  },
+  state: {
+    success: '#10B981',
+    warning: '#F59E0B',
+    error: '#EF4444',
+    info: '#3B82F6'
+  }
+}
+```
+
+## Delightful Component System
+
+### Responsive Navigation
+```tsx
+const Navigation = () => {
+  const [isOpen, setIsOpen] = useState(false)
+  
+  return (
+    <nav className="
+      fixed top-0 w-full
+      backdrop-blur-lg bg-white/80 dark:bg-slate-900/80
+      border-b border-slate-200/50 dark:border-slate-700/50
+      z-50
+    ">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          <Logo />
+          
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center space-x-8">
+            <NavLinks />
+          </div>
+          
+          {/* Mobile Navigation */}
+          <button 
+            onClick={() => setIsOpen(!isOpen)}
+            className="md:hidden"
+          >
+            <MenuIcon className="w-6 h-6" />
+          </button>
+        </div>
+      </div>
+      
+      {/* Mobile Menu */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="
+              absolute top-full left-0 right-0
+              bg-white dark:bg-slate-900
+              border-b border-slate-200 dark:border-slate-700
+              md:hidden
+            "
+          >
+            <NavLinks mobile />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </nav>
+  )
+}
+```
+
+### Interactive Card Component
+```tsx
+const Card = ({ children, href }) => {
+  const isLink = Boolean(href)
+  const Component = isLink ? 'a' : 'div'
+  
+  return (
+    <Component
+      href={href}
+      className="
+        group
+        relative overflow-hidden
+        rounded-2xl
+        bg-gradient-to-b from-white to-slate-50
+        dark:from-slate-900 dark:to-slate-800
+        border border-slate-200 dark:border-slate-700
+        shadow-sm hover:shadow-md
+        transition-all duration-300
+        hover:-translate-y-1
+      "
+    >
+      {/* Highlight effect */}
+      <div className="
+        absolute inset-0
+        bg-gradient-to-r from-blue-500/0 via-blue-500/10 to-blue-500/0
+        translate-x-[-100%] group-hover:translate-x-[100%]
+        transition-transform duration-1000
+      "/>
+      
+      <div className="relative p-6">
+        {children}
+      </div>
+    </Component>
+  )
+}
+```
+
+### Animated Button System
+```tsx
+const Button = ({ variant = 'primary', size = 'md', children }) => {
+  const baseStyles = `
+    relative
+    inline-flex items-center justify-center
+    rounded-lg
+    font-medium
+    transition-all duration-300
+    focus:outline-none focus:ring-2 focus:ring-offset-2
+    disabled:opacity-50 disabled:cursor-not-allowed
+  `
+  
+  const variants = {
+    primary: `
+      bg-gradient-to-r from-blue-500 to-blue-600
+      hover:from-blue-600 hover:to-blue-700
+      text-white
+      shadow-lg shadow-blue-500/25
+      hover:shadow-xl hover:shadow-blue-500/30
+      focus:ring-blue-500
+    `,
+    secondary: `
+      bg-white dark:bg-slate-800
+      text-slate-900 dark:text-white
+      border border-slate-200 dark:border-slate-700
+      hover:bg-slate-50 dark:hover:bg-slate-700
+      focus:ring-slate-500
+    `
+  }
+  
+  const sizes = {
+    sm: 'px-3 py-1.5 text-sm',
+    md: 'px-4 py-2 text-base',
+    lg: 'px-6 py-3 text-lg'
+  }
+  
+  return (
+    <button className={`${baseStyles} ${variants[variant]} ${sizes[size]}`}>
+      {/* Loading spinner */}
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-300 group-disabled:opacity-100">
+        <LoadingSpinner />
+      </div>
+      
+      {/* Button content */}
+      <span className="group-disabled:opacity-0">
+        {children}
+      </span>
+    </button>
+  )
+}
+```
+
+### Form Fields with Microinteractions
+```tsx
+const Input = ({ label, error, ...props }) => {
+  const [isFocused, setIsFocused] = useState(false)
+  
+  return (
+    <div className="group relative">
+      {/* Focus ring animation */}
+      <div className={`
+        absolute inset-0
+        rounded-lg
+        ring-2 ring-blue-500/50
+        scale-105 opacity-0
+        transition-all duration-300
+        ${isFocused ? 'scale-100 opacity-100' : ''}
+      `}/>
+      
+      <input
+        {...props}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        className="
+          w-full
+          px-4 py-2
+          rounded-lg
+          bg-white dark:bg-slate-800
+          border border-slate-200 dark:border-slate-700
+          text-slate-900 dark:text-white
+          placeholder-slate-400
+          transition-all duration-300
+          focus:outline-none
+          peer
+        "
+      />
+      
+      <label className="
+        absolute left-4 top-2
+        text-slate-400
+        pointer-events-none
+        transition-all duration-300
+        peer-focus:-translate-y-5 peer-focus:scale-90
+        peer-focus:text-blue-500
+      ">
+        {label}
+      </label>
+      
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-red-500 text-sm mt-1"
+        >
+          {error}
+        </motion.div>
+      )}
+    </div>
+  )
+}
+```
+
+## Motion & Animation System
+```typescript
+const animations = {
+  // Page transitions
+  pageTransition: {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: -20 },
+    transition: {
+      type: 'spring',
+      stiffness: 380,
+      damping: 30
+    }
+  },
+  
+  // Scroll animations
+  fadeUp: {
+    initial: { opacity: 0, y: 20 },
+    whileInView: { opacity: 1, y: 0 },
+    viewport: { once: true },
+    transition: {
+      type: 'spring',
+      stiffness: 380,
+      damping: 30
+    }
+  },
+  
+  // Hover animations
+  hover: {
+    scale: 1.02,
+    transition: {
+      type: 'spring',
+      stiffness: 400,
+      damping: 17
+    }
+  }
+}
+```
+
+## Responsive Patterns
+
+### Responsive Grid System
+```tsx
+const ResponsiveGrid = ({ children }) => (
+  <div className="
+    grid
+    grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4
+    gap-4 sm:gap-6 lg:gap-8
+    auto-rows-fr
+  ">
+    {children}
+  </div>
+)
+```
+
+### Responsive Typography
+```tsx
+const responsiveText = {
+  h1: 'text-3xl sm:text-4xl lg:text-5xl xl:text-6xl',
+  h2: 'text-2xl sm:text-3xl lg:text-4xl',
+  h3: 'text-xl sm:text-2xl lg:text-3xl',
+  body: 'text-base sm:text-lg',
+  small: 'text-sm sm:text-base'
+}
+```
+
+## Loading & Empty States
+```tsx
+const LoadingState = () => (
+  <div className="
+    animate-pulse
+    space-y-4
+    rounded-lg
+    p-6
+    bg-slate-100 dark:bg-slate-800
+  ">
+    <div className="h-6 w-2/3 bg-slate-200 dark:bg-slate-700 rounded"/>
+    <div className="space-y-2">
+      <div className="h-4 w-full bg-slate-200 dark:bg-slate-700 rounded"/>
+      <div className="h-4 w-5/6 bg-slate-200 dark:bg-slate-700 rounded"/>
+    </div>
+  </div>
+)
+
+const EmptyState = ({ title, description, action }) => (
+  <div className="
+    flex flex-col items-center justify-center
+    text-center
+    p-12
+    rounded-lg
+    bg-slate-50 dark:bg-slate-800
+    border-2 border-dashed border-slate-200 dark:border-slate-700
+  ">
+    <IllustrationIcon className="w-24 h-24 text-slate-400"/>
+    <h3 className="mt-4 text-lg font-medium text-slate-900 dark:text-white">
+      {title}
+    </h3>
+    <p className="mt-2 text-slate-500 dark:text-slate-400">
+      {description}
+    </p>
+    {action}
+  </div>
+)
+```
+
+## Interaction Principles
+1. Response Time:
+   - Instant feedback (< 100ms) for all interactions
+   - Progress indicators for operations > 500ms
+   - Skeleton loading for content-heavy sections
+
+2. Touch Targets:
+   - Minimum touch target size: 44x44px
+   - Adequate spacing between interactive elements
+   - Clear visual feedback for touch states
+
+3. Gestures:
+   - Support for common mobile gestures (swipe, pinch)
+   - Smooth inertia scrolling
+   - Pull-to-refresh where appropriate
+
+4. Accessibility:
+   - WCAG 2.1 AA compliance
+   - Clear focus indicators
+   - Support for screen readers
+   - Proper ARIA attributes
+
+## Mobile-First Best Practices
+1. Navigation:
+   - Collapsible menus for mobile
+   - Bottom navigation for frequent actions
+   - Clear back buttons and navigation paths
+
+2. Content:
+   - Progressive disclosure of information
+   - Prioritize essential content
+   - Optimize media for mobile bandwidth
+
+3. Forms:
+   - Native input types for mobile
+   - Large, touch-friendly form controls
+   - Inline validation and error handling
+
+4. Performance:
+   - Optimize images and assets
+   - Implement lazy loading
+   - Minimize main thread work

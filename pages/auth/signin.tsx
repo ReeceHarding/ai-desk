@@ -22,39 +22,66 @@ export default function SignIn() {
   }, []);
 
   const handleGoogleSignIn = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: `${origin}/auth/callback`,
-      },
-    });
+    console.log('[SIGNIN] Starting Google OAuth signin');
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${origin}/auth/callback`,
+        },
+      });
 
-    if (error) {
-      console.error('Error signing in with Google:', error.message);
-      return;
+      if (error) {
+        console.error('[SIGNIN] Error signing in with Google:', error);
+        setError(error.message);
+        return;
+      }
+
+      console.log('[SIGNIN] Google OAuth successful, redirecting...');
+      // Let Supabase handle the redirect
+    } catch (error: any) {
+      console.error('[SIGNIN] Unexpected error during Google signin:', error);
+      setError(error.message);
     }
-
-    // Let Supabase handle the redirect
   };
 
   const handleSignIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const email = formData.get('email') as string;
-    const password = formData.get('password') as string;
+    console.log('[SIGNIN] Starting password signin');
+    
+    try {
+      setError(null);
+      setIsLoading(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+      const formData = new FormData(e.currentTarget);
+      const email = formData.get('email') as string;
+      const password = formData.get('password') as string;
 
-    if (error) {
-      console.error('Error signing in:', error.message);
-      return;
+      console.log('[SIGNIN] Attempting signin with email:', email);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        console.error('[SIGNIN] Error signing in:', error);
+        setError(error.message);
+        return;
+      }
+
+      console.log('[SIGNIN] Signin successful:', {
+        userId: data.user?.id,
+        hasSession: !!data.session
+      });
+
+      // After successful signin, redirect to dashboard
+      router.push('/dashboard');
+    } catch (error: any) {
+      console.error('[SIGNIN] Unexpected error during signin:', error);
+      setError(error.message);
+    } finally {
+      setIsLoading(false);
     }
-
-    // After successful signin, redirect to dashboard
-    router.push('/dashboard');
   };
 
   const handleGitHubSignIn = async () => {

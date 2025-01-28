@@ -1,0 +1,152 @@
+---
+description: use these guideliens when developing tests
+globs: 
+---
+
+### **Strict Guidelines for Writing Tests**
+
+#### **1. Principle of Simplicity**
+- **Single Responsibility per Test**: Each test should cover one behavior or scenario only. If a test does more than one thing, split it into multiple smaller tests.
+  - **Good**: A test verifies the output of one function under specific conditions.
+  - **Bad**: A test verifies multiple outputs or indirectly tests other functionality.
+- **Avoid Abstractions in Tests**:
+  - Do not use helper functions or loops in test logic unless absolutely necessary.
+  - Every test must be self-contained and readable without external context.
+
+---
+
+#### **2. Precision and Clarity**
+- **Precise Failures**:
+  - Write tests that pinpoint the exact issue when they fail.
+  - Avoid vague assertions or generic test setups that obscure the root cause of failure.
+- **Descriptive Test Names**:
+  - Test names must describe exactly what is being tested, the expected outcome, and the specific condition.
+  - **Format**: `[Method] should [Expected Behavior] when [Condition]`.
+  - Example: `"add() should return 5 when adding 2 and 3"`.
+
+---
+
+#### **3. Test Coverage and Specificity**
+- **Test Every Edge Case**:
+  - Write separate tests for:
+    - Normal cases.
+    - Edge cases (e.g., null, undefined, empty inputs).
+    - Boundary conditions (e.g., limits of valid input).
+- **Minimal Parameterization**:
+  - Use `test.each` sparingly. If parameterization reduces clarity or precision, write individual tests instead.
+  - **Good**:
+    ```javascript
+    it('returns 5 when adding 2 and 3', () => {
+      expect(sum(2, 3)).toBe(5);
+    });
+    ```
+  - **Bad**:
+    ```javascript
+    test.each([
+      [2, 3, 5],
+      [0, 0, 0],
+      [-1, -1, -2],
+    ])('sum(%i, %i) should return %i', (a, b, expected) => {
+      expect(sum(a, b)).toBe(expected);
+    });
+    ```
+
+---
+
+#### **4. Structuring Tests for Clarity**
+- **AAA Pattern (Mandatory)**:
+  - **Arrange**: Set up all inputs, mocks, and expectations.
+  - **Act**: Call the function being tested.
+  - **Assert**: Verify the result matches the expectation.
+  - Example:
+    ```javascript
+    it('returns 5 when adding 2 and 3', () => {
+      // Arrange
+      const a = 2;
+      const b = 3;
+
+      // Act
+      const result = sum(a, b);
+
+      // Assert
+      expect(result).toBe(5);
+    });
+    ```
+- **Readable Organization**:
+  - Use `describe` blocks to group related tests logically.
+  - Example:
+    ```javascript
+    describe('sum()', () => {
+      it('returns 5 when adding 2 and 3', () => {});
+      it('returns 0 when adding 0 and 0', () => {});
+    });
+    ```
+
+---
+
+#### **5. Failing Tests and Debugging**
+- **Write Tests to Fail First**:
+  - Always verify a test fails for incorrect behavior before implementing the solution.
+- **Eliminate False Positives**:
+  - Use `expect.assertions()` in async tests to ensure assertions are executed.
+  - Explicitly test error cases to ensure the code handles failures as expected.
+
+---
+
+#### **6. Mocking Guidelines**
+- **Mock Minimal External Dependencies**:
+  - Use mocks only for external systems (e.g., APIs, databases). Internal functionality should not be mocked.
+- **Validate Mock Usage**:
+  - Ensure mocked methods are called with precise arguments and the correct number of times.
+  - Example:
+    ```javascript
+    expect(mockApiCall).toHaveBeenCalledWith(expectedPayload);
+    ```
+
+---
+
+#### **7. Naming and Maintenance**
+- **Descriptive Test Names**:
+  - Test names should explain the behavior being tested so clearly that you don’t need to read the implementation.
+  - Example: `"createUser() should throw an error when payload is missing 'name'"`.
+- **No `.only` or `.skip` in Commits**:
+  - Use pre-commit hooks to block tests with `.only` or `.skip` from being committed.
+- **Document TODO Tests**:
+  - Use `test.todo()` to note scenarios that are not yet implemented but need attention.
+
+---
+
+#### **8. Simplicity in Assertions**
+- **Explicit Assertions**:
+  - Avoid testing unnecessary details. Focus on verifying the specific outcome of the code.
+  - Example:
+    ```javascript
+    expect(result).toEqual({ id: 1, name: 'John Doe' });
+    ```
+- **Avoid Over-Generic Matchers**:
+  - Use matchers like `toEqual`, `toMatchObject`, or `toThrow` for precise validation. Avoid generic checks like `toBe(true)` unless necessary.
+
+---
+
+### **What Tests Should Never Do**
+1. **Depend on Each Other**:
+   - Tests must be isolated. No test should rely on another's output or state.
+2. **Test Multiple Behaviors**:
+   - A single test must cover only one specific behavior or scenario.
+3. **Be Ambiguous**:
+   - If a failure message isn’t immediately clear, rewrite the test.
+4. **Over-Optimize**:
+   - Avoid writing "clever" or highly abstract tests that are hard to read or debug.
+
+---
+
+### **Enforcement of Standards**
+- **Code Reviews**:
+  - Reject any PR with unclear, overly complex, or overly abstract tests.
+- **Pre-Commit Hooks**:
+  - Automate checks to prevent `.only`, `.skip`, or tests without assertions from being committed.
+- **CI Enforcement**:
+  - Enforce coverage thresholds and fail builds for missing or poorly written tests.
+
+
+When you’re developing the test, look to the code you generated above to find exactly the messages and functionality we should we looking for

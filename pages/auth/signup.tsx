@@ -13,13 +13,17 @@ interface Organization {
 // Helper function to create organization and associate user
 async function createUserOrganization(supabase: any, userId: string, email: string, orgName?: string) {
   try {
+    console.group('[SIGNUP] Starting User Organization Creation');
+    console.log('📝 Initial Parameters:', { userId, email, orgName });
+
     if (!userId || !email) {
+      console.error('❌ Missing required parameters');
+      console.groupEnd();
       throw new Error('User ID and email are required');
     }
 
-    console.log('[SIGNUP] Creating profile and organization for user:', { userId, email });
-    
-    // First, check if user already has an organization
+    // Check for existing organization membership
+    console.log('🔍 Checking existing organization membership...');
     const { data: existingMember } = await supabase
       .from('organization_members')
       .select('organization_id')
@@ -27,11 +31,14 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
       .single();
 
     if (existingMember?.organization_id) {
-      console.log('[SIGNUP] User already has an organization:', existingMember.organization_id);
+      console.log('✅ User already has organization:', existingMember.organization_id);
+      console.groupEnd();
       return;
     }
+    console.log('✨ No existing organization membership found');
 
-    // Create or confirm profile exists
+    // Check for existing profile
+    console.log('🔍 Checking existing profile...');
     const { data: existingProfile, error: profileCheckError } = await supabase
       .from('profiles')
       .select('id, org_id')
@@ -39,18 +46,23 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
       .single();
 
     if (profileCheckError && profileCheckError.code !== 'PGRST116') {
-      console.error('[SIGNUP] Error checking profile:', profileCheckError);
+      console.error('❌ Profile check error:', profileCheckError);
+      console.groupEnd();
       throw profileCheckError;
     }
 
     if (existingProfile?.org_id) {
-      console.log('[SIGNUP] Profile already has an organization:', existingProfile.org_id);
+      console.log('✅ Profile already has organization:', existingProfile.org_id);
+      console.groupEnd();
       return;
     }
+    console.log('✨ No existing profile found');
 
-    // For admin flow, create new organization
+    // Admin flow
     if (orgName) {
-      // Create organization with provided name
+      console.group('[SIGNUP] Admin Flow - Creating New Organization');
+      console.log('📝 Creating organization:', orgName);
+      
       const { data: org, error: orgError } = await supabase
         .from('organizations')
         .insert({ 
@@ -63,13 +75,14 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
         .single();
 
       if (orgError) {
-        console.error('[SIGNUP] Error creating organization:', orgError);
+        console.error('❌ Organization creation failed:', orgError);
+        console.groupEnd();
+        console.groupEnd();
         throw orgError;
       }
+      console.log('✅ Organization created successfully:', org);
 
-      console.log('[SIGNUP] Organization created:', org);
-
-      // Create profile with admin role
+      console.log('📝 Creating admin profile...');
       const { data: newProfile, error: profileError } = await supabase
         .from('profiles')
         .insert({
@@ -83,11 +96,14 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
         .single();
 
       if (profileError) {
-        console.error('[SIGNUP] Error creating profile:', profileError);
+        console.error('❌ Profile creation failed:', profileError);
+        console.groupEnd();
+        console.groupEnd();
         throw profileError;
       }
+      console.log('✅ Admin profile created successfully:', newProfile);
 
-      // Associate user with organization as admin
+      console.log('📝 Creating organization membership...');
       const { error: memberError } = await supabase
         .from('organization_members')
         .insert({ 
@@ -98,14 +114,20 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
         });
 
       if (memberError) {
-        console.error('[SIGNUP] Error creating organization member:', memberError);
+        console.error('❌ Organization membership creation failed:', memberError);
+        console.groupEnd();
+        console.groupEnd();
         throw memberError;
       }
-
+      console.log('✅ Organization membership created successfully');
+      console.groupEnd();
+      console.groupEnd();
       return org;
     }
 
-    // For non-admin flow, create profile as customer
+    // Customer flow
+    console.group('[SIGNUP] Customer Flow - Creating Profile');
+    console.log('📝 Creating customer profile...');
     const { data: newProfile, error: profileError } = await supabase
       .from('profiles')
       .insert({
@@ -113,19 +135,24 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
         email: email,
         display_name: email.split('@')[0],
         role: 'customer',
-        org_id: null // Will be updated when joining organization
+        org_id: null
       })
       .select()
       .single();
 
     if (profileError) {
-      console.error('[SIGNUP] Error creating profile:', profileError);
+      console.error('❌ Customer profile creation failed:', profileError);
+      console.groupEnd();
+      console.groupEnd();
       throw profileError;
     }
-
+    console.log('✅ Customer profile created successfully:', newProfile);
+    console.groupEnd();
+    console.groupEnd();
     return null;
   } catch (error) {
-    console.error('[SIGNUP] Error in createUserOrganization:', error);
+    console.error('❌ [SIGNUP] Error in createUserOrganization:', error);
+    console.groupEnd();
     throw error;
   }
 }
@@ -156,7 +183,14 @@ export default function SignUp() {
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
   const router = useRouter();
   const { type } = router.query;
-  const supabase = createClientComponentClient();
+  const supabase = createClientComponentClient({
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  });
+  const serviceRoleClient = createClientComponentClient({
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
+  });
   const [origin, setOrigin] = useState<string>('');
 
   useEffect(() => {
@@ -172,7 +206,7 @@ export default function SignUp() {
     }
 
     try {
-      const results = await searchOrganizations(supabase, query);
+      const results = await searchOrganizations(serviceRoleClient, query);
       setSearchResults(results);
     } catch (error) {
       console.error('Error searching organizations:', error);
@@ -197,11 +231,15 @@ export default function SignUp() {
   };
 
   const handleGoogleSignIn = async () => {
+    console.group('[SIGNUP] Google Sign In Process');
+    console.time('google-signin');
+    
     try {
       setError(null);
       setLoading(true);
+      console.log('🔐 Initiating Google OAuth...');
       
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await serviceRoleClient.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${origin}/auth/callback`,
@@ -212,104 +250,137 @@ export default function SignUp() {
         },
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Google OAuth error:', error);
+        throw error;
+      }
       
       if (data?.url) {
+        console.log('✅ OAuth URL received, redirecting...');
         window.location.href = data.url;
       } else {
+        console.error('❌ No OAuth URL received');
         throw new Error('No OAuth URL received');
       }
     } catch (error: any) {
+      console.error('❌ Error during Google sign in:', error);
       setError(error.message);
     } finally {
       setLoading(false);
+      console.timeEnd('google-signin');
+      console.groupEnd();
     }
   };
 
   const handleSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    console.group('[SIGNUP] Starting Sign Up Process');
+    console.time('signup-process');
     
     try {
       setError(null);
       setLoading(true);
+      console.log('📝 Validating input fields...');
 
       if (!validateEmail(email)) {
+        console.warn('❌ Invalid email format');
         setError('Please enter a valid email address');
         return;
       }
+      console.log('✅ Email format valid');
 
       if (password.length < 6) {
+        console.warn('❌ Password too short');
         setError('Password must be at least 6 characters');
         return;
       }
-
-      if (type === 'agent' && !selectedOrg) {
-        setError('Please select an organization');
-        return;
-      }
+      console.log('✅ Password length valid');
 
       if (type === 'admin' && !orgName) {
+        console.warn('❌ Missing organization name');
         setError('Please enter an organization name');
         return;
       }
 
-      const { data, error } = await supabase.auth.signUp({
+      console.log('🔐 Attempting user signup...', {
+        email,
+        redirectTo: `${origin}/auth/callback`,
+        type,
+        orgName: orgName || undefined
+      });
+
+      // Use regular client for auth operations
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
           emailRedirectTo: `${origin}/auth/callback`,
+          data: {
+            signup_type: type,
+            org_name: orgName || undefined
+          }
         },
       });
 
-      if (error) {
-        console.error('Error signing up:', error.message);
-        setError(error.message);
-        return;
+      if (signUpError) {
+        console.error('❌ Signup failed:', {
+          error: signUpError,
+          code: signUpError.status,
+          message: signUpError.message
+        });
+        throw signUpError;
       }
 
-      if (data?.user?.identities?.length === 0) {
-        setError('This email is already registered. Please sign in instead.');
-        return;
+      if (!signUpData?.user) {
+        console.error('❌ No user data received from signup');
+        throw new Error('No user data received from signup');
       }
 
-      if (data?.user) {
-        // Create organization for admin or associate with existing for agent
+      console.log('✅ User signup successful:', {
+        userId: signUpData.user.id,
+        email: signUpData.user.email,
+        type,
+        orgName: orgName || undefined,
+        hasSession: !!signUpData.session
+      });
+
+      // Create organization and profile regardless of session status
+      // since email confirmation is disabled
+      console.log('👤 Creating organization and profile...');
+      try {
         await createUserOrganization(
-          supabase,
-          data.user.id,
+          serviceRoleClient,
+          signUpData.user.id,
           email,
           type === 'admin' ? orgName : undefined
         );
-
-        if (type === 'agent' && selectedOrg) {
-          // Associate user with selected organization as agent
-          await supabase.from('organization_members').insert({
-            organization_id: selectedOrg.id,
-            user_id: data.user.id,
-            role: 'agent',
-          });
-
-          // Update profile with org_id and role
-          await supabase
-            .from('profiles')
-            .update({
-              org_id: selectedOrg.id,
-              role: 'agent',
-            })
-            .eq('id', data.user.id);
+        console.log('✅ Organization and profile setup complete');
+        
+        if (signUpData.session) {
+          console.log('🚀 Redirecting to dashboard...');
+          router.push('/dashboard');
+        } else {
+          console.log('📧 Signup successful, session pending');
+          setError('Signup successful! Please check your email to complete registration.');
         }
-      }
-
-      if (!data.session) {
-        setError('Please check your email for a confirmation link to complete your registration.');
-      } else {
-        router.push('/dashboard');
+      } catch (orgError: any) {
+        console.error('❌ Error setting up organization:', {
+          error: orgError,
+          message: orgError.message
+        });
+        throw new Error('Failed to set up organization: ' + orgError.message);
       }
     } catch (error: any) {
-      console.error('Error in signup process:', error);
-      setError(error.message);
+      console.error('❌ Error during signup:', {
+        error,
+        message: error.message,
+        stack: error.stack
+      });
+      setError(error.message || 'An error occurred during signup');
     } finally {
       setLoading(false);
+      console.timeEnd('signup-process');
+      console.groupEnd();
     }
   };
 
