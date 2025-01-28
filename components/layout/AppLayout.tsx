@@ -95,6 +95,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
         {/* Sidebar - hidden on mobile unless menu is open */}
         <div 
           className={`fixed inset-y-0 left-0 transform ${
+            router.pathname.includes('/organizations') || 
+            router.pathname.includes('/settings') ||
+            router.pathname.startsWith('/tickets') ||
+            router.pathname.startsWith('/kb') ? 'md:translate-x-0' : 
             isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
           } md:relative md:translate-x-0 transition-transform duration-300 ease-in-out z-40 bg-white w-72 md:w-64 top-16 border-r border-slate-200/50 shadow-lg md:shadow-none`}
         >
