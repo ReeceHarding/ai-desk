@@ -1,18 +1,20 @@
-import { motion } from 'framer-motion';
-import { Button } from '@/components/ui/button';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Avatar } from '@/components/ui/avatar';
-import Image from 'next/image';
+import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import {
-  AlertCircle,
-  Building,
-  Clock,
-  EyeOff,
-  CheckCircle,
-  Lock,
-  Inbox,
-} from 'lucide-react';
 import { Database } from '@/types/supabase';
+import { motion } from 'framer-motion';
+import {
+    AlertCircle,
+    Building,
+    CheckCircle,
+    Clock,
+    EyeOff,
+    Inbox,
+    Lock,
+} from 'lucide-react';
+import Image from 'next/image';
+import { useState } from 'react';
 
 type Profile = {
   display_name: string | null;
@@ -44,6 +46,14 @@ const priorityColors: Record<string, string> = {
   urgent: 'bg-red-500/10 text-red-500',
 };
 
+const statusDescriptions: Record<string, string> = {
+  open: 'We are working on it',
+  pending: 'We are waiting on something else',
+  on_hold: 'The ticket is temporarily on hold',
+  solved: 'Customer or agent marked as solved',
+  closed: 'Fully closed - read-only',
+};
+
 const StatusIcon = ({ status }: { status: string }) => {
   const icons = {
     open: Inbox,
@@ -69,6 +79,18 @@ export function TicketDetailsPanel({
   onStatusChange,
   onPriorityChange,
 }: TicketDetailsPanelProps) {
+  const [statusToChange, setStatusToChange] = useState<Ticket['status'] | null>(null);
+  const [showStatusDialog, setShowStatusDialog] = useState(false);
+
+  const handleStatusSelect = (status: Ticket['status']) => {
+    if (status === 'solved' || status === 'closed') {
+      setStatusToChange(status);
+      setShowStatusDialog(true);
+    } else {
+      onStatusChange(status);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -93,16 +115,48 @@ export function TicketDetailsPanel({
             {Object.keys(statusColors).map((status) => (
               <DropdownMenuItem
                 key={status}
-                onClick={() => onStatusChange(status as Ticket['status'])}
+                onClick={() => handleStatusSelect(status as Ticket['status'])}
                 className={`${statusColors[status]} hover:bg-slate-700/50`}
               >
                 <StatusIcon status={status} />
-                <span className="ml-2 capitalize">{status}</span>
+                <div className="ml-2">
+                  <div className="capitalize">{status}</div>
+                  <div className="text-xs text-slate-400">{statusDescriptions[status]}</div>
+                </div>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <AlertDialog open={showStatusDialog} onOpenChange={setShowStatusDialog}>
+        <AlertDialogContent className="bg-slate-800 border-slate-700">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-slate-100">
+              {statusToChange === 'solved' ? 'Mark Ticket as Solved?' : 'Close Ticket?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              {statusToChange === 'solved' 
+                ? 'This will mark the ticket as solved. The customer can still reopen it if they need further assistance.'
+                : 'This will close the ticket permanently. No further comments can be added after closing.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-slate-700 hover:bg-slate-600 text-slate-100">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (statusToChange) {
+                  onStatusChange(statusToChange);
+                }
+                setShowStatusDialog(false);
+              }}
+              className={statusToChange === 'solved' ? 'bg-green-600 hover:bg-green-500' : 'bg-red-600 hover:bg-red-500'}
+            >
+              {statusToChange === 'solved' ? 'Mark as Solved' : 'Close Ticket'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div>
         <h3 className="text-sm font-medium text-slate-400 mb-2">Priority</h3>
@@ -136,7 +190,7 @@ export function TicketDetailsPanel({
         <div className="flex items-center gap-3">
           <Avatar>
             <Image
-              src={ticket.customer?.avatar_url || '/default-avatar.png'}
+              src={ticket.customer?.avatar_url || 'https://placehold.co/400x400/png?text=👤'}
               alt={ticket.customer?.display_name || 'Customer'}
               width={40}
               height={40}

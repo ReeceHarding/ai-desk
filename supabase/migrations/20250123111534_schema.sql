@@ -172,7 +172,7 @@ BEGIN
       v_existing_org_id,
       'customer'::public.user_role,
       COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
-      'https://example.com/default-avatar.png'
+      'https://placehold.co/400x400/png?text=👤'
     );
 
     RETURN NEW;
@@ -235,7 +235,7 @@ BEGIN
     v_org_id,
     'customer'::public.user_role,
     COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
-    'https://example.com/default-avatar.png'
+    'https://placehold.co/400x400/png?text=👤'
   );
 
   -- Create organization_members row

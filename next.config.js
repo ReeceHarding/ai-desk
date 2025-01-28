@@ -4,7 +4,16 @@ const nextConfig = {
   images: {
     domains: [
       '127.0.0.1',
-      'ucbtpddvvbsrqroqhvev.supabase.co'
+      'ucbtpddvvbsrqroqhvev.supabase.co',
+      'example.com',
+      'placehold.co',
+      'via.placeholder.com'
+    ],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**',
+      },
     ],
   },
   webpack: (config, { isServer }) => {

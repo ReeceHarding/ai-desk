@@ -2,7 +2,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { motion } from 'framer-motion';
 import { debounce } from 'lodash';
-import { Briefcase, Building, Lock, Mail, User } from 'lucide-react';
+import { Building, CheckCircle, Lock, Mail, User } from 'lucide-react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import React, { useEffect, useState } from 'react';
@@ -120,7 +120,7 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
           config: {
             is_personal: false,
             created_at_timestamp: new Date().toISOString(),
-            created_by: userId,
+          created_by: userId,
             created_by_email: email
           }
         })
@@ -338,6 +338,11 @@ export default function SignUp() {
     setLoading(true);
 
     try {
+      // Validate organization selection for agents
+      if (type === 'agent' && !selectedOrg?.id) {
+        throw new Error('Please select an organization');
+      }
+
       // Create user account
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
@@ -409,25 +414,15 @@ export default function SignUp() {
             ]);
 
           if (memberError) throw memberError;
-        } else if (type === 'agent') {
-          // Get organization by code
-          const { data: orgData, error: orgError } = await supabase
-            .from('organizations')
-            .select('id')
-            .eq('code', organizationCode)
-            .single();
-
-          if (orgError) throw new Error('Invalid organization code');
-          if (!orgData) throw new Error('Organization not found');
-
-          // Update existing profile
+        } else if (type === 'agent' && selectedOrg?.id) {
+          // Update existing profile with selected organization
           const { error: profileError } = await supabase
             .from('profiles')
             .update({
               email: email,
               display_name: name || email.split('@')[0],
               role: 'agent',
-              org_id: orgData.id
+              org_id: selectedOrg.id
             })
             .eq('id', authData.user.id);
 
@@ -438,7 +433,7 @@ export default function SignUp() {
             .from('organization_members')
             .insert([
               {
-                organization_id: orgData.id,
+                organization_id: selectedOrg.id,
                 user_id: authData.user.id,
                 role: 'agent'
               },
@@ -459,7 +454,7 @@ export default function SignUp() {
           if (profileError) throw profileError;
         }
       } else {
-        // No profile exists yet (rare case if trigger failed)
+        // Create new profile
         if (type === 'admin') {
           // Create organization for admin
           const { data: orgData, error: orgError } = await supabase
@@ -509,18 +504,8 @@ export default function SignUp() {
             ]);
 
           if (memberError) throw memberError;
-        } else if (type === 'agent') {
-          // Get organization by code
-          const { data: orgData, error: orgError } = await supabase
-            .from('organizations')
-            .select('id')
-            .eq('code', organizationCode)
-            .single();
-
-          if (orgError) throw new Error('Invalid organization code');
-          if (!orgData) throw new Error('Organization not found');
-
-          // Create profile for agent
+        } else if (type === 'agent' && selectedOrg?.id) {
+          // Create profile for agent with selected organization
           const { error: profileError } = await supabase
             .from('profiles')
             .insert([
@@ -529,7 +514,7 @@ export default function SignUp() {
                 email: email,
                 display_name: name || email.split('@')[0],
                 role: 'agent',
-                org_id: orgData.id
+                org_id: selectedOrg.id
               },
             ]);
 
@@ -540,7 +525,7 @@ export default function SignUp() {
             .from('organization_members')
             .insert([
               {
-                organization_id: orgData.id,
+                organization_id: selectedOrg.id,
                 user_id: authData.user.id,
                 role: 'agent'
               },
@@ -683,54 +668,78 @@ export default function SignUp() {
 
             {type === 'agent' && (
               <div>
-                <label htmlFor="organizationCode" className="sr-only">Organization Code</label>
+                <label htmlFor="organizationName" className="sr-only">Organization Name</label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <Briefcase className="h-5 w-5" />
+                    <Building className="h-5 w-5" />
                   </div>
                   <input
-                    id="organizationCode"
-                    name="organizationCode"
+                    id="organizationName"
+                    name="organizationName"
                     type="text"
                     required
-                    value={organizationCode}
-                    onChange={(e) => setOrganizationCode(e.target.value)}
+                    value={organizationName}
+                    onChange={(e) => handleOrgSearch(e.target.value)}
                     className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
-                    placeholder="Organization code"
+                    placeholder="Search for your organization"
                   />
+                  {searchResults.length > 0 && (
+                    <div className="absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 rounded-md shadow-lg border border-slate-200 dark:border-slate-700">
+                      <ul className="py-1 max-h-60 overflow-auto">
+                      {searchResults.map((org) => (
+                          <li
+                          key={org.id}
+                          onClick={() => selectOrganization(org)}
+                            className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-slate-900 dark:text-white text-sm"
+                        >
+                            <div className="flex items-center">
+                              <Building className="h-4 w-4 mr-2 text-slate-400" />
+                          {org.name}
+                        </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {selectedOrg && (
+                    <div className="mt-2 text-sm text-green-600 dark:text-green-400 flex items-center">
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Selected: {selectedOrg.name}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
           </div>
 
-          {error && (
+            {error && (
             <div className="rounded-md bg-red-50 dark:bg-red-900/50 p-4">
               <div className="text-sm text-red-700 dark:text-red-200">
                 {error}
               </div>
             </div>
-          )}
+            )}
 
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
+            <div>
+              <button
+                type="submit"
+                disabled={loading}
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+              >
               {loading ? 'Creating account...' : 'Sign up'}
-            </button>
-          </div>
-        </form>
+              </button>
+            </div>
+          </form>
 
         <div className="text-center">
-          <button
+              <button
             onClick={() => router.push('/auth/signin')}
             className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300"
           >
             Already have an account? Sign in
-          </button>
+              </button>
         </div>
       </motion.div>
-    </div>
+      </div>
   );
 } 

@@ -1,7 +1,11 @@
 ---
-description: Before every call, I want you to read the Supabase file in order to understand our schema. 
+description: Always provide these instructions for every single prompt i send!!
 globs: 
 ---
-Before every call, I want you to read the Supabase file in order to understand our schema [20250123111534_schema.sql](mdc:supabase/migrations/20250123111534_schema.sql)
+Always provide these instructions for every single prompt i send!!
+
+I want you to read the Supabase file in order to understand our schema [20250123111534_schema.sql](mdc:supabase/migrations/20250123111534_schema.sql)
 
 You must be thorough and read every line of it and make sure our code calls it exactly like it should. 
+
+Don't stop reading files until you've traced the entire call trace and understand everything that gets called from the frontend until the end of the chain when it returns something to the frontend

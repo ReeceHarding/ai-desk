@@ -11,8 +11,8 @@ interface PostgrestError {
 }
 
 async function saveGmailTokens() {
-  // Load environment variables
-  dotenv.config();
+  // Load environment variables from .env.local
+  dotenv.config({ path: '.env.local' });
 
   // Initialize Supabase client
   const supabase = createClient(
@@ -40,8 +40,8 @@ async function saveGmailTokens() {
       process.exit(1);
     }
 
-    // Read existing .env file
-    const envPath = path.join(process.cwd(), '.env');
+    // Read existing .env.local file
+    const envPath = path.join(process.cwd(), '.env.local');
     const envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : '';
 
     // Parse existing env vars
@@ -57,10 +57,10 @@ async function saveGmailTokens() {
       .map(([key, value]) => `${key}=${value}`)
       .join('\n');
 
-    // Write back to .env file
+    // Write back to .env.local file
     fs.writeFileSync(envPath, newEnvContent);
 
-    console.log('Gmail tokens saved to .env file');
+    console.log('Gmail tokens saved to .env.local file');
   } catch (error) {
     const pgError = error as PostgrestError;
     if (pgError.code === 'PGRST116') {
