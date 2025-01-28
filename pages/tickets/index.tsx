@@ -3,25 +3,23 @@ import AppLayout from '@/components/layout/AppLayout';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Database } from '@/types/supabase';
+import { getEmailPreview, parseEmailBody } from '@/utils/email-parser';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { formatDistanceToNow } from 'date-fns';
 import debounce from 'lodash/debounce';
 import {
-    AlertCircle,
-    CheckCircle,
-    Clock,
-    EyeOff,
-    Filter,
-    Inbox,
-    Lock,
-    MoreHorizontal,
-    Plus,
-    Search
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  EyeOff,
+  Inbox,
+  Lock,
+  Menu,
+  Plus
 } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
@@ -36,6 +34,14 @@ type Organization = {
   name: string | null;
 };
 
+type EmailChat = {
+  id: string;
+  body: string | null;
+  from_address: string | null;
+  subject: string | null;
+  created_at: string;
+};
+
 type Ticket = Database['public']['Tables']['tickets']['Row'] & {
   customer: Profile | null;
   organization: Organization | null;
@@ -43,7 +49,9 @@ type Ticket = Database['public']['Tables']['tickets']['Row'] & {
     thread_id?: string;
     message_id?: string;
     email_date?: string;
-  } | null;
+    [key: string]: any;
+  };
+  emailChats: EmailChat[];
 };
 
 const statusColors: Record<string, string> = {
@@ -89,7 +97,7 @@ export default function TicketList() {
   const supabase = useSupabaseClient<Database>();
   const user = useUser();
   const router = useRouter();
-  const { role, loading: roleLoading } = useUserRole();
+  const { role, loading: roleLoading, isUserLoading } = useUserRole();
 
   // Create a debounced search handler
   const debouncedSetSearch = useCallback(
@@ -121,6 +129,11 @@ export default function TicketList() {
           ),
           organization:organizations!tickets_org_id_fkey (
             name
+          ),
+          ticket_email_chats!ticket_email_chats_ticket_id_fkey (
+            body,
+            from_address,
+            subject
           )
         `)
         .is('deleted_at', null);
@@ -142,13 +155,14 @@ export default function TicketList() {
           ...ticket,
           customer: ticket.customer as Profile,
           organization: ticket.organization as Organization,
+          emailChats: ticket.ticket_email_chats || []
         }));
         setTickets(typedTickets);
       }
       setLoading(false);
     }
 
-    if (!roleLoading) {
+    if (!roleLoading && !isUserLoading) {
       fetchTickets();
     }
 
@@ -178,6 +192,11 @@ export default function TicketList() {
                 ),
                 organization:organizations!tickets_org_id_fkey (
                   name
+                ),
+                ticket_email_chats!ticket_email_chats_ticket_id_fkey (
+                  body,
+                  from_address,
+                  subject
                 )
               `)
               .eq('id', payload.new.id)
@@ -188,6 +207,7 @@ export default function TicketList() {
                 ...newTicket,
                 customer: newTicket.customer as Profile,
                 organization: newTicket.organization as Organization,
+                emailChats: newTicket.ticket_email_chats || []
               };
 
               setTickets(currentTickets => {
@@ -216,19 +236,35 @@ export default function TicketList() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [user, supabase, role, roleLoading]);
+  }, [user, supabase, role, roleLoading, isUserLoading]);
 
   const filteredTickets = tickets
-    .filter(ticket => 
-      (debouncedSearchQuery === '' || 
-        ticket.subject.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        ticket.description.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        ticket.customer?.email?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
-        ticket.customer?.display_name?.toLowerCase().includes(debouncedSearchQuery.toLowerCase())
-      ) &&
-      (statusFilter === null || statusFilter === ticket.status) &&
-      (priorityFilter.length === 0 || priorityFilter.includes(ticket.priority))
-    )
+    .filter(ticket => {
+      if (debouncedSearchQuery === '') return true;
+      
+      const searchLower = debouncedSearchQuery.toLowerCase();
+      
+      // Search in ticket fields
+      if (
+        ticket.subject?.toLowerCase().includes(searchLower) ||
+        ticket.description?.toLowerCase().includes(searchLower) ||
+        ticket.customer?.display_name?.toLowerCase().includes(searchLower) ||
+        ticket.customer?.email?.toLowerCase().includes(searchLower)
+      ) {
+        return true;
+      }
+
+      // Search in email chats
+      if (ticket.emailChats?.some(email => 
+        parseEmailBody(email.body).toLowerCase().includes(searchLower) ||
+        email.from_address?.toLowerCase().includes(searchLower) ||
+        email.subject?.toLowerCase().includes(searchLower)
+      )) {
+        return true;
+      }
+      
+      return false;
+    })
     .sort((a, b) => {
       const aValue = a[sortBy as keyof Ticket];
       const bValue = b[sortBy as keyof Ticket];
@@ -253,70 +289,304 @@ export default function TicketList() {
     setIsEmailPanelOpen(true);
   };
 
-  if (loading || roleLoading) {
+  if (loading || roleLoading || isUserLoading) {
     return (
       <AppLayout>
-        <div className="h-full flex flex-col">
+        <div className="h-full flex flex-col bg-white">
           {/* Header */}
-          <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6 lg:px-8">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h1 className="text-2xl font-semibold text-gray-900">Tickets</h1>
-                <p className="mt-1 text-sm text-gray-500">
-                  Manage and respond to customer support tickets
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <Button
-                  onClick={() => router.push('/tickets/new')}
-                  className="inline-flex items-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  New Ticket
-                </Button>
-              </div>
-            </div>
-
-            {/* Search and filters */}
-            <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-slate-200/50">
+            <div className="flex items-center gap-3 p-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-12 w-12 rounded-full"
+              >
+                <Menu className="h-6 w-6" />
+              </Button>
+              
+              <div className="flex-1">
                 <Input
                   type="search"
                   placeholder="Search tickets..."
+                  className="h-12 pl-10 rounded-full bg-slate-100/80"
                   value={searchQuery}
                   onChange={handleSearchChange}
-                  className="pl-10"
+                  aria-label="Search tickets"
                 />
               </div>
-              <div className="flex items-center gap-3">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="inline-flex items-center gap-2">
-                      <Filter className="h-4 w-4" />
-                      Filter
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem onClick={() => setStatusFilter('open')}>
-                      Open Tickets
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setStatusFilter('closed')}>
-                      Closed Tickets
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setStatusFilter(null)}>
-                      All Tickets
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={user?.user_metadata?.avatar_url} />
+                <AvatarFallback>
+                  {user?.email?.[0].toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            </div>
+          </div>
+
+          {/* Primary sections */}
+          <div className="flex-1 overflow-auto">
+            <div className="divide-y divide-slate-200/50">
+              {/* Primary sections */}
+              <div className="p-3 flex items-center justify-between hover:bg-slate-50">
+                <div className="flex items-center gap-4">
+                  <Inbox className="h-5 w-5 text-blue-500" />
+                  <span className="font-medium">All tickets</span>
+                </div>
+                <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                  {tickets.length}
+                </Badge>
               </div>
+              <div className="p-3 flex items-center justify-between hover:bg-slate-50">
+                <div className="flex items-center gap-4">
+                  <AlertCircle className="h-5 w-5 text-red-500" />
+                  <span className="font-medium">High priority</span>
+                </div>
+                <Badge variant="secondary" className="bg-red-100 text-red-700">
+                  {tickets.filter(t => t.priority === 'high').length}
+                </Badge>
+              </div>
+              <div className="p-3 flex items-center justify-between hover:bg-slate-50">
+                <div className="flex items-center gap-4">
+                  <Clock className="h-5 w-5 text-orange-500" />
+                  <span className="font-medium">Pending</span>
+                </div>
+                <Badge variant="secondary" className="bg-orange-100 text-orange-700">
+                  {tickets.filter(t => t.status === 'open').length}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Ticket list */}
+            <div className="mt-2 divide-y divide-slate-200/50">
+              {error ? (
+                <div className="p-4">
+                  <div className="rounded-lg bg-red-50 p-4">
+                    <div className="flex items-center">
+                      <AlertCircle className="h-5 w-5 text-red-400" />
+                      <div className="ml-3">
+                        <h3 className="text-sm font-medium text-red-800">Error loading tickets</h3>
+                        <div className="mt-2 text-sm text-red-700">{error}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : loading ? (
+                <div>
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="p-3">
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-10 w-10 rounded-full" />
+                        <div className="flex-1">
+                          <Skeleton className="h-4 w-36" />
+                          <Skeleton className="mt-2 h-4 w-24" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : filteredTickets.length === 0 ? (
+                <div className="p-8 text-center">
+                  <div className="rounded-full bg-slate-100 p-3 mx-auto w-fit">
+                    <Inbox className="h-6 w-6 text-slate-400" />
+                  </div>
+                  <h3 className="mt-4 text-base font-medium text-slate-900">No tickets found</h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Get started by creating a new ticket or waiting for customer inquiries.
+                  </p>
+                  <Button
+                    onClick={() => router.push('/tickets/new')}
+                    className="mt-6 min-h-[44px]"
+                  >
+                    <Plus className="h-5 w-5" />
+                    New Ticket
+                  </Button>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-200/50">
+                  {filteredTickets.map((ticket) => {
+                    // Check both emailChats and description for email content
+                    const emailContent = ticket.emailChats?.[0]?.body || ticket.description;
+                    const emailPreview = emailContent ? getEmailPreview(emailContent) : '';
+
+                    // Extract sender information from subject or description
+                    let senderInfo = '';
+                    if (ticket.subject?.includes('sent you')) {
+                      senderInfo = ticket.subject.split(' sent you')[0];
+                    } else if (ticket.subject?.includes('from')) {
+                      senderInfo = ticket.subject.split(' from ')[1]?.split(' ')[0];
+                    } else if (ticket.subject?.includes('@')) {
+                      senderInfo = ticket.subject.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || '';
+                    } else if (emailContent?.includes('@')) {
+                      senderInfo = emailContent.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || '';
+                    }
+
+                    console.log('Processing ticket:', {
+                      id: ticket.id,
+                      subject: ticket.subject,
+                      hasEmailChats: !!ticket.emailChats?.length,
+                      hasDescription: !!ticket.description,
+                      emailContentSource: ticket.emailChats?.[0]?.body ? 'emailChats' : ticket.description ? 'description' : 'none',
+                      emailContentPreview: emailContent?.substring(0, 100),
+                      parsedPreview: emailPreview,
+                      extractedSender: senderInfo
+                    });
+
+                    return (
+                      <div
+                        key={ticket.id}
+                        onClick={() => handleTicketClick(ticket)}
+                        className="p-3 hover:bg-slate-50 active:bg-slate-100"
+                      >
+                        <div className="flex items-start gap-3">
+                          <Avatar className="h-8 w-8">
+                            <AvatarImage
+                              src={ticket.customer?.avatar_url || undefined}
+                              alt={ticket.customer?.display_name || ''}
+                            />
+                            <AvatarFallback>
+                              {(senderInfo || 'U')[0].toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-[15px] text-slate-900 truncate">
+                                {senderInfo || ticket.emailChats?.[0]?.from_address || 'Unknown Sender'}
+                              </span>
+                              <span className="shrink-0 text-xs text-slate-500">
+                                {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
+                              </span>
+                            </div>
+                            <h4 className="text-[15px] text-slate-900 truncate">{ticket.subject}</h4>
+                            <p className="text-sm text-slate-500 truncate">
+                              {emailPreview || 'No preview available'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Floating action button */}
+          <Button
+            onClick={() => router.push('/tickets/new')}
+            className="fixed right-4 bottom-4 h-14 w-14 rounded-full shadow-lg"
+          >
+            <Plus className="h-6 w-6" />
+          </Button>
+        </div>
+
+        {/* Email Thread Panel */}
+        <EmailThreadPanel
+          isOpen={isEmailPanelOpen}
+          onClose={() => {
+            setIsEmailPanelOpen(false);
+            setSelectedTicket(null);
+          }}
+          ticket={selectedTicket ? {
+            id: selectedTicket.id,
+            thread_id: selectedTicket.metadata?.thread_id,
+            message_id: selectedTicket.metadata?.message_id,
+          } : null}
+        />
+      </AppLayout>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 text-slate-900 flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="rounded-full bg-slate-100 p-4 mx-auto w-fit">
+            <Lock className="h-12 w-12 text-slate-400" />
+          </div>
+          <h1 className="text-2xl font-semibold">Please log in to view tickets</h1>
+          <Button
+            onClick={() => router.push('/auth/login')}
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-sm shadow-blue-500/10 hover:shadow-md hover:shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200"
+          >
+            Log In
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <AppLayout>
+      <div className="h-full flex flex-col bg-white">
+        {/* Header */}
+        <div className="sticky top-0 z-10 bg-white/80 backdrop-blur-lg border-b border-slate-200/50">
+          <div className="flex items-center gap-3 p-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-12 w-12 rounded-full"
+            >
+              <Menu className="h-6 w-6" />
+            </Button>
+            
+            <div className="flex-1">
+              <Input
+                type="search"
+                placeholder="Search tickets..."
+                className="h-12 pl-10 rounded-full bg-slate-100/80"
+                value={searchQuery}
+                onChange={handleSearchChange}
+                aria-label="Search tickets"
+              />
+            </div>
+
+            <Avatar className="h-10 w-10">
+              <AvatarImage src={user?.user_metadata?.avatar_url} />
+              <AvatarFallback>
+                {user?.email?.[0].toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+          </div>
+        </div>
+
+        {/* Primary sections */}
+        <div className="flex-1 overflow-auto">
+          <div className="divide-y divide-slate-200/50">
+            {/* Primary sections */}
+            <div className="p-3 flex items-center justify-between hover:bg-slate-50">
+              <div className="flex items-center gap-4">
+                <Inbox className="h-5 w-5 text-blue-500" />
+                <span className="font-medium">All tickets</span>
+              </div>
+              <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                {tickets.length}
+              </Badge>
+            </div>
+            <div className="p-3 flex items-center justify-between hover:bg-slate-50">
+              <div className="flex items-center gap-4">
+                <AlertCircle className="h-5 w-5 text-red-500" />
+                <span className="font-medium">High priority</span>
+              </div>
+              <Badge variant="secondary" className="bg-red-100 text-red-700">
+                {tickets.filter(t => t.priority === 'high').length}
+              </Badge>
+            </div>
+            <div className="p-3 flex items-center justify-between hover:bg-slate-50">
+              <div className="flex items-center gap-4">
+                <Clock className="h-5 w-5 text-orange-500" />
+                <span className="font-medium">Pending</span>
+              </div>
+              <Badge variant="secondary" className="bg-orange-100 text-orange-700">
+                {tickets.filter(t => t.status === 'open').length}
+              </Badge>
             </div>
           </div>
 
           {/* Ticket list */}
-          <div className="flex-1 overflow-auto">
+          <div className="mt-2 divide-y divide-slate-200/50">
             {error ? (
-              <div className="flex items-center justify-center p-6">
+              <div className="p-4">
                 <div className="rounded-lg bg-red-50 p-4">
                   <div className="flex items-center">
                     <AlertCircle className="h-5 w-5 text-red-400" />
@@ -328,282 +598,112 @@ export default function TicketList() {
                 </div>
               </div>
             ) : loading ? (
-              <div className="divide-y divide-gray-200">
+              <div>
                 {[...Array(5)].map((_, i) => (
-                  <div key={i} className="p-4 sm:px-6">
-                    <div className="flex items-center gap-4">
+                  <div key={i} className="p-3">
+                    <div className="flex items-center gap-3">
                       <Skeleton className="h-10 w-10 rounded-full" />
                       <div className="flex-1">
-                        <Skeleton className="h-4 w-48" />
-                        <Skeleton className="mt-2 h-4 w-32" />
+                        <Skeleton className="h-4 w-36" />
+                        <Skeleton className="mt-2 h-4 w-24" />
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : tickets.length === 0 ? (
-              <div className="flex flex-col items-center justify-center p-12 text-center">
-                <Inbox className="h-12 w-12 text-gray-400" />
-                <h3 className="mt-4 text-lg font-medium text-gray-900">No tickets found</h3>
-                <p className="mt-1 text-sm text-gray-500">
+            ) : filteredTickets.length === 0 ? (
+              <div className="p-8 text-center">
+                <div className="rounded-full bg-slate-100 p-3 mx-auto w-fit">
+                  <Inbox className="h-6 w-6 text-slate-400" />
+                </div>
+                <h3 className="mt-4 text-base font-medium text-slate-900">No tickets found</h3>
+                <p className="mt-1 text-sm text-slate-500">
                   Get started by creating a new ticket or waiting for customer inquiries.
                 </p>
                 <Button
                   onClick={() => router.push('/tickets/new')}
-                  className="mt-6 inline-flex items-center gap-2"
+                  className="mt-6 min-h-[44px]"
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="h-5 w-5" />
                   New Ticket
                 </Button>
               </div>
             ) : (
-              <div className="divide-y divide-gray-200">
-                {tickets.map((ticket) => (
-                  <div
-                    key={ticket.id}
-                    onClick={() => handleTicketClick(ticket)}
-                    className="group cursor-pointer bg-white p-4 transition-colors hover:bg-gray-50 sm:px-6"
-                  >
-                    <div className="flex items-start gap-4">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage
-                          src={ticket.customer?.avatar_url || undefined}
-                          alt={ticket.customer?.display_name || ''}
-                        />
-                        <AvatarFallback>
-                          {(ticket.customer?.display_name || 'U')[0].toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1 space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900">
-                            {ticket.customer?.display_name || ticket.customer?.email || 'Unknown User'}
-                          </span>
-                          {ticket.organization?.name && (
-                            <span className="text-sm text-gray-500">
-                              at {ticket.organization.name}
+              <div className="divide-y divide-slate-200/50">
+                {filteredTickets.map((ticket) => {
+                  // Check both emailChats and description for email content
+                  const emailContent = ticket.emailChats?.[0]?.body || ticket.description;
+                  const emailPreview = emailContent ? getEmailPreview(emailContent) : '';
+
+                  // Extract sender information from subject or description
+                  let senderInfo = '';
+                  if (ticket.subject?.includes('sent you')) {
+                    senderInfo = ticket.subject.split(' sent you')[0];
+                  } else if (ticket.subject?.includes('from')) {
+                    senderInfo = ticket.subject.split(' from ')[1]?.split(' ')[0];
+                  } else if (ticket.subject?.includes('@')) {
+                    senderInfo = ticket.subject.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || '';
+                  } else if (emailContent?.includes('@')) {
+                    senderInfo = emailContent.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || '';
+                  }
+
+                  console.log('Processing ticket:', {
+                    id: ticket.id,
+                    subject: ticket.subject,
+                    hasEmailChats: !!ticket.emailChats?.length,
+                    hasDescription: !!ticket.description,
+                    emailContentSource: ticket.emailChats?.[0]?.body ? 'emailChats' : ticket.description ? 'description' : 'none',
+                    emailContentPreview: emailContent?.substring(0, 100),
+                    parsedPreview: emailPreview,
+                    extractedSender: senderInfo
+                  });
+
+                  return (
+                    <div
+                      key={ticket.id}
+                      onClick={() => handleTicketClick(ticket)}
+                      className="p-3 hover:bg-slate-50 active:bg-slate-100"
+                    >
+                      <div className="flex items-start gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage
+                            src={ticket.customer?.avatar_url || undefined}
+                            alt={ticket.customer?.display_name || ''}
+                          />
+                          <AvatarFallback>
+                            {(senderInfo || 'U')[0].toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-[15px] text-slate-900 truncate">
+                              {senderInfo || ticket.emailChats?.[0]?.from_address || 'Unknown Sender'}
                             </span>
-                          )}
-                          <Badge
-                            variant={ticket.priority === 'high' ? 'destructive' : 'secondary'}
-                            className="ml-auto"
-                          >
-                            {ticket.priority}
-                          </Badge>
-                        </div>
-                        <h4 className="font-medium text-gray-900">{ticket.subject}</h4>
-                        <div className="flex items-center gap-4 text-sm text-gray-500">
-                          <span className="flex items-center gap-1">
-                            <StatusIcon status={ticket.status} className="h-4 w-4" />
-                            {ticket.status}
-                          </span>
-                          {ticket.created_at && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-4 w-4" />
+                            <span className="shrink-0 text-xs text-slate-500">
                               {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
                             </span>
-                          )}
+                          </div>
+                          <h4 className="text-[15px] text-slate-900 truncate">{ticket.subject}</h4>
+                          <p className="text-sm text-slate-500 truncate">
+                            {emailPreview || 'No preview available'}
+                          </p>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="opacity-0 group-hover:opacity-100"
-                      >
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
-      </AppLayout>
-    );
-  }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white flex items-center justify-center">
-        <div className="text-center space-y-4">
-          <Lock className="h-12 w-12 text-slate-400 mx-auto" />
-          <h1 className="text-2xl font-semibold">Please log in to view tickets</h1>
-          <Button
-            onClick={() => router.push('/auth/login')}
-            className="inline-flex items-center gap-2"
-          >
-            Log In
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <AppLayout>
-      <div className="h-full flex flex-col">
-        {/* Header */}
-        <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900">Tickets</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Manage and respond to customer support tickets
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Button
-                onClick={() => router.push('/tickets/new')}
-                className="inline-flex items-center gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                New Ticket
-              </Button>
-            </div>
-          </div>
-
-          {/* Search and filters */}
-          <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <Input
-                type="search"
-                placeholder="Search tickets..."
-                value={searchQuery}
-                onChange={handleSearchChange}
-                className="pl-10"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="inline-flex items-center gap-2">
-                    <Filter className="h-4 w-4" />
-                    Filter
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={() => setStatusFilter('open')}>
-                    Open Tickets
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setStatusFilter('closed')}>
-                    Closed Tickets
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setStatusFilter(null)}>
-                    All Tickets
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        </div>
-
-        {/* Ticket list */}
-        <div className="flex-1 overflow-auto">
-          {error ? (
-            <div className="flex items-center justify-center p-6">
-              <div className="rounded-lg bg-red-50 p-4">
-                <div className="flex items-center">
-                  <AlertCircle className="h-5 w-5 text-red-400" />
-                  <div className="ml-3">
-                    <h3 className="text-sm font-medium text-red-800">Error loading tickets</h3>
-                    <div className="mt-2 text-sm text-red-700">{error}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : loading ? (
-            <div className="divide-y divide-gray-200">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="p-4 sm:px-6">
-                  <div className="flex items-center gap-4">
-                    <Skeleton className="h-10 w-10 rounded-full" />
-                    <div className="flex-1">
-                      <Skeleton className="h-4 w-48" />
-                      <Skeleton className="mt-2 h-4 w-32" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : tickets.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center">
-              <Inbox className="h-12 w-12 text-gray-400" />
-              <h3 className="mt-4 text-lg font-medium text-gray-900">No tickets found</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Get started by creating a new ticket or waiting for customer inquiries.
-              </p>
-              <Button
-                onClick={() => router.push('/tickets/new')}
-                className="mt-6 inline-flex items-center gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                New Ticket
-              </Button>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-200">
-              {tickets.map((ticket) => (
-                <div
-                  key={ticket.id}
-                  onClick={() => handleTicketClick(ticket)}
-                  className="group cursor-pointer bg-white p-4 transition-colors hover:bg-gray-50 sm:px-6"
-                >
-                  <div className="flex items-start gap-4">
-                    <Avatar className="h-10 w-10">
-                      <AvatarImage
-                        src={ticket.customer?.avatar_url || undefined}
-                        alt={ticket.customer?.display_name || ''}
-                      />
-                      <AvatarFallback>
-                        {(ticket.customer?.display_name || 'U')[0].toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900">
-                          {ticket.customer?.display_name || ticket.customer?.email || 'Unknown User'}
-                        </span>
-                        {ticket.organization?.name && (
-                          <span className="text-sm text-gray-500">
-                            at {ticket.organization.name}
-                          </span>
-                        )}
-                        <Badge
-                          variant={ticket.priority === 'high' ? 'destructive' : 'secondary'}
-                          className="ml-auto"
-                        >
-                          {ticket.priority}
-                        </Badge>
-                      </div>
-                      <h4 className="font-medium text-gray-900">{ticket.subject}</h4>
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <span className="flex items-center gap-1">
-                          <StatusIcon status={ticket.status} className="h-4 w-4" />
-                          {ticket.status}
-                        </span>
-                        {ticket.created_at && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-4 w-4" />
-                            {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="opacity-0 group-hover:opacity-100"
-                    >
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Floating action button */}
+        <Button
+          onClick={() => router.push('/tickets/new')}
+          className="fixed right-4 bottom-4 h-14 w-14 rounded-full shadow-lg"
+        >
+          <Plus className="h-6 w-6" />
+        </Button>
       </div>
 
       {/* Email Thread Panel */}
