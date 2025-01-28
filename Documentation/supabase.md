@@ -2,18 +2,18 @@
 
 ## Database Information
 
-         API URL: http://127.0.0.1:54321
-     GraphQL URL: http://127.0.0.1:54321/graphql/v1
-  S3 Storage URL: http://127.0.0.1:54321/storage/v1/s3
-          DB URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-      Studio URL: http://127.0.0.1:54323
-    Inbucket URL: http://127.0.0.1:54324
-      JWT secret: super-secret-jwt-token-with-at-least-32-characters-long
-        anon key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
-service_role key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
-   S3 Access Key: 625729a08b95bf1b7ff351a663f3a23c
-   S3 Secret Key: 850181e4652dd023b7a98c58ae0d2d34bd487ee0cc3254aed6eda37307425907
-       S3 Region: local
+API URL: https://ucbtpddvvbsrqroqhvev.supabase.co
+GraphQL URL: http://127.0.0.1:54321/graphql/v1
+S3 Storage URL: http://127.0.0.1:54321/storage/v1/s3
+DB URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+Studio URL: http://127.0.0.1:54323
+Inbucket URL: http://127.0.0.1:54324
+JWT secret: E8aYEQPrx2qj1lSHpzhadIOtafNy4DNF1ehuuUeR9/5sJsE/lvmP7eC577wheV5aaI2nonl2ZkO5Q8a6T4PRiQ==
+anon key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjYnRwZGR2dmJzcnFyb3FodmV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzc0MDI2NDEsImV4cCI6MjA1Mjk3ODY0MX0.M1DQlj8-IxmSWvGP4cydOUNgxo6MsgElXlunvp2ffPE
+service_role key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjYnRwZGR2dmJzcnFyb3FodmV2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczNzQwMjY0MSwiZXhwIjoyMDUyOTc4NjQxfQ.COsl2ot_nlityKLptKW_a2Fs0b3Y8dy0ZO7s9MpAKSU
+S3 Access Key: 625729a08b95bf1b7ff351a663f3a23c
+S3 Secret Key: 850181e4652dd023b7a98c58ae0d2d34bd487ee0cc3254aed6eda37307425907
+S3 Region: local
 
 ## Database Schema
 

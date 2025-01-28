@@ -46,7 +46,7 @@ enable_confirmations = false
 
 [auth.external.google]
 enabled = true
-client_id = "env(GOOGLE_CLIENT_ID)"
-secret = "env(GOOGLE_CLIENT_SECRET)"
+client_id = "env(NEXT_PUBLIC_GOOGLE_AUTH_CLIENT_ID)"
+secret = "env(GOOGLE_AUTH_CLIENT_SECRET)"
 redirect_uri = "http://localhost:3000/auth/callback"
 skip_nonce_check = false
