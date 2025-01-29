@@ -1,5 +1,6 @@
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import type { Variants } from 'framer-motion';
 import { motion } from 'framer-motion';
 import { debounce } from 'lodash';
 import { Building, CheckCircle, Lock, Mail, User } from 'lucide-react';
@@ -663,16 +664,38 @@ export default function SignUp() {
     }
   };
 
+  const formVariants: Variants = {
+    initial: { opacity: 0, y: 20 },
+    animate: { opacity: 1, y: 0 }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-slate-800 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(to bottom right, rgb(248, 250, 252), rgb(239, 246, 255))',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '3rem 1rem'
+    }}>
       <Head>
         <title>{getTitle()} - Zendesk</title>
+        <meta name="description" content="Sign up for Zendesk" />
       </Head>
 
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="max-w-md w-full space-y-8 bg-white dark:bg-slate-800 p-8 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700"
+        variants={formVariants}
+        initial="initial"
+        animate="animate"
+        style={{
+          maxWidth: '28rem',
+          width: '100%',
+          backgroundColor: 'white',
+          padding: '2rem',
+          borderRadius: '0.75rem',
+          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+          border: '1px solid rgb(226, 232, 240)'
+        }}
       >
         <div>
           <h2 className="text-center text-3xl font-extrabold text-slate-900 dark:text-white">
@@ -853,6 +876,6 @@ export default function SignUp() {
               </button>
         </div>
       </motion.div>
-      </div>
+    </div>
   );
 } 
