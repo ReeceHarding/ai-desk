@@ -11,27 +11,23 @@ import md5 from "md5"
 import { useEffect, useRef, useState } from "react"
 import { useInView } from "react-intersection-observer"
 
-interface EmailMessage {
-  id: string
-  ticket_id: string
-  message_id: string
-  thread_id: string
-  from_name: string | null
-  from_address: string
-  to_address: string[]
-  cc_address: string[]
-  bcc_address: string[]
-  subject: string | null
-  body: string
-  attachments: any
-  gmail_date: string
-  org_id: string
-  ai_classification: 'should_respond' | 'no_response' | 'unknown'
-  ai_confidence: number
-  ai_auto_responded: boolean
-  ai_draft_response: string | null
-  created_at: string
-  updated_at: string
+interface Message {
+  id: string;
+  body: string;
+  from_name: string | null;
+  from_address: string;
+  created_at: string;
+  message_type: 'email' | 'comment' | 'description';
+  author?: {
+    display_name: string | null;
+    email: string | null;
+    avatar_url: string | null;
+  };
+  thread_id?: string;
+  message_id?: string;
+  to_address?: string[];
+  subject?: string | null;
+  attachments?: any;
 }
 
 export interface EmailThreadPanelProps {
@@ -46,7 +42,7 @@ export interface EmailThreadPanelProps {
 }
 
 export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelProps) {
-  const [messages, setMessages] = useState<EmailMessage[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [hasMore, setHasMore] = useState(true)
   const [page, setPage] = useState(0)
@@ -74,32 +70,92 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         pageNum
       });
 
-      const { data, error } = await supabase
+      // Fetch ticket details first to get the description
+      const { data: ticketData } = await supabase
+        .from('tickets')
+        .select(`
+          *,
+          customer:profiles!tickets_customer_id_fkey (
+            display_name,
+            email,
+            avatar_url
+          )
+        `)
+        .eq('id', ticket.id)
+        .single();
+
+      // Fetch email chats
+      const { data: emailData } = await supabase
         .from('ticket_email_chats')
         .select('*')
         .eq('ticket_id', ticket.id)
         .order('created_at', { ascending: false })
         .range(from, to);
 
-      if (error) {
-        console.error("Error fetching ticket email thread:", error);
-        return;
-      }
+      // Fetch comments
+      const { data: commentData } = await supabase
+        .from('comments')
+        .select(`
+          *,
+          author:profiles!comments_author_id_fkey (
+            display_name,
+            email,
+            avatar_url
+          )
+        `)
+        .eq('ticket_id', ticket.id)
+        .order('created_at', { ascending: false });
 
-      console.log("Fetched messages:", {
-        count: data?.length || 0,
-        messages: data,
-        ticketId: ticket.id
-      });
+      // Transform ticket description into a message
+      const descriptionMessage: Message = {
+        id: `${ticket.id}-description`,
+        body: ticketData?.description || '',
+        from_name: ticketData?.customer?.display_name || null,
+        from_address: ticketData?.customer?.email || 'unknown@example.com',
+        created_at: ticketData?.created_at || new Date().toISOString(),
+        message_type: 'description',
+        author: ticketData?.customer || undefined
+      };
+
+      // Transform email chats into messages
+      const emailMessages: Message[] = (emailData || []).map(email => ({
+        id: email.id,
+        body: email.body || '',
+        from_name: email.from_name,
+        from_address: email.from_address || '',
+        created_at: email.created_at,
+        message_type: 'email',
+        thread_id: email.thread_id,
+        message_id: email.message_id,
+        to_address: email.to_address,
+        subject: email.subject,
+        attachments: email.attachments
+      }));
+
+      // Transform comments into messages
+      const commentMessages: Message[] = (commentData || []).map(comment => ({
+        id: comment.id,
+        body: comment.body || '',
+        from_name: comment.author?.display_name || null,
+        from_address: comment.author?.email || '',
+        created_at: comment.created_at,
+        message_type: 'comment',
+        author: comment.author
+      }));
+
+      // Combine all messages and sort by date
+      const allMessages = [descriptionMessage, ...emailMessages, ...commentMessages]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
       if (pageNum === 0) {
-        setMessages(data || []);
+        setMessages(allMessages);
       } else {
-        setMessages((prev) => [...prev, ...(data || [])]);
+        setMessages(prev => [...prev, ...allMessages]);
       }
-      setHasMore(data && data.length === limit);
+      setHasMore(Boolean(emailData && emailData.length === limit));
+
     } catch (error) {
-      console.error("Error fetching ticket email thread:", error);
+      console.error("Error fetching messages:", error);
     } finally {
       setIsLoading(false);
     }
@@ -151,7 +207,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         (payload) => {
           if (payload.eventType === 'INSERT') {
             // Add new message to the list
-            const newMessage = payload.new as EmailMessage;
+            const newMessage = payload.new as Message;
             setMessages((prev) => {
               // Check if message already exists
               const exists = prev.some(msg => msg.id === newMessage.id);
@@ -160,20 +216,20 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
               // Add new message and sort by date
               const updated = [newMessage, ...prev];
               return updated.sort((a, b) => {
-                const dateA = a.gmail_date ? new Date(a.gmail_date) : new Date(a.created_at);
-                const dateB = b.gmail_date ? new Date(b.gmail_date) : new Date(b.created_at);
+                const dateA = a.created_at ? new Date(a.created_at) : new Date(a.created_at);
+                const dateB = b.created_at ? new Date(b.created_at) : new Date(b.created_at);
                 return dateB.getTime() - dateA.getTime();
               });
             });
           } else if (payload.eventType === 'UPDATE') {
             // Update existing message
-            const updatedMessage = payload.new as EmailMessage;
+            const updatedMessage = payload.new as Message;
             setMessages((prev) => 
               prev.map(msg => msg.id === updatedMessage.id ? updatedMessage : msg)
             );
           } else if (payload.eventType === 'DELETE') {
             // Remove deleted message
-            const deletedMessage = payload.old as EmailMessage;
+            const deletedMessage = payload.old as Message;
             setMessages((prev) => 
               prev.filter(msg => msg.id !== deletedMessage.id)
             );
@@ -325,7 +381,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                     <div className="flex items-center gap-2">
                       <Avatar className="h-8 w-8">
                         <AvatarImage
-                          src={`https://www.gravatar.com/avatar/${md5(message.from_address.toLowerCase())}?d=mp`}
+                          src={message.author?.avatar_url || `https://www.gravatar.com/avatar/${md5(message.from_address.toLowerCase())}?d=mp`}
                           alt={message.from_name || message.from_address}
                         />
                         <AvatarFallback>
@@ -333,9 +389,12 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-medium text-slate-900">{message.from_name || message.from_address}</p>
+                        <p className="font-medium text-slate-900">
+                          {message.from_name || message.from_address}
+                          {message.message_type === 'description' && ' (Initial Message)'}
+                        </p>
                         <p className="text-sm text-slate-500">
-                          {formatDistanceToNow(new Date(message.gmail_date || message.created_at), {
+                          {formatDistanceToNow(new Date(message.created_at), {
                             addSuffix: true,
                           })}
                         </p>
