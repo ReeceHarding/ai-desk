@@ -123,7 +123,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             {/* Mobile menu button */}
             <button
               type="button"
-              className="md:hidden inline-flex items-center justify-center p-2 rounded-lg text-slate-500 hover:text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
+              className="lg:hidden inline-flex items-center justify-center p-2 rounded-lg text-slate-500 hover:text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             >
               <span className="sr-only">Open main menu</span>
@@ -144,7 +144,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             </button>
 
             {/* Logo */}
-            <div className="flex-1 flex items-center justify-center md:justify-start">
+            <div className="flex-1 flex items-center justify-center lg:justify-start">
               <span className="text-lg sm:text-xl font-semibold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
                 Zendesk Clone
               </span>
@@ -161,13 +161,11 @@ export function AppLayout({ children }: AppLayoutProps) {
       <div className="flex min-h-screen pt-16">
         {/* Sidebar - hidden on mobile unless menu is open */}
         <div 
-          className={`fixed inset-y-0 left-0 transform ${
-            router.pathname.includes('/organizations') || 
-            router.pathname.includes('/settings') ||
-            router.pathname.startsWith('/tickets') ||
-            router.pathname.startsWith('/kb') ? 'md:translate-x-0' : 
-            isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-          } md:relative md:translate-x-0 transition-transform duration-300 ease-in-out z-40 bg-white w-72 md:w-64 top-16 border-r border-slate-200/50 shadow-lg md:shadow-none`}
+          className={cn(
+            "fixed inset-y-0 left-0 transform lg:relative lg:translate-x-0 transition-transform duration-300 ease-in-out z-40",
+            "bg-white w-72 lg:w-64 top-16 border-r border-slate-200/50 shadow-lg lg:shadow-none",
+            isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+          )}
         >
           <div className="h-full overflow-y-auto">
             <Sidebar onNavigate={handleMobileMenuClose} />
@@ -177,20 +175,20 @@ export function AppLayout({ children }: AppLayoutProps) {
         {/* Backdrop for mobile menu */}
         {isMobileMenuOpen && (
           <div 
-            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30 md:hidden"
+            className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30 lg:hidden"
             onClick={() => setIsMobileMenuOpen(false)}
           />
         )}
         
         {/* Main content */}
         <main 
-          className={`flex-1 relative overflow-y-auto focus:outline-none
-            ${isMobileMenuOpen ? 'md:ml-64' : ''}
-            ${isThreadPanelOpen ? 'lg:mr-[400px]' : ''}
-            bg-gradient-to-b from-white to-slate-50 
-            px-4 sm:px-6 lg:px-8 py-6 sm:py-8
-            transition-all duration-300
-          `}
+          className={cn(
+            "flex-1 relative overflow-y-auto focus:outline-none",
+            "bg-gradient-to-b from-white to-slate-50",
+            "px-4 sm:px-6 lg:px-8 py-6 sm:py-8",
+            "transition-all duration-300",
+            isThreadPanelOpen && "lg:mr-[400px]"
+          )}
         >
           <div className="max-w-7xl mx-auto">
             <div className="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/50 p-4 sm:p-6 lg:p-8 transition-all duration-300 hover:shadow-md">
@@ -199,11 +197,14 @@ export function AppLayout({ children }: AppLayoutProps) {
           </div>
         </main>
 
-        {/* Thread Panel - slide in from right on mobile */}
+        {/* Thread Panel */}
         <div 
-          className={`fixed inset-y-0 right-0 w-full sm:w-[400px] bg-white shadow-lg transform transition-transform duration-300 ease-in-out ${
-            isThreadPanelOpen ? 'translate-x-0' : 'translate-x-full'
-          } top-16 border-l border-slate-200/50 z-20`}
+          className={cn(
+            "fixed inset-y-0 right-0 w-full sm:w-[400px] bg-white shadow-lg transform",
+            "transition-transform duration-300 ease-in-out",
+            "top-16 border-l border-slate-200/50 z-20",
+            isThreadPanelOpen ? "translate-x-0" : "translate-x-full"
+          )}
         >
           {/* Thread panel content */}
         </div>

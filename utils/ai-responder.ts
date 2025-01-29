@@ -70,6 +70,11 @@ Otherwise classification = "should_respond".
 
 /**
  * Generate a RAG-based response for an inbound email using Pinecone & GPT-3.5.
+ * 
+ * 1. We embed the email text.
+ * 2. Query Pinecone for top K relevant chunks.
+ * 3. Provide the chunk contexts + user email text to GPT to get a final answer + confidence.
+ * 4. Return { response, confidence, references }.
  */
 export async function generateRagResponse(
   emailText: string,
@@ -82,6 +87,8 @@ export async function generateRagResponse(
 
     // Step 2: Query Pinecone for top K org-specific chunks
     const matches = await queryPinecone(embedding, topK);
+
+    // Filter results that match this org
     const filtered = matches.filter(m => m.metadata?.orgId === orgId);
 
     // Step 3: Prepare a context string from top chunks
@@ -92,7 +99,7 @@ export async function generateRagResponse(
       references.push(match.id || '');
     });
 
-    // Step 4: Construct GPT system prompt
+    // Construct GPT system prompt
     const systemPrompt = `
 You are a helpful support assistant with knowledge from the following context: 
 ${contextString}
@@ -105,7 +112,7 @@ Return a JSON object: { "answer": "...", "confidence": 0-100 }
   - "confidence": integer from 0 to 100
 `;
 
-    // Step 5: Chat completion
+    // Step 4: Chat completion
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
@@ -121,6 +128,7 @@ Return a JSON object: { "answer": "...", "confidence": 0-100 }
     let confidence = 60;
 
     try {
+      // Attempt JSON parse
       const jsonStart = rawContent.indexOf('{');
       const jsonEnd = rawContent.lastIndexOf('}');
       if (jsonStart !== -1 && jsonEnd !== -1) {
@@ -133,6 +141,7 @@ Return a JSON object: { "answer": "...", "confidence": 0-100 }
           confidence = Math.max(0, Math.min(100, parsed.confidence));
         }
       } else {
+        // fallback
         finalAnswer = rawContent;
       }
     } catch (err) {

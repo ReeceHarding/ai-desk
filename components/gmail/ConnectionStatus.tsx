@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import debounce from 'lodash/debounce';
 import { AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 interface ConnectionStatusProps {
   orgId?: string;
@@ -16,42 +17,52 @@ export function ConnectionStatus({ orgId, profileId }: ConnectionStatusProps) {
   const [loading, setLoading] = useState(true);
   const supabase = useSupabaseClient<Database>();
   const { toast } = useToast();
+  const subscriptionRef = useRef<any>(null);
+
+  const fetchStatus = useCallback(async () => {
+    if (!orgId && !profileId) return;
+
+    try {
+      setLoading(true);
+      const table = orgId ? 'organizations' : 'profiles';
+      const id = orgId || profileId;
+
+      const { data, error } = await supabase
+        .from(table)
+        .select('gmail_watch_status, gmail_watch_expiration')
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
+
+      setStatus(data.gmail_watch_status);
+    } catch (error) {
+      console.error('Failed to fetch Gmail status:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to check Gmail connection status',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId, profileId, supabase, toast]);
+
+  // Debounced version of fetchStatus
+  const debouncedFetchStatus = useCallback(
+    debounce(fetchStatus, 5000, { leading: true, trailing: true }),
+    [fetchStatus]
+  );
 
   useEffect(() => {
     if (!orgId && !profileId) return;
 
-    const fetchStatus = async () => {
-      try {
-        setLoading(true);
-        const table = orgId ? 'organizations' : 'profiles';
-        const id = orgId || profileId;
-
-        const { data, error } = await supabase
-          .from(table)
-          .select('gmail_watch_status, gmail_watch_expiration')
-          .eq('id', id)
-          .single();
-
-        if (error) throw error;
-
-        setStatus(data.gmail_watch_status);
-      } catch (error) {
-        console.error('Failed to fetch Gmail status:', error);
-        toast({
-          title: 'Error',
-          description: 'Failed to check Gmail connection status',
-          variant: 'destructive',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchStatus();
+    // Initial fetch
+    debouncedFetchStatus();
 
     // Set up real-time subscription
     const table = orgId ? 'organizations' : 'profiles';
-    const subscription = supabase
+    subscriptionRef.current = supabase
       .channel('gmail-status')
       .on(
         'postgres_changes',
@@ -62,15 +73,20 @@ export function ConnectionStatus({ orgId, profileId }: ConnectionStatusProps) {
           filter: `id=eq.${orgId || profileId}`,
         },
         (payload) => {
-          setStatus(payload.new.gmail_watch_status);
+          if (payload.new.gmail_watch_status !== status) {
+            setStatus(payload.new.gmail_watch_status);
+          }
         }
       )
       .subscribe();
 
     return () => {
-      subscription.unsubscribe();
+      debouncedFetchStatus.cancel();
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe();
+      }
     };
-  }, [orgId, profileId, supabase, toast]);
+  }, [orgId, profileId, supabase, status, debouncedFetchStatus]);
 
   const handleReconnect = async () => {
     // Redirect to Gmail OAuth flow

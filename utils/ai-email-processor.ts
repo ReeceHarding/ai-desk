@@ -1,10 +1,9 @@
+import type { Database } from '@/types/supabase';
 import { createClient } from '@supabase/supabase-js';
-import { Database } from '../types/supabase';
 import { classifyInboundEmail, decideAutoSend, generateRagResponse } from './ai-responder';
 import { sendGmailReply } from './gmail';
 import { logger } from './logger';
 
-// Initialize Supabase client
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -34,7 +33,7 @@ export async function processInboundEmailWithAI(
     // Step 1: Classify the email
     const { classification, confidence } = await classifyInboundEmail(emailBody);
 
-    // Update the chat record with classification
+    // Update classification in database
     await supabase
       .from('ticket_email_chats')
       .update({
@@ -43,16 +42,17 @@ export async function processInboundEmailWithAI(
       })
       .eq('id', chatId);
 
-    logger.info('Email classified', { chatId, classification, confidence });
-
-    // If we shouldn't respond, we're done
+    // If we shouldn't respond, return early
     if (classification !== 'should_respond') {
       return { classification, confidence, autoResponded: false };
     }
 
     // Step 2: Generate RAG response
-    const { response: ragResponse, confidence: ragConfidence, references } = 
-      await generateRagResponse(emailBody, orgId);
+    const { response: ragResponse, confidence: ragConfidence, references } = await generateRagResponse(
+      emailBody,
+      orgId,
+      5
+    );
 
     // Step 3: Decide if we should auto-send
     const { autoSend } = decideAutoSend(ragConfidence);

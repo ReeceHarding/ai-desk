@@ -131,8 +131,28 @@ const gmailLogger = {
   }
 };
 
+// Cache object to store Gmail profiles
+const profileCache: {
+  [key: string]: {
+    profile: GmailProfile;
+    timestamp: number;
+  };
+} = {};
+
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 export async function getGmailProfile(tokens: GmailTokens): Promise<GmailProfile> {
   try {
+    // Check cache first
+    const cacheKey = tokens.access_token;
+    const now = Date.now();
+    const cached = profileCache[cacheKey];
+
+    if (cached && now - cached.timestamp < CACHE_DURATION) {
+      console.log('Returning cached Gmail profile');
+      return cached.profile;
+    }
+
     console.log('Fetching Gmail profile...');
     const response = await fetch(`${API_BASE_URL}/api/gmail/profile`, {
       method: 'POST',
@@ -156,6 +176,13 @@ export async function getGmailProfile(tokens: GmailTokens): Promise<GmailProfile
     
     const profile = await response.json();
     console.log('Successfully fetched Gmail profile');
+
+    // Cache the profile
+    profileCache[cacheKey] = {
+      profile,
+      timestamp: now,
+    };
+
     return profile;
   } catch (error) {
     console.error('Error fetching Gmail profile:', error);

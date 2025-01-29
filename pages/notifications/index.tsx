@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
+import { sendDraftResponse } from '@/utils/ai-email-processor';
 import { logger } from '@/utils/logger';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatDistanceToNow } from 'date-fns';
@@ -26,12 +27,21 @@ interface EmailChat {
 
 type TabType = 'drafts' | 'auto-sent';
 
+interface DraftChat {
+  id: string;
+  ticket_id: string;
+  subject: string | null;
+  ai_draft_response: string;
+  created_at: string;
+}
+
 export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('drafts');
   const [draftChats, setDraftChats] = useState<EmailChat[]>([]);
   const [autoSentChats, setAutoSentChats] = useState<EmailChat[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<Record<string, boolean>>({});
+  const [draftChatsState, setDraftChatsState] = useState<DraftChat[]>([]);
 
   const fetchDrafts = async () => {
     try {
@@ -299,6 +309,69 @@ export default function NotificationsPage() {
       </div>
     </Card>
   );
+
+  const loadDrafts = async () => {
+    try {
+      setLoading(true);
+      // Find all ticket_email_chats with ai_draft_response, not auto_responded
+      const { data, error } = await supabase
+        .from('ticket_email_chats')
+        .select('id, ticket_id, subject, ai_draft_response, created_at')
+        .eq('ai_auto_responded', false)
+        .not('ai_draft_response', 'is', null)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setDraftChatsState(data || []);
+    } catch (error) {
+      console.error('Error loading drafts:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load AI drafts. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendDraftState = async (chatId: string) => {
+    try {
+      await sendDraftResponse(chatId);
+      toast({
+        title: 'Success',
+        description: 'AI draft has been sent successfully.',
+      });
+      // Refresh the list
+      loadDrafts();
+    } catch (error) {
+      console.error('Error sending draft:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to send AI draft. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  useEffect(() => {
+    loadDrafts();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-8">
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-1/4 mb-8"></div>
+          <div className="space-y-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="h-32 bg-gray-100 rounded-lg"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <AppLayout>

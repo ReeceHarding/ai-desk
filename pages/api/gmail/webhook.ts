@@ -2,6 +2,7 @@ import { Database } from '@/types/supabase';
 import { classifyInboundEmail, decideAutoSend, generateRagResponse } from '@/utils/ai-responder';
 import { logger } from '@/utils/logger';
 import { sendGmailReply } from '@/utils/server/gmail';
+import { PubSub } from '@google-cloud/pubsub';
 import { createClient } from '@supabase/supabase-js';
 import rateLimit from 'express-rate-limit';
 import { gmail_v1, google } from 'googleapis';
@@ -21,6 +22,31 @@ interface ProcessingMetrics {
   totalMessages: number;
   successfulMessages: number;
   failedMessages: number;
+}
+
+interface ProcessedMessage {
+  id: string;
+  status: 'success' | 'failed' | 'retrying';
+  attempt_count: number;
+  error_details?: {
+    error: string;
+    stack?: string;
+    timestamp: string;
+  };
+}
+
+interface MessageProcessingRecord {
+  id: string;
+  message_id: string;
+  thread_id: string;
+  org_id: string;
+  status: 'success' | 'failed' | 'retrying';
+  attempt_count: number;
+  error_details?: {
+    error: string;
+    stack?: string;
+    timestamp: string;
+  };
 }
 
 // Rate limiting configuration
@@ -476,305 +502,430 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
     orgId
   });
 
-  if (!message.payload) {
-    await logger.error('Message has no payload', { messageId: message.id });
-    return;
-  }
-
-  // Extract headers
-  const headers = message.payload.headers || [];
-  const getHeader = (name: string) => headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value;
-
-  const subject = getHeader('subject') || 'No Subject';
-  const from = getHeader('from') || '';
-  const to = getHeader('to') || '';
-  const cc = getHeader('cc') || '';
-  const bcc = getHeader('bcc') || '';
-  const fromMatch = from.match(/(?:"?([^"]*)"?\s*)?(?:<(.+)>)/);
-  const fromName = fromMatch ? fromMatch[1]?.trim() : '';
-  const fromAddress = fromMatch ? fromMatch[2] : from;
-
-  // Helper to convert email string to array
-  const emailsToArray = (emails: string): string[] => {
-    if (!emails) return [];
-    return emails.split(',').map(e => {
-      const match = e.match(/<(.+)>/);
-      return match ? match[1].trim() : e.trim();
-    }).filter(Boolean);
-  };
-
-  // Get message body
-  const body = await getEmailBody(message);
-
-  // Process attachments
-  const attachments: { filename: string; mimeType: string; size: number; path: string }[] = [];
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-
-  const processAttachmentPart = async (part: gmail_v1.Schema$MessagePart) => {
-    if (part.filename && part.body?.attachmentId) {
-      try {
-        // Check file size
-        const size = Number(part.body.size || '0');
-        if (size > MAX_FILE_SIZE) {
-          await logger.warn('Attachment too large', {
-            filename: part.filename,
-            size,
-            maxSize: MAX_FILE_SIZE
-          });
-          return;
-        }
-
-        // Only process allowed MIME types
-        const allowedMimeTypes = [
-          'application/pdf',
-          'image/jpeg',
-          'image/png',
-          'image/gif',
-          'application/msword',
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          'text/plain'
-        ];
-
-        if (!allowedMimeTypes.includes(part.mimeType || '')) {
-          await logger.warn('Unsupported attachment type', {
-            filename: part.filename,
-            mimeType: part.mimeType
-          });
-          return;
-        }
-
-        // Get the attachment data from Gmail
-        const attachment = await gmailClient.users.messages.attachments.get({
-          userId: 'me',
-          messageId: message.id || '',
-          id: part.body.attachmentId || ''
-        }).then(response => response.data);
-
-        if (!attachment.data) {
-          throw new Error('No attachment data received');
-        }
-
-        // Decode the attachment data
-        const buffer = Buffer.from(attachment.data, 'base64');
-        
-        // Generate a safe filename
-        const safeFilename = part.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
-        const timestamp = Date.now();
-        const storagePath = `${orgId}/${message.id}/${timestamp}_${safeFilename}`;
-
-        // Upload to Supabase Storage
-        const { error: uploadError } = await supabase
-          .storage
-          .from('email-attachments')
-          .upload(storagePath, buffer, {
-            contentType: part.mimeType || 'application/octet-stream',
-            cacheControl: '3600'
-          });
-
-        if (uploadError) {
-          throw uploadError;
-        }
-
-        // Get the public URL
-        const { data: { publicUrl } } = supabase
-          .storage
-          .from('email-attachments')
-          .getPublicUrl(storagePath);
-
-        attachments.push({
-          filename: part.filename,
-          mimeType: part.mimeType || 'application/octet-stream',
-          size,
-          path: storagePath
-        });
-
-        await logger.info('Processed and stored attachment', {
-          filename: part.filename,
-          size,
-          mimeType: part.mimeType,
-          path: storagePath
-        });
-      } catch (error) {
-        await logger.error('Failed to process attachment', {
-          error,
-          filename: part.filename
-        });
-      }
-    }
-
-    // Recursively process nested parts
-    if (part.parts) {
-      for (const nestedPart of part.parts) {
-        await processAttachmentPart(nestedPart);
-      }
-    }
-  };
-
-  if (message.payload.parts) {
-    for (const part of message.payload.parts) {
-      await processAttachmentPart(part);
-    }
-  }
-
-  // Find or create profile for sender
-  const { data: existingProfile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('email', fromAddress)
+  // Check if message was already processed
+  const { data: existingMessage } = await supabase
+    .from('processed_messages')
+    .select('id, status, attempt_count, error_details')
+    .eq('message_id', message.id || '')
     .single();
 
-  let profileId: string;
-
-  if (existingProfile) {
-    profileId = existingProfile.id;
-  } else {
-    // Create new profile for the sender
-    const { data: newProfile, error: profileError } = await supabase
-      .from('profiles')
-      .insert({
-        email: fromAddress,
-        role: 'customer',
-        org_id: orgId,
-        display_name: fromName || fromAddress.split('@')[0],
-        metadata: {
-          source: 'gmail_webhook',
-          created_at: new Date().toISOString()
-        },
-        extra_json_1: {},
-        avatar_url: 'https://placehold.co/400x400/png?text=👤'
-      })
-      .select()
-      .single();
-
-    if (profileError) {
-      await logger.error('Failed to create profile', {
-        error: profileError,
-        email: fromAddress
+  if (existingMessage) {
+    if (existingMessage.status === 'success') {
+      await logger.info('Message already processed successfully', { 
+        messageId: message.id,
+        processedMessageId: existingMessage.id 
       });
-      throw profileError;
+      return;
     }
 
-    profileId = newProfile.id;
-  }
+    // If failed and under max attempts, retry
+    if (existingMessage.attempt_count < Number(process.env.PUBSUB_MAX_DELIVERY_ATTEMPTS || 5)) {
+      await supabase
+        .from('processed_messages')
+        .update({
+          status: 'retrying',
+          attempt_count: existingMessage.attempt_count + 1,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', existingMessage.id);
+    } else {
+      // Move to DLQ if max attempts reached
+      await logger.error('Message failed max retry attempts', {
+        messageId: message.id,
+        attempts: existingMessage.attempt_count
+      });
 
-  // Create or update ticket
-  let ticketId: string;
-  const { data: existingTicket } = await supabase
-    .from('tickets')
-    .select('id')
-    .eq('metadata->thread_id', message.threadId)
-    .single();
+      // Send to DLQ topic if configured
+      if (process.env.PUBSUB_DLQ_TOPIC) {
+        try {
+          const pubsub = new PubSub({
+            projectId: process.env.GOOGLE_CLOUD_PROJECT
+          });
 
-  if (existingTicket) {
-    ticketId = existingTicket.id;
-    // Update existing ticket
-    await supabase
-      .from('tickets')
-      .update({
-        updated_at: new Date().toISOString(),
-        status: 'open'
-      })
-      .eq('id', ticketId);
-  } else {
-    // Create new ticket
-    const { data: newTicket, error: ticketError } = await supabase
-      .from('tickets')
-      .insert({
-        subject,
-        description: body,
-        customer_id: profileId,
-        org_id: orgId,
-        status: 'open',
-        priority: 'medium',
-        metadata: {
-          thread_id: message.threadId,
-          source: 'gmail',
-          message_id: message.id
+          await pubsub.topic(process.env.PUBSUB_DLQ_TOPIC).publish(
+            Buffer.from(JSON.stringify({
+              messageId: message.id,
+              threadId: message.threadId,
+              orgId,
+              attempts: existingMessage.attempt_count,
+              lastError: existingMessage.error_details,
+              timestamp: new Date().toISOString()
+            }))
+          );
+
+          await logger.info('Message sent to DLQ', { 
+            messageId: message.id,
+            dlqTopic: process.env.PUBSUB_DLQ_TOPIC 
+          });
+        } catch (dlqError) {
+          await logger.error('Failed to send message to DLQ', {
+            error: dlqError,
+            messageId: message.id
+          });
         }
-      })
-      .select()
-      .single();
-
-    if (ticketError) {
-      await logger.error('Failed to create ticket', {
-        error: ticketError,
-        subject,
-        threadId: message.threadId
-      });
-      throw ticketError;
+      }
+      return;
     }
-
-    ticketId = newTicket.id;
   }
 
-  // Create ticket_email_chat entry
-  const { data: chatRecord, error: chatError } = await supabase
-    .from('ticket_email_chats')
+  // Update message processing to handle null/undefined cases
+  if (!message.id || !message.threadId) {
+    const error = new Error('Message ID or Thread ID is missing');
+    await logger.error('Invalid message data', {
+      error,
+      messageId: message.id,
+      threadId: message.threadId
+    });
+    throw error;
+  }
+
+  const messageId = message.id;
+  const threadId = message.threadId;
+
+  // Create processing record
+  const { data: processingRecord, error: recordError } = await supabase
+    .from('processed_messages')
     .insert({
-      ticket_id: ticketId,
-      message_id: message.id,
-      thread_id: message.threadId,
-      from_name: fromName,
-      from_address: fromAddress,
-      to_address: emailsToArray(to),
-      cc_address: emailsToArray(cc),
-      bcc_address: emailsToArray(bcc),
-      subject,
-      body,
-      attachments: attachments.length > 0 ? attachments : {},
-      gmail_date: message.internalDate 
-        ? new Date(parseInt(message.internalDate.toString())).toISOString()
-        : new Date().toISOString(),
+      message_id: messageId,
+      thread_id: threadId,
       org_id: orgId,
-      ai_classification: 'unknown',
-      ai_confidence: 0,
-      ai_auto_responded: false,
-      ai_draft_response: null
+      status: 'retrying' as const,
+      attempt_count: 1
     })
     .select()
     .single();
 
-  if (chatError) {
-    await logger.error('Failed to create email chat', {
-      error: chatError,
-      messageId: message.id,
-      ticketId
+  if (recordError || !processingRecord) {
+    const error = recordError || new Error('Failed to create processing record');
+    await logger.error('Failed to create processing record', {
+      error,
+      messageId,
+      threadId
     });
-    throw chatError;
+    throw error;
   }
 
-  // Step 1: Classify the email
-  const { classification, confidence } = await classifyInboundEmail(body);
+  try {
+    // Original message processing logic here
+    if (!message.payload) {
+      throw new Error('Message has no payload');
+    }
 
-  // Step 2: If should_respond, generate RAG response
-  if (classification === 'should_respond') {
-    const { response: ragResponse, confidence: ragConfidence, references } = await generateRagResponse(
-      body,
-      orgId,
-      5
-    );
+    // Extract headers
+    const headers = message.payload.headers || [];
+    const getHeader = (name: string) => headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value;
 
-    // Step 3: Decide auto-send vs. draft
-    const { autoSend } = decideAutoSend(ragConfidence, CONFIDENCE_THRESHOLD);
+    const subject = getHeader('subject') || 'No Subject';
+    const from = getHeader('from') || '';
+    const to = getHeader('to') || '';
+    const cc = getHeader('cc') || '';
+    const bcc = getHeader('bcc') || '';
+    const fromMatch = from.match(/(?:"?([^"]*)"?\s*)?(?:<(.+)>)/);
+    const fromName = fromMatch ? fromMatch[1]?.trim() : '';
+    const fromAddress = fromMatch ? fromMatch[2] : from;
 
-    const referencesObj = { rag_references: references };
+    // Helper to convert email string to array
+    const emailsToArray = (emails: string): string[] => {
+      if (!emails) return [];
+      return emails.split(',').map(e => {
+        const match = e.match(/<(.+)>/);
+        return match ? match[1].trim() : e.trim();
+      }).filter(Boolean);
+    };
 
-    if (autoSend) {
-      // Auto-send the response
-      try {
-        await sendGmailReply({
-          threadId: message.threadId,
-          inReplyTo: message.id,
-          to: [fromAddress],
-          subject: `Re: ${subject || 'Support Request'}`,
-          htmlBody: ragResponse,
+    // Get message body
+    const body = await getEmailBody(message);
+
+    // Process attachments
+    const attachments: { filename: string; mimeType: string; size: number; path: string }[] = [];
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+    const processAttachmentPart = async (part: gmail_v1.Schema$MessagePart) => {
+      if (part.filename && part.body?.attachmentId) {
+        try {
+          // Check file size
+          const size = Number(part.body.size || '0');
+          if (size > MAX_FILE_SIZE) {
+            await logger.warn('Attachment too large', {
+              filename: part.filename,
+              size,
+              maxSize: MAX_FILE_SIZE
+            });
+            return;
+          }
+
+          // Only process allowed MIME types
+          const allowedMimeTypes = [
+            'application/pdf',
+            'image/jpeg',
+            'image/png',
+            'image/gif',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'text/plain'
+          ];
+
+          if (!allowedMimeTypes.includes(part.mimeType || '')) {
+            await logger.warn('Unsupported attachment type', {
+              filename: part.filename,
+              mimeType: part.mimeType
+            });
+            return;
+          }
+
+          // Get the attachment data from Gmail
+          const attachment = await gmailClient.users.messages.attachments.get({
+            userId: 'me',
+            messageId: message.id || '',
+            id: part.body.attachmentId || ''
+          }).then(response => response.data);
+
+          if (!attachment.data) {
+            throw new Error('No attachment data received');
+          }
+
+          // Decode the attachment data
+          const buffer = Buffer.from(attachment.data, 'base64');
+          
+          // Generate a safe filename
+          const safeFilename = part.filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+          const timestamp = Date.now();
+          const storagePath = `${orgId}/${message.id}/${timestamp}_${safeFilename}`;
+
+          // Upload to Supabase Storage
+          const { error: uploadError } = await supabase
+            .storage
+            .from('email-attachments')
+            .upload(storagePath, buffer, {
+              contentType: part.mimeType || 'application/octet-stream',
+              cacheControl: '3600'
+            });
+
+          if (uploadError) {
+            throw uploadError;
+          }
+
+          // Get the public URL
+          const { data: { publicUrl } } = supabase
+            .storage
+            .from('email-attachments')
+            .getPublicUrl(storagePath);
+
+          attachments.push({
+            filename: part.filename,
+            mimeType: part.mimeType || 'application/octet-stream',
+            size,
+            path: storagePath
+          });
+
+          await logger.info('Processed and stored attachment', {
+            filename: part.filename,
+            size,
+            mimeType: part.mimeType,
+            path: storagePath
+          });
+        } catch (error) {
+          await logger.error('Failed to process attachment', {
+            error,
+            filename: part.filename
+          });
+        }
+      }
+
+      // Recursively process nested parts
+      if (part.parts) {
+        for (const nestedPart of part.parts) {
+          await processAttachmentPart(nestedPart);
+        }
+      }
+    };
+
+    if (message.payload.parts) {
+      for (const part of message.payload.parts) {
+        await processAttachmentPart(part);
+      }
+    }
+
+    // Find or create profile for sender
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('email', fromAddress)
+      .single();
+
+    let profileId: string;
+
+    if (existingProfile) {
+      profileId = existingProfile.id;
+    } else {
+      // Create new profile for the sender
+      const { data: newProfile, error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          email: fromAddress,
+          role: 'customer',
+          org_id: orgId,
+          display_name: fromName || fromAddress.split('@')[0],
+          metadata: {
+            source: 'gmail_webhook',
+            created_at: new Date().toISOString()
+          },
+          extra_json_1: {},
+          avatar_url: 'https://placehold.co/400x400/png?text=👤'
+        })
+        .select()
+        .single();
+
+      if (profileError) {
+        await logger.error('Failed to create profile', {
+          error: profileError,
+          email: fromAddress
         });
+        throw profileError;
+      }
 
-        // Update chat record
+      profileId = newProfile.id;
+    }
+
+    // Create or update ticket
+    let ticketId: string;
+    const { data: existingTicket } = await supabase
+      .from('tickets')
+      .select('id')
+      .eq('metadata->thread_id', message.threadId)
+      .single();
+
+    if (existingTicket) {
+      ticketId = existingTicket.id;
+      // Update existing ticket
+      await supabase
+        .from('tickets')
+        .update({
+          updated_at: new Date().toISOString(),
+          status: 'open'
+        })
+        .eq('id', ticketId);
+    } else {
+      // Create new ticket
+      const { data: newTicket, error: ticketError } = await supabase
+        .from('tickets')
+        .insert({
+          subject,
+          description: body,
+          customer_id: profileId,
+          org_id: orgId,
+          status: 'open',
+          priority: 'medium',
+          metadata: {
+            thread_id: message.threadId,
+            source: 'gmail',
+            message_id: message.id
+          }
+        })
+        .select()
+        .single();
+
+      if (ticketError) {
+        await logger.error('Failed to create ticket', {
+          error: ticketError,
+          subject,
+          threadId: message.threadId
+        });
+        throw ticketError;
+      }
+
+      ticketId = newTicket.id;
+    }
+
+    // Create ticket_email_chat entry
+    const { data: chatRecord, error: chatError } = await supabase
+      .from('ticket_email_chats')
+      .insert({
+        ticket_id: ticketId,
+        message_id: message.id,
+        thread_id: message.threadId,
+        from_name: fromName,
+        from_address: fromAddress,
+        to_address: emailsToArray(to),
+        cc_address: emailsToArray(cc),
+        bcc_address: emailsToArray(bcc),
+        subject,
+        body,
+        attachments: attachments.length > 0 ? attachments : {},
+        gmail_date: message.internalDate 
+          ? new Date(parseInt(message.internalDate.toString())).toISOString()
+          : new Date().toISOString(),
+        org_id: orgId,
+        ai_classification: 'unknown',
+        ai_confidence: 0,
+        ai_auto_responded: false,
+        ai_draft_response: null
+      })
+      .select()
+      .single();
+
+    if (chatError) {
+      await logger.error('Failed to create email chat', {
+        error: chatError,
+        messageId: message.id,
+        ticketId
+      });
+      throw chatError;
+    }
+
+    // Step 1: Classify the email
+    const { classification, confidence } = await classifyInboundEmail(body);
+
+    // Step 2: If should_respond, generate RAG response
+    if (classification === 'should_respond') {
+      const { response: ragResponse, confidence: ragConfidence, references } = await generateRagResponse(
+        body,
+        orgId,
+        5
+      );
+
+      // Step 3: Decide auto-send vs. draft
+      const { autoSend } = decideAutoSend(ragConfidence, CONFIDENCE_THRESHOLD);
+
+      const referencesObj = { rag_references: references };
+
+      if (autoSend) {
+        // Auto-send the response
+        try {
+          await sendGmailReply({
+            threadId: message.threadId,
+            inReplyTo: message.id,
+            to: [fromAddress],
+            subject: `Re: ${subject || 'Support Request'}`,
+            htmlBody: ragResponse,
+          });
+
+          // Update chat record
+          await supabase
+            .from('ticket_email_chats')
+            .update({
+              ai_auto_responded: true,
+              ai_draft_response: ragResponse,
+              metadata: {
+                ...chatRecord.metadata,
+                ...referencesObj,
+              },
+            })
+            .eq('id', chatRecord.id);
+
+          logger.info('Auto-sent AI response', {
+            chatId: chatRecord.id,
+            confidence: ragConfidence,
+          });
+        } catch (sendError) {
+          logger.error('Failed to auto-send email', { error: sendError });
+        }
+      } else {
+        // Store as draft
         await supabase
           .from('ticket_email_chats')
           .update({
-            ai_auto_responded: true,
+            ai_auto_responded: false,
             ai_draft_response: ragResponse,
             metadata: {
               ...chatRecord.metadata,
@@ -783,39 +934,62 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
           })
           .eq('id', chatRecord.id);
 
-        logger.info('Auto-sent AI response', {
+        logger.info('Stored AI draft response', {
           chatId: chatRecord.id,
           confidence: ragConfidence,
         });
-      } catch (sendError) {
-        logger.error('Failed to auto-send email', { error: sendError });
       }
-    } else {
-      // Store as draft
-      await supabase
-        .from('ticket_email_chats')
-        .update({
-          ai_auto_responded: false,
-          ai_draft_response: ragResponse,
-          metadata: {
-            ...chatRecord.metadata,
-            ...referencesObj,
-          },
-        })
-        .eq('id', chatRecord.id);
+    }
 
-      logger.info('Stored AI draft response', {
-        chatId: chatRecord.id,
-        confidence: ragConfidence,
+    // Update processing record on success
+    const { error: updateError } = await supabase
+      .from('processed_messages')
+      .update({
+        status: 'success',
+        processed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', processingRecord.id);
+
+    if (updateError) {
+      await logger.error('Failed to update processing record', {
+        error: updateError,
+        messageId,
+        processingRecordId: processingRecord.id
       });
     }
-  }
 
-  const processingTime = Date.now() - startTime;
-  await logger.info('Completed message processing', {
-    messageId: message.id,
-    ticketId,
-    processingTime,
-    attachmentCount: attachments.length
-  });
+    const processingTime = Date.now() - startTime;
+    await logger.info('Completed message processing', {
+      messageId,
+      ticketId,
+      processingTime,
+      attachmentCount: attachments.length
+    });
+  } catch (error) {
+    // Update processing record on failure
+    const { error: updateError } = await supabase
+      .from('processed_messages')
+      .update({
+        status: 'failed',
+        error_details: {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          timestamp: new Date().toISOString()
+        },
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', processingRecord.id);
+
+    if (updateError) {
+      await logger.error('Failed to update processing record after error', {
+        error: updateError,
+        originalError: error,
+        messageId,
+        processingRecordId: processingRecord.id
+      });
+    }
+
+    throw error;
+  }
 } 

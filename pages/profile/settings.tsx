@@ -1,3 +1,4 @@
+import { ConnectionStatus } from '@/components/gmail/ConnectionStatus';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -5,7 +6,6 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
-import { logger } from '@/utils/logger';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
@@ -26,7 +26,6 @@ export default function ProfileSettings() {
   const router = useRouter();
   const { toast } = useToast();
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [gmailAddress, setGmailAddress] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [origin, setOrigin] = useState<string>('');
 
@@ -63,31 +62,6 @@ export default function ProfileSettings() {
     }
   }, [supabase, user?.id, toast]);
 
-  const fetchGmailProfile = async (tokens: { access_token: string, refresh_token: string }) => {
-    try {
-      const response = await fetch('/api/gmail/profile', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          access_token: tokens.access_token,
-          refresh_token: tokens.refresh_token,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch Gmail profile: ${response.statusText}`);
-      }
-
-      const gmailProfile = await response.json();
-      return gmailProfile;
-    } catch (error) {
-      logger.error('Failed to fetch Gmail profile', { error });
-      throw error;
-    }
-  };
-
   useEffect(() => {
     if (user) {
       fetchProfile();
@@ -114,20 +88,6 @@ export default function ProfileSettings() {
       router.replace('/profile/settings', undefined, { shallow: true });
     }
   }, [router.query, router, toast]);
-
-  useEffect(() => {
-    // Fetch Gmail profile when tokens are available
-    if (profile?.gmail_refresh_token && profile?.gmail_access_token) {
-      fetchGmailProfile({ access_token: profile.gmail_access_token, refresh_token: profile.gmail_refresh_token })
-        .then(setGmailAddress)
-        .catch((error) => {
-          console.error('Error fetching Gmail profile:', error);
-          setGmailAddress(null);
-        });
-    } else {
-      setGmailAddress(null);
-    }
-  }, [profile?.gmail_refresh_token, profile?.gmail_access_token, fetchGmailProfile]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -175,14 +135,16 @@ export default function ProfileSettings() {
         .from('profiles')
         .update({
           gmail_access_token: null,
-          gmail_refresh_token: null
+          gmail_refresh_token: null,
+          gmail_watch_status: null,
+          gmail_watch_expiration: null,
+          gmail_watch_resource_id: null
         })
         .eq('id', user?.id);
 
       if (error) throw error;
 
       await fetchProfile();
-      setGmailAddress(null);
       
       toast({
         title: "Gmail Disconnected",
@@ -297,17 +259,12 @@ export default function ProfileSettings() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Gmail Connection Status</Label>
-                  <p className="text-sm text-gray-500">
-                    {profile.gmail_refresh_token 
-                      ? `Connected to Gmail${gmailAddress ? ` (${gmailAddress})` : ''}`
-                      : 'Not connected to Gmail'}
-                  </p>
-                </div>
-                {profile.gmail_refresh_token ? (
-                  <div className="space-x-2">
+              {user?.id && (
+                <ConnectionStatus profileId={user.id} />
+              )}
+              <div className="flex items-center justify-end space-x-2">
+                {profile?.gmail_refresh_token ? (
+                  <>
                     <Button
                       onClick={handleConnectGmail}
                       variant="outline"
@@ -320,12 +277,9 @@ export default function ProfileSettings() {
                     >
                       Disconnect Gmail
                     </Button>
-                  </div>
+                  </>
                 ) : (
-                  <Button
-                    onClick={handleConnectGmail}
-                    variant="default"
-                  >
+                  <Button onClick={handleConnectGmail}>
                     Connect Gmail
                   </Button>
                 )}

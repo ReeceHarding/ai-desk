@@ -880,3 +880,103 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Create table for tracking processed messages
+CREATE TABLE IF NOT EXISTS public.processed_messages (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  message_id text NOT NULL,
+  thread_id text NOT NULL,
+  org_id uuid REFERENCES public.organizations(id),
+  processed_at timestamptz NOT NULL DEFAULT now(),
+  status text NOT NULL CHECK (status IN ('success', 'failed', 'retrying')),
+  attempt_count int NOT NULL DEFAULT 1,
+  error_details jsonb DEFAULT '{}'::jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Create unique index for message deduplication
+CREATE UNIQUE INDEX IF NOT EXISTS idx_processed_messages_message_id ON public.processed_messages (message_id);
+CREATE INDEX IF NOT EXISTS idx_processed_messages_thread_id ON public.processed_messages (thread_id);
+CREATE INDEX IF NOT EXISTS idx_processed_messages_org_id ON public.processed_messages (org_id);
+CREATE INDEX IF NOT EXISTS idx_processed_messages_status ON public.processed_messages (status);
+
+-- Create trigger for auto-updating timestamp
+CREATE TRIGGER tr_processed_messages_timestamp
+  BEFORE UPDATE ON public.processed_messages
+  FOR EACH ROW
+  EXECUTE FUNCTION public.fn_auto_update_timestamp();
+
+-- Create view for Gmail watch status monitoring
+CREATE OR REPLACE VIEW public.v_gmail_watch_status AS
+WITH combined_watches AS (
+  SELECT 
+    'organization' as type,
+    id,
+    gmail_watch_status,
+    gmail_watch_expiration,
+    gmail_watch_resource_id,
+    updated_at
+  FROM organizations
+  WHERE gmail_watch_status IS NOT NULL
+  UNION ALL
+  SELECT 
+    'profile' as type,
+    id,
+    gmail_watch_status,
+    gmail_watch_expiration,
+    gmail_watch_resource_id,
+    updated_at
+  FROM profiles
+  WHERE gmail_watch_status IS NOT NULL
+)
+SELECT 
+  type,
+  id,
+  gmail_watch_status,
+  gmail_watch_expiration,
+  gmail_watch_resource_id,
+  CASE 
+    WHEN gmail_watch_expiration < NOW() THEN 'expired'
+    WHEN gmail_watch_expiration < NOW() + INTERVAL '24 hours' THEN 'expiring_soon'
+    ELSE 'active'
+  END as watch_health,
+  updated_at
+FROM combined_watches;
+
+-- Create function to get Gmail watch statistics
+CREATE OR REPLACE FUNCTION public.get_gmail_watch_stats()
+RETURNS json
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  result json;
+BEGIN
+  WITH watch_stats AS (
+    SELECT
+      COUNT(*) FILTER (WHERE gmail_watch_expiration > NOW()) as active_count,
+      COUNT(*) FILTER (WHERE gmail_watch_expiration <= NOW() + INTERVAL '24 hours' AND gmail_watch_expiration > NOW()) as expiring_count,
+      COUNT(*) FILTER (WHERE gmail_watch_status = 'failed' OR gmail_watch_expiration <= NOW()) as failed_count
+    FROM (
+      SELECT gmail_watch_expiration, gmail_watch_status FROM organizations
+      WHERE gmail_watch_expiration IS NOT NULL
+      UNION ALL
+      SELECT gmail_watch_expiration, gmail_watch_status FROM profiles
+      WHERE gmail_watch_expiration IS NOT NULL
+    ) combined_watches
+  )
+  SELECT json_build_object(
+    'active_count', active_count,
+    'expiring_count', expiring_count,
+    'failed_count', failed_count,
+    'timestamp', NOW()
+  ) INTO result
+  FROM watch_stats;
+
+  RETURN result;
+END;
+$$;
+
+-- Grant execute permission to authenticated users
+GRANT EXECUTE ON FUNCTION public.get_gmail_watch_stats() TO authenticated;

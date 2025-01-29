@@ -1,27 +1,37 @@
+import type { Database } from '@/types/supabase';
 import { createClient } from '@supabase/supabase-js';
 import { config } from 'dotenv';
-import { v4 as uuidv4 } from 'uuid';
-import { ParsedEmail } from '../types/gmail';
-import { Database } from '../types/supabase';
 import { processInboundEmailWithAI } from './ai-email-processor';
-import { EmailLogger } from './emailLogger';
 import { logger } from './logger';
 
 // Load environment variables
 config();
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = createClient<Database>(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing required environment variables for Supabase connection');
+interface ParsedEmail {
+  messageId: string;
+  threadId: string;
+  from: string;
+  fromName?: string;
+  to: string | string[];
+  cc?: string | string[];
+  bcc?: string | string[];
+  subject?: string;
+  body: {
+    text?: string;
+    html?: string;
+  };
+  date: string;
 }
-
-const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
 
 interface TicketCreationResult {
   ticketId: string;
   isNewTicket: boolean;
+  emailChatId: string;
 }
 
 export async function handleInboundEmail(
@@ -29,139 +39,63 @@ export async function handleInboundEmail(
   orgId: string
 ): Promise<TicketCreationResult> {
   try {
-    console.log(`Processing inbound email: ${parsedEmail.messageId} for org: ${orgId}`);
-    
-    // First try to find an existing ticket by thread ID in metadata
-    const { data: existingTickets } = await supabase
-      .from('tickets')
-      .select('id, subject, metadata')
-      .eq('org_id', orgId)
-      .filter('metadata->thread_id', 'eq', parsedEmail.threadId)
-      .limit(1);
-
-    if (existingTickets && existingTickets.length > 0) {
-      console.log(`Found existing ticket: ${existingTickets[0].id} for thread: ${parsedEmail.threadId}`);
-      
-      // Found existing ticket - add comment
-      const ticketId = existingTickets[0].id;
-      
-      // Get or create customer profile
-      const { data: customerProfile } = await getOrCreateCustomerProfile(parsedEmail.from, orgId);
-      
-      if (!customerProfile) {
-        throw new Error('Failed to get or create customer profile');
-      }
-
-      // Add comment to existing ticket
-      await supabase.from('comments').insert({
-        ticket_id: ticketId,
-        author_id: customerProfile.id,
-        body: parsedEmail.body.text || parsedEmail.body.html || '(No content)',
-        org_id: orgId,
-        metadata: {
-          message_id: parsedEmail.messageId,
-          email_date: parsedEmail.date.toISOString()
-        } as Database['public']['Tables']['comments']['Insert']['metadata']
+    // Ensure we have a valid date for gmail_date
+    let gmailDate: string;
+    try {
+      // If parsedEmail.date is already an ISO string, this will work
+      gmailDate = new Date(parsedEmail.date).toISOString();
+    } catch (error) {
+      // If there's any error parsing the date, use current time
+      logger.warn('Invalid date format in email, using current time', { 
+        date: parsedEmail.date,
+        error 
       });
+      gmailDate = new Date().toISOString();
+    }
 
-      // Create corresponding email chat entry
-      const { data: emailChat, error: emailChatError } = await supabase
-        .from('ticket_email_chats')
+    // First, check if this thread already has a ticket
+    const { data: existingChat } = await supabase
+      .from('ticket_email_chats')
+      .select('ticket_id')
+      .eq('thread_id', parsedEmail.threadId)
+      .single();
+
+    let ticketId: string;
+    let isNewTicket = false;
+
+    if (existingChat) {
+      ticketId = existingChat.ticket_id;
+    } else {
+      // Create new ticket
+      const { data: ticket } = await supabase
+        .from('tickets')
         .insert({
-          ticket_id: ticketId,
-          message_id: parsedEmail.messageId,
-          thread_id: parsedEmail.threadId,
-          from_name: parsedEmail.fromName || null,
-          from_address: parsedEmail.from,
-          to_address: Array.isArray(parsedEmail.to) ? parsedEmail.to : [parsedEmail.to],
-          cc_address: parsedEmail.cc ? (Array.isArray(parsedEmail.cc) ? parsedEmail.cc : [parsedEmail.cc]) : [],
-          bcc_address: parsedEmail.bcc ? (Array.isArray(parsedEmail.bcc) ? parsedEmail.bcc : [parsedEmail.bcc]) : [],
-          subject: parsedEmail.subject || null,
-          body: parsedEmail.body.text || parsedEmail.body.html || 'No content available',
-          gmail_date: parsedEmail.date,
+          subject: parsedEmail.subject || '(No subject)',
+          description: parsedEmail.body.text || parsedEmail.body.html || '(No content)',
+          customer_id: await getOrCreateCustomerProfile(parsedEmail.from, orgId),
           org_id: orgId,
-          ai_classification: 'unknown',
-          ai_confidence: 0,
-          ai_auto_responded: false,
-          ai_draft_response: null
+          metadata: {
+            thread_id: parsedEmail.threadId,
+            message_id: parsedEmail.messageId,
+            email_date: gmailDate
+          }
         })
         .select()
         .single();
 
-      if (emailChatError) {
-        logger.error('Error creating email chat:', { error: emailChatError });
-        throw new Error(`Failed to create email chat: ${emailChatError.message}`);
+      if (!ticket) {
+        throw new Error('Failed to create ticket');
       }
 
-      // Process with AI
-      if (emailChat) {
-        try {
-          await processInboundEmailWithAI(
-            emailChat.id,
-            parsedEmail.body.text || parsedEmail.body.html || '',
-            orgId
-          );
-        } catch (aiError) {
-          logger.error('Error processing email with AI:', { error: aiError });
-          // Don't throw - we still want to continue with the rest of the process
-        }
-      }
-
-      // Log the email
-      await EmailLogger.logEmail({
-        ticketId: ticketId,
-        messageId: parsedEmail.messageId,
-        threadId: parsedEmail.threadId,
-        fromAddress: parsedEmail.from,
-        toAddress: parsedEmail.to,
-        subject: parsedEmail.subject,
-        rawContent: parsedEmail.body.text || parsedEmail.body.html,
-        orgId: orgId
-      });
-
-      console.log(`Added comment to ticket: ${ticketId}`);
-
-      return {
-        ticketId,
-        isNewTicket: false
-      };
+      ticketId = ticket.id;
+      isNewTicket = true;
     }
 
-    console.log(`No existing ticket found for thread: ${parsedEmail.threadId}, creating new ticket`);
-
-    // No existing ticket found - create new one
-    const { data: customerProfile } = await getOrCreateCustomerProfile(parsedEmail.from, orgId);
-    
-    if (!customerProfile) {
-      throw new Error('Failed to get or create customer profile');
-    }
-
-    // Create new ticket
-    const { data: ticket } = await supabase
-      .from('tickets')
-      .insert({
-        subject: parsedEmail.subject,
-        description: parsedEmail.body.text || parsedEmail.body.html || '(No content)',
-        customer_id: customerProfile.id,
-        org_id: orgId,
-        metadata: {
-          thread_id: parsedEmail.threadId,
-          message_id: parsedEmail.messageId,
-          email_date: parsedEmail.date.toISOString()
-        } as Database['public']['Tables']['tickets']['Insert']['metadata']
-      })
-      .select()
-      .single();
-
-    if (!ticket) {
-      throw new Error('Failed to create ticket');
-    }
-
-    // Create corresponding email chat entry
+    // Create email chat entry
     const { data: emailChat, error: emailChatError } = await supabase
       .from('ticket_email_chats')
       .insert({
-        ticket_id: ticket.id,
+        ticket_id: ticketId,
         message_id: parsedEmail.messageId,
         thread_id: parsedEmail.threadId,
         from_name: parsedEmail.fromName || null,
@@ -171,7 +105,7 @@ export async function handleInboundEmail(
         bcc_address: parsedEmail.bcc ? (Array.isArray(parsedEmail.bcc) ? parsedEmail.bcc : [parsedEmail.bcc]) : [],
         subject: parsedEmail.subject || null,
         body: parsedEmail.body.text || parsedEmail.body.html || 'No content available',
-        gmail_date: parsedEmail.date,
+        gmail_date: gmailDate,
         org_id: orgId,
         ai_classification: 'unknown',
         ai_confidence: 0,
@@ -181,89 +115,77 @@ export async function handleInboundEmail(
       .select()
       .single();
 
-    if (emailChatError) {
+    if (emailChatError || !emailChat) {
       logger.error('Error creating email chat:', { error: emailChatError });
-      throw new Error(`Failed to create email chat: ${emailChatError.message}`);
+      throw new Error(`Failed to create email chat: ${emailChatError?.message}`);
     }
 
     // Process with AI
-    if (emailChat) {
-      try {
-        await processInboundEmailWithAI(
-          emailChat.id,
-          parsedEmail.body.text || parsedEmail.body.html || '',
-          orgId
-        );
-      } catch (aiError) {
-        logger.error('Error processing email with AI:', { error: aiError });
-        // Don't throw - we still want to continue with the rest of the process
-      }
+    try {
+      await processInboundEmailWithAI(
+        emailChat.id,
+        parsedEmail.body.text || parsedEmail.body.html || '',
+        orgId
+      );
+    } catch (aiError) {
+      // Log but don't fail the whole process if AI fails
+      logger.error('Error processing email with AI:', { error: aiError });
     }
 
-    // Log the email
-    await EmailLogger.logEmail({
-      ticketId: ticket.id,
-      messageId: parsedEmail.messageId,
-      threadId: parsedEmail.threadId,
-      fromAddress: parsedEmail.from,
-      toAddress: parsedEmail.to,
-      subject: parsedEmail.subject,
-      rawContent: parsedEmail.body.text || parsedEmail.body.html,
-      orgId: orgId
-    });
-
-    console.log(`Created new ticket: ${ticket.id}`);
-
     return {
-      ticketId: ticket.id,
-      isNewTicket: true
+      ticketId,
+      isNewTicket,
+      emailChatId: emailChat.id
     };
-
   } catch (error) {
-    console.error('Error handling inbound email:', error);
+    logger.error('Error in handleInboundEmail:', { error });
     throw error;
   }
 }
 
-async function getOrCreateCustomerProfile(emailAddress: string, orgId: string) {
+async function getOrCreateCustomerProfile(email: string, orgId: string): Promise<string> {
   // First try to find existing profile
-  const { data: existingProfiles } = await supabase
+  const { data: existingProfile } = await supabase
     .from('profiles')
-    .select('*')
-    .eq('email', emailAddress)
-    .eq('org_id', orgId)
-    .limit(1);
+    .select('id')
+    .eq('email', email)
+    .single();
 
-  if (existingProfiles && existingProfiles.length > 0) {
-    return { data: existingProfiles[0] };
+  if (existingProfile) {
+    return existingProfile.id;
   }
 
-  // No existing profile - create new one
-  const displayName = emailAddress.split('@')[0];
-  const userId = uuidv4();
+  // Create new profile
+  const { data: auth } = await supabase.auth.admin.createUser({
+    email,
+    email_confirm: true,
+    user_metadata: {
+      source: 'email_inbound'
+    }
+  });
 
-  const { data: newProfile, error } = await supabase
+  if (!auth.user) {
+    throw new Error('Failed to create auth user');
+  }
+
+  // Create profile
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .insert({
-      id: userId,
-      email: emailAddress,
-      display_name: displayName,
-      role: 'customer',
+      id: auth.user.id,
+      email,
       org_id: orgId,
-      metadata: {
-        source: 'email_integration',
-        created_at: new Date().toISOString()
-      }
+      role: 'customer',
+      display_name: email.split('@')[0]
     })
     .select()
     .single();
 
-  if (error) {
-    console.error('Error creating customer profile:', error);
-    throw error;
+  if (profileError || !profile) {
+    throw new Error(`Failed to create profile: ${profileError?.message}`);
   }
 
-  return { data: newProfile };
+  return profile.id;
 }
 
 export async function reopenTicketIfNeeded(ticketId: string): Promise<void> {
