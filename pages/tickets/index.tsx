@@ -569,8 +569,10 @@ export default function TicketList() {
           }}
           ticket={selectedTicket ? {
             id: selectedTicket.id,
+            org_id: selectedTicket.org_id,
             thread_id: selectedTicket.metadata?.thread_id,
             message_id: selectedTicket.metadata?.message_id,
+            subject: selectedTicket.subject
           } : null}
         />
       </AppLayout>
@@ -835,8 +837,10 @@ export default function TicketList() {
         }}
         ticket={selectedTicket ? {
           id: selectedTicket.id,
+          org_id: selectedTicket.org_id,
           thread_id: selectedTicket.metadata?.thread_id,
           message_id: selectedTicket.metadata?.message_id,
+          subject: selectedTicket.subject
         } : null}
       />
     </AppLayout>

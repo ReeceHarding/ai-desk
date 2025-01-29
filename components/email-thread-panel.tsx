@@ -35,6 +35,7 @@ export interface EmailThreadPanelProps {
   onClose: () => void;
   ticket: {
     id: string;
+    org_id: string;
     thread_id?: string | null;
     message_id?: string | null;
     subject?: string | null;
@@ -250,7 +251,14 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
 
   const handleSendMessage = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    if (!replyText.trim() || sending || !ticket) return;
+    if (!replyText.trim() || sending || !ticket) {
+      console.warn('Send message validation failed:', {
+        hasReplyText: !!replyText.trim(),
+        isSending: sending,
+        hasTicket: !!ticket
+      });
+      return;
+    }
     
     try {
       setSending(true);
@@ -258,40 +266,69 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
       // Get the latest message for threading info
       const latestMessage = messages[0];
       
+      const emailPayload = {
+        ticketId: ticket.id,
+        threadId: ticket.thread_id || latestMessage?.thread_id,
+        messageId: latestMessage?.message_id,
+        inReplyTo: latestMessage?.message_id,
+        references: latestMessage?.message_id,
+        fromAddress: Array.isArray(latestMessage?.to_address) ? latestMessage.to_address[0] : "support@yourdomain.com",
+        toAddresses: [latestMessage?.from_address || "recipient@example.com"],
+        subject: latestMessage ? `Re: ${latestMessage.subject?.replace(/^Re:\s*/i, '')}` : "Re: Support Ticket",
+        htmlBody: replyText,
+        attachments: [],
+        orgId: ticket.org_id
+      };
+
+      console.log('Sending email with payload:', {
+        ticketId: emailPayload.ticketId,
+        threadId: emailPayload.threadId,
+        fromAddress: emailPayload.fromAddress,
+        toAddresses: emailPayload.toAddresses,
+        subject: emailPayload.subject,
+        hasBody: !!emailPayload.htmlBody,
+        orgId: emailPayload.orgId,
+        ticket_org_id: ticket.org_id
+      });
+      
       // Send email via API
       const response = await fetch('/api/gmail/send', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ticketId: ticket.id,
-          threadId: ticket.thread_id || latestMessage?.thread_id,
-          messageId: latestMessage?.message_id,
-          inReplyTo: latestMessage?.message_id,
-          references: latestMessage?.message_id,
-          fromAddress: latestMessage?.to_address || "support@yourdomain.com",
-          toAddresses: [latestMessage?.from_address || "recipient@example.com"],
-          subject: latestMessage ? `Re: ${latestMessage.subject?.replace(/^Re:\s*/i, '')}` : "Re: Support Ticket",
-          htmlBody: replyText,
-          attachments: [],
-        }),
+        body: JSON.stringify(emailPayload),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Failed to send email:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData.error,
+          details: errorData.details
+        });
         throw new Error(errorData.error || 'Failed to send email');
       }
 
       const data = await response.json();
+      console.log('Email sent successfully:', {
+        messageId: data.message_id,
+        threadId: data.thread_id
+      });
 
       // Add new message to the list
       setMessages((prev) => [data, ...prev]);
       
       // Clear the reply text
       setReplyText('');
-    } catch (error) {
-      console.error('Error sending reply:', error);
+    } catch (error: any) {
+      console.error('Error sending reply:', {
+        error: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      // TODO: Add user-facing error notification here
     } finally {
       setSending(false);
     }

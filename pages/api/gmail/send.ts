@@ -139,34 +139,74 @@ export default async function handler(
       threadId,
       ticketId,
       attachments,
+      orgId,
     } = req.body;
 
-    // Validate required fields
-    if (!fromAddress || !toAddresses || !subject || !htmlBody) {
+    // Validate required fields with detailed logging
+    const requiredFields = {
+      fromAddress,
+      toAddresses,
+      subject,
+      htmlBody,
+      orgId,
+      ticketId
+    };
+
+    const missingFields = Object.entries(requiredFields)
+      .filter(([_, value]) => !value)
+      .map(([key]) => key);
+
+    if (missingFields.length > 0) {
       await logger.error('Missing required fields', { 
-        hasFrom: !!fromAddress,
-        hasTo: !!toAddresses,
-        hasSubject: !!subject,
-        hasBody: !!htmlBody
+        missingFields,
+        providedFields: Object.keys(req.body),
+        values: {
+          hasFrom: !!fromAddress,
+          hasTo: Array.isArray(toAddresses) && toAddresses.length > 0,
+          hasSubject: !!subject,
+          hasBody: !!htmlBody,
+          hasOrgId: !!orgId,
+          hasTicketId: !!ticketId
+        }
       });
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        details: `Missing fields: ${missingFields.join(', ')}`
+      });
     }
 
-    // Get current user's organization ID first - we need this regardless of token source
-    const { data: orgId, error: orgIdError } = await supabase.rpc('current_user_org_id');
+    // Validate email addresses
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const invalidEmails = [];
     
-    if (orgIdError) {
-      await logger.error('Failed to get organization ID', { error: orgIdError });
-      return res.status(500).json({ error: 'Failed to get organization ID' });
+    if (!emailRegex.test(fromAddress)) {
+      invalidEmails.push(`fromAddress: ${fromAddress}`);
     }
-
-    if (!orgId) {
-      await logger.error('No organization ID found for user');
-      return res.status(500).json({ error: 'No organization found for user' });
-    }
-
-    await logger.info('Fetching Gmail tokens');
     
+    if (!toAddresses.every((email: string) => emailRegex.test(email))) {
+      invalidEmails.push(`toAddresses: ${toAddresses.join(', ')}`);
+    }
+
+    if (invalidEmails.length > 0) {
+      await logger.error('Invalid email addresses', { invalidEmails });
+      return res.status(400).json({ 
+        error: 'Invalid email addresses',
+        details: invalidEmails
+      });
+    }
+
+    // Remove the RPC call and use the passed orgId directly
+    await logger.info('Using organization ID from request', { 
+      orgId,
+      ticketId,
+      threadId: threadId || 'none',
+      emailDetails: {
+        from: fromAddress,
+        to: toAddresses,
+        subject
+      }
+    });
+
     // Get current user's profile first
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
