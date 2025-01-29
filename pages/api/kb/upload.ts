@@ -134,6 +134,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // Prepare for Pinecone
+      const truncatedText = chunkText.slice(0, 8000); // Pinecone has metadata size limits
       pineconeRecords.push({
         id: `${doc.id}_${chunkIndex}`,
         values: embedding,
@@ -141,7 +142,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           orgId,
           docId: doc.id,
           chunkIndex,
-          text: chunkText,
+          text: truncatedText,
+          tokenLength: Math.ceil(chunkText.split(/\s+/).length * 1.3),
         },
       });
 
