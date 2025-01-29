@@ -192,37 +192,61 @@ async function createUserOrganization(supabase: any, userId: string, email: stri
       .select()
       .single();
 
-    if (profileError) {
-      console.error('❌ Customer profile creation failed:', profileError);
+      if (profileError) {
+        console.error('❌ Customer profile creation failed:', profileError);
+        console.groupEnd();
+        console.groupEnd();
+        throw profileError;
+      }
+      console.log('✅ Customer profile created successfully:', newProfile);
       console.groupEnd();
       console.groupEnd();
-      throw profileError;
+      return null;
+    } catch (error) {
+      console.error('❌ [SIGNUP] Error in createUserOrganization:', error);
+      console.groupEnd();
+      throw error;
     }
-    console.log('✅ Customer profile created successfully:', newProfile);
-    console.groupEnd();
-    console.groupEnd();
-    return null;
-  } catch (error) {
-    console.error('❌ [SIGNUP] Error in createUserOrganization:', error);
-    console.groupEnd();
-    throw error;
-  }
 }
 
 // Helper function to search organizations
 async function searchOrganizations(supabase: any, query: string): Promise<Organization[]> {
-  const { data, error } = await supabase
-    .from('organizations')
-    .select('id, name')
-    .ilike('name', `%${query}%`)
-    .limit(5);
+  console.group('[SIGNUP] searchOrganizations Function');
+  console.log('📝 Search query:', query);
+  
+  try {
+    let queryBuilder = supabase
+      .from('organizations')
+      .select('id, name');
 
-  if (error) {
-    console.error('[SIGNUP] Error searching organizations:', error);
+    // Only apply filter if query exists
+    if (query) {
+      console.log('🔍 Applying filter with query:', query);
+      queryBuilder = queryBuilder.ilike('name', `%${query}%`);
+    } else {
+      console.log('📋 Getting all organizations (no filter)');
+    }
+
+    // Always order by name
+    queryBuilder = queryBuilder.order('name');
+
+    const { data, error, count } = await queryBuilder;
+
+    if (error) {
+      console.error('❌ Database error:', error);
+      throw error;
+    }
+
+    console.log('✅ Query successful');
+    console.log('📊 Results count:', data?.length || 0);
+    console.log('🔍 First few results:', data?.slice(0, 3));
+    console.groupEnd();
+    return data || [];
+  } catch (error) {
+    console.error('❌ Error in searchOrganizations:', error);
+    console.groupEnd();
     throw error;
   }
-
-  return data || [];
 }
 
 type UserType = 'customer' | 'agent' | 'admin';
@@ -246,6 +270,8 @@ export default function SignUp() {
     supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY!
   });
   const [origin, setOrigin] = useState<string>('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   useEffect(() => {
     if (!type || !['customer', 'agent', 'admin'].includes(type as string)) {
@@ -259,24 +285,81 @@ export default function SignUp() {
     }
   }, []);
 
-  const debouncedSearch = debounce(async (query: string) => {
-    if (query.length < 2) {
-      setSearchResults([]);
-      return;
+  useEffect(() => {
+    if (type === 'agent' && !initialLoadDone) {
+      console.log('[SIGNUP] Initial organization load');
+      debouncedSearch('');
+      setInitialLoadDone(true);
+    }
+  }, [type, initialLoadDone]);
+
+  useEffect(() => {
+    // Debug query to check database access
+    async function checkDatabaseAccess() {
+      console.group('[SIGNUP] Database Access Check');
+      try {
+        const { data, error } = await serviceRoleClient
+          .from('organizations')
+          .select('count');
+        
+        console.log('📊 Database check results:', {
+          success: !error,
+          error: error?.message,
+          count: data?.[0]?.count
+        });
+
+        if (error) {
+          console.error('❌ Database access error:', error);
+        } else {
+          console.log('✅ Database access successful');
+        }
+      } catch (err) {
+        console.error('❌ Database check failed:', err);
+      }
+      console.groupEnd();
     }
 
+    if (type === 'agent') {
+      checkDatabaseAccess();
+    }
+  }, [type]);
+
+  const debouncedSearch = debounce(async (query: string) => {
+    console.group('[SIGNUP] Debounced Search');
+    console.log('📝 Query:', query);
+    console.log('🔄 Current state:', {
+      searchResults: searchResults.length,
+      selectedOrg: selectedOrg?.name,
+      isSearching
+    });
+    
     try {
+      setIsSearching(true);
+      console.log('🔍 Searching organizations...');
       const results = await searchOrganizations(serviceRoleClient, query);
+      console.log('✅ Search results:', results);
       setSearchResults(results);
     } catch (error) {
-      console.error('Error searching organizations:', error);
+      console.error('❌ Error searching organizations:', error);
+      setError('Failed to search organizations. Please try again.');
+    } finally {
+      setIsSearching(false);
     }
+    console.groupEnd();
   }, 300);
 
   const handleOrgSearch = (query: string) => {
+    console.group('[SIGNUP] Organization Search');
+    console.log('🔍 Search query:', query);
+    console.log('📊 Current state:', {
+      searchResults: searchResults.length,
+      selectedOrg: selectedOrg?.name,
+      isSearching
+    });
     setOrganizationName(query);
     setSelectedOrg(null);
     debouncedSearch(query);
+    console.groupEnd();
   };
 
   const selectOrganization = (org: Organization) => {
@@ -435,7 +518,7 @@ export default function SignUp() {
               {
                 organization_id: selectedOrg.id,
                 user_id: authData.user.id,
-                role: 'agent'
+                role: 'member'
               },
             ]);
 
@@ -527,7 +610,7 @@ export default function SignUp() {
               {
                 organization_id: selectedOrg.id,
                 user_id: authData.user.id,
-                role: 'agent'
+                role: 'member'
               },
             ]);
 
@@ -692,26 +775,43 @@ export default function SignUp() {
                     type="text"
                     required
                     value={organizationName}
+                    onFocus={() => {
+                      if (!initialLoadDone) {
+                        console.log('[SIGNUP] Input focused, loading all organizations');
+                        debouncedSearch('');
+                        setInitialLoadDone(true);
+                      }
+                    }}
                     onChange={(e) => handleOrgSearch(e.target.value)}
                     className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
                     placeholder="Search for your organization"
                   />
-                  {searchResults.length > 0 && (
+                  {isSearching && (
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                    </div>
+                  )}
+                  {searchResults.length > 0 && !isSearching && (
                     <div className="absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 rounded-md shadow-lg border border-slate-200 dark:border-slate-700">
                       <ul className="py-1 max-h-60 overflow-auto">
-                      {searchResults.map((org) => (
+                        {searchResults.map((org) => (
                           <li
-                          key={org.id}
-                          onClick={() => selectOrganization(org)}
+                            key={org.id}
+                            onClick={() => selectOrganization(org)}
                             className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-slate-900 dark:text-white text-sm"
-                        >
+                          >
                             <div className="flex items-center">
                               <Building className="h-4 w-4 mr-2 text-slate-400" />
-                          {org.name}
-                        </div>
+                              {org.name}
+                            </div>
                           </li>
                         ))}
                       </ul>
+                    </div>
+                  )}
+                  {searchResults.length === 0 && !isSearching && organizationName && (
+                    <div className="mt-2 text-sm text-red-600 dark:text-red-400">
+                      No organizations found
                     </div>
                   )}
                   {selectedOrg && (
