@@ -3,6 +3,18 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 const supabase = createClientComponentClient();
 
+interface EmailLogParams {
+  ticketId: string;
+  messageId: string;
+  threadId: string;
+  fromAddress: string;
+  fromName?: string | null;
+  toAddress: string | string[];
+  subject?: string | null;
+  rawContent?: string;
+  orgId: string;
+}
+
 class EmailLogger {
   /**
    * Log an email message to the database
@@ -15,6 +27,7 @@ class EmailLogger {
           ticket_id: params.ticketId,
           message_id: params.messageId,
           thread_id: params.threadId,
+          from_name: params.fromName || null,
           from_address: params.fromAddress,
           to_address: Array.isArray(params.toAddress) ? params.toAddress : [params.toAddress],
           cc_address: [],

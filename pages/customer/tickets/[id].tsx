@@ -1,9 +1,10 @@
+import CustomerHeader from '@/components/CustomerHeader';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { motion } from 'framer-motion';
 import { AlertCircle, CheckCircle, RefreshCw, Send } from 'lucide-react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface Ticket {
   id: string;
@@ -27,6 +28,7 @@ interface Comment {
     avatar_url: string;
     role: string;
   };
+  status?: 'sending' | 'sent' | 'error';
 }
 
 interface TicketComment {
@@ -52,6 +54,9 @@ export default function CustomerTicketView() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
+  const commentEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (id) {
@@ -59,6 +64,11 @@ export default function CustomerTicketView() {
       subscribeToComments();
     }
   }, [id]);
+
+  // Scroll to bottom when new comments arrive
+  useEffect(() => {
+    commentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [comments]);
 
   const fetchTicketData = async () => {
     try {
@@ -92,7 +102,21 @@ export default function CustomerTicketView() {
         .order('created_at', { ascending: true });
 
       if (commentsError) throw commentsError;
-      setComments(commentsData || []);
+      
+      // Transform the data to match our Comment interface
+      const transformedComments: Comment[] = (commentsData || []).map(comment => ({
+        id: comment.id,
+        body: comment.body,
+        created_at: comment.created_at,
+        author_id: comment.author_id,
+        author: {
+          display_name: comment.author[0].display_name,
+          avatar_url: comment.author[0].avatar_url,
+          role: comment.author[0].role
+        }
+      }));
+      
+      setComments(transformedComments);
     } catch (err: any) {
       console.error('Error fetching ticket data:', err);
       setError(err.message);
@@ -112,9 +136,42 @@ export default function CustomerTicketView() {
           table: 'comments',
           filter: `ticket_id=eq.${id}`
         },
-        (payload) => {
-          console.log('New comment:', payload);
-          fetchTicketData(); // Refresh all data to get the new comment with author info
+        async (payload) => {
+          console.log('New comment received:', payload);
+          
+          // Fetch just the new comment with author info
+          const { data: newComment, error: commentError } = await supabase
+            .from('comments')
+            .select(`
+              id,
+              body,
+              created_at,
+              author_id,
+              author:profiles!comments_author_id_fkey(display_name, avatar_url, role)
+            `)
+            .eq('id', payload.new.id)
+            .single();
+
+          if (commentError) {
+            console.error('Error fetching new comment:', commentError);
+            return;
+          }
+
+          // Transform the new comment to match our Comment interface
+          const transformedNewComment: Comment = {
+            id: newComment.id,
+            body: newComment.body,
+            created_at: newComment.created_at,
+            author_id: newComment.author_id,
+            author: {
+              display_name: newComment.author[0].display_name,
+              avatar_url: newComment.author[0].avatar_url,
+              role: newComment.author[0].role
+            }
+          };
+
+          // Add the new comment to the list
+          setComments(prevComments => [...prevComments, transformedNewComment]);
         }
       )
       .subscribe();
@@ -130,19 +187,39 @@ export default function CustomerTicketView() {
 
     try {
       setSubmitting(true);
+      setCommentError(null);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No user found');
 
-      // Get user's org_id from their profile
+      // Get user's profile info
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('org_id')
+        .select('org_id, display_name, avatar_url, role')
         .eq('id', user.id)
         .single();
 
       if (profileError) throw profileError;
       if (!profile?.org_id) throw new Error('No organization found for user');
 
+      // Create optimistic comment
+      const optimisticComment: Comment = {
+        id: crypto.randomUUID(),
+        body: newComment.trim(),
+        created_at: new Date().toISOString(),
+        author_id: user.id,
+        author: {
+          display_name: profile.display_name,
+          avatar_url: profile.avatar_url,
+          role: profile.role
+        },
+        status: 'sending'
+      };
+
+      // Add optimistic comment
+      setComments(prev => [...prev, optimisticComment]);
+      setNewComment('');
+
+      // Actually send the comment
       const { error: commentError } = await supabase
         .from('comments')
         .insert({
@@ -154,10 +231,26 @@ export default function CustomerTicketView() {
         });
 
       if (commentError) throw commentError;
-      setNewComment('');
+
+      // Update optimistic comment to sent
+      setComments(prev => 
+        prev.map(comment => 
+          comment.id === optimisticComment.id 
+            ? { ...comment, status: 'sent' as const }
+            : comment
+        )
+      );
     } catch (err: any) {
       console.error('Error submitting comment:', err);
-      setError(err.message);
+      setCommentError(err.message);
+      // Update optimistic comment to error
+      setComments(prev => 
+        prev.map(comment => 
+          comment.status === 'sending'
+            ? { ...comment, status: 'error' as const }
+            : comment
+        )
+      );
     } finally {
       setSubmitting(false);
     }
@@ -226,6 +319,8 @@ export default function CustomerTicketView() {
         <title>{ticket.subject} - Zendesk</title>
       </Head>
 
+      <CustomerHeader title={ticket.subject} backUrl="/customer/tickets" />
+
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 sm:px-0">
           <motion.div
@@ -267,7 +362,7 @@ export default function CustomerTicketView() {
             <div className="mt-8">
               <h2 className="text-lg font-medium text-slate-900 dark:text-white mb-4">Comments</h2>
               
-              <div className="space-y-4 mb-6">
+              <div className="space-y-4 mb-6 max-h-[600px] overflow-y-auto">
                 {comments.map((comment) => (
                   <div key={comment.id} className="flex space-x-3">
                     <div className="flex-shrink-0">
@@ -277,7 +372,10 @@ export default function CustomerTicketView() {
                         alt={comment.author.display_name || 'User'}
                       />
                     </div>
-                    <div className="flex-1 bg-white dark:bg-slate-700/50 rounded-lg px-4 py-3">
+                    <div className={`flex-1 bg-white dark:bg-slate-700/50 rounded-lg px-4 py-3 ${
+                      comment.status === 'sending' ? 'opacity-70' : 
+                      comment.status === 'error' ? 'border-red-500 border' : ''
+                    }`}>
                       <div className="flex items-center justify-between">
                         <h3 className="text-sm font-medium text-slate-900 dark:text-white">
                           {comment.author.display_name}
@@ -285,9 +383,21 @@ export default function CustomerTicketView() {
                             {comment.author.role}
                           </span>
                         </h3>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">
-                          {new Date(comment.created_at).toLocaleString()}
-                        </p>
+                        <div className="flex items-center">
+                          {comment.status === 'sending' && (
+                            <span className="text-xs text-slate-500 dark:text-slate-400 mr-2">
+                              Sending...
+                            </span>
+                          )}
+                          {comment.status === 'error' && (
+                            <span className="text-xs text-red-500 mr-2">
+                              Failed to send
+                            </span>
+                          )}
+                          <p className="text-sm text-slate-500 dark:text-slate-400">
+                            {new Date(comment.created_at).toLocaleString()}
+                          </p>
+                        </div>
                       </div>
                       <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
                         {comment.body}
@@ -295,7 +405,14 @@ export default function CustomerTicketView() {
                     </div>
                   </div>
                 ))}
+                <div ref={commentEndRef} />
               </div>
+
+              {commentError && (
+                <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/50 rounded-md">
+                  <p className="text-sm text-red-600 dark:text-red-400">{commentError}</p>
+                </div>
+              )}
 
               {ticket.status !== 'closed' && (
                 <form onSubmit={handleSubmitComment} className="mt-6">
@@ -314,15 +431,22 @@ export default function CustomerTicketView() {
                       />
                     </div>
                   </div>
-                  <div className="mt-3 flex items-center justify-end">
-                    <button
-                      type="submit"
-                      disabled={submitting || !newComment.trim()}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Send className="h-4 w-4 mr-2" />
-                      Send
-                    </button>
+                  <div className="mt-3 flex items-center justify-between">
+                    {isTyping && (
+                      <span className="text-sm text-slate-500 dark:text-slate-400">
+                        Someone is typing...
+                      </span>
+                    )}
+                    <div className="flex-shrink-0">
+                      <button
+                        type="submit"
+                        disabled={submitting || !newComment.trim()}
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Send className="h-4 w-4 mr-2" />
+                        {submitting ? 'Sending...' : 'Send'}
+                      </button>
+                    </div>
                   </div>
                 </form>
               )}

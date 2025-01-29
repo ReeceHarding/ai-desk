@@ -1,3 +1,4 @@
+import CustomerHeader from '@/components/CustomerHeader';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { motion } from 'framer-motion';
 import { Filter, Plus, RefreshCw, Search, SortAsc, SortDesc } from 'lucide-react';
@@ -12,6 +13,7 @@ interface Ticket {
   priority: string;
   created_at: string;
   updated_at: string;
+  subject: string;
 }
 
 export default function CustomerTickets() {
@@ -70,7 +72,7 @@ export default function CustomerTickets() {
   };
 
   const filteredTickets = tickets.filter(ticket =>
-    ticket.title.toLowerCase().includes(searchQuery.toLowerCase())
+    ticket.subject.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   if (loading) {
@@ -86,6 +88,8 @@ export default function CustomerTickets() {
       <Head>
         <title>My Tickets - Zendesk</title>
       </Head>
+
+      <CustomerHeader title="My Tickets" backUrl="/customer" />
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 sm:px-0">

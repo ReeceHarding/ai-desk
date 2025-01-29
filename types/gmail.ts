@@ -85,8 +85,9 @@ export interface EmailLogParams {
   messageId: string;
   threadId: string;
   fromAddress: string;
+  fromName?: string | null;
   toAddress: string | string[];
-  subject?: string;
+  subject?: string | null;
   rawContent?: string;
   orgId: string;
 }

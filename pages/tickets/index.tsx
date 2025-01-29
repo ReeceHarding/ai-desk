@@ -38,8 +38,17 @@ type EmailChat = {
   id: string;
   body: string | null;
   from_address: string | null;
+  from_name: string | null;
   subject: string | null;
+  gmail_date: string | null;
   created_at: string;
+};
+
+type Comment = {
+  id: string;
+  body: string | null;
+  created_at: string;
+  author: Profile | null;
 };
 
 type Ticket = Database['public']['Tables']['tickets']['Row'] & {
@@ -52,6 +61,7 @@ type Ticket = Database['public']['Tables']['tickets']['Row'] & {
     [key: string]: any;
   };
   emailChats: EmailChat[];
+  comments: Comment[];
 };
 
 const statusColors: Record<string, string> = {
@@ -114,11 +124,21 @@ export default function TicketList() {
     debouncedSetSearch(value); // Debounce the actual search
   };
 
-  useEffect(() => {
-    async function fetchTickets() {
-      if (!user) return;
+  const fetchTickets = async () => {
+    try {
+      const { data: userProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('org_id')
+        .eq('id', user?.id)
+        .single();
 
-      const query = supabase
+      if (profileError) {
+        console.error('Error fetching user profile:', profileError);
+        setError('Failed to fetch user profile');
+        return;
+      }
+
+      const { data: ticketsData, error: ticketsError } = await supabase
         .from('tickets')
         .select(`
           *,
@@ -130,38 +150,47 @@ export default function TicketList() {
           organization:organizations!tickets_org_id_fkey (
             name
           ),
-          ticket_email_chats!ticket_email_chats_ticket_id_fkey (
+          emailChats:ticket_email_chats!ticket_email_chats_ticket_id_fkey (
             body,
             from_address,
-            subject
+            from_name,
+            subject,
+            gmail_date
+          ),
+          comments:comments!comments_ticket_id_fkey (
+            id,
+            body,
+            created_at,
+            author:profiles!comments_author_id_fkey (
+              display_name,
+              email,
+              avatar_url
+            )
           )
         `)
-        .is('deleted_at', null);
+        .eq('org_id', userProfile.org_id)
+        .order('created_at', { ascending: false });
 
-      if (role === 'customer') {
-        query.eq('customer_id', user.id);
-      }
+      if (ticketsError) throw ticketsError;
 
-      const { data, error } = await query;
+      const typedTickets = ticketsData?.map(ticket => ({
+        ...ticket,
+        customer: ticket.customer as Profile,
+        organization: ticket.organization as Organization,
+        emailChats: ticket.emailChats || [],
+        comments: ticket.comments || []
+      })) || [];
 
-      if (error) {
-        console.error('Error fetching tickets:', error);
-        setError('Error fetching tickets');
-        return;
-      }
-
-      if (data) {
-        const typedTickets: Ticket[] = data.map(ticket => ({
-          ...ticket,
-          customer: ticket.customer as Profile,
-          organization: ticket.organization as Organization,
-          emailChats: ticket.ticket_email_chats || []
-        }));
-        setTickets(typedTickets);
-      }
+      setTickets(typedTickets);
+    } catch (error) {
+      console.error('Error fetching tickets:', error);
+      setError('Failed to fetch tickets');
+    } finally {
       setLoading(false);
     }
+  };
 
+  useEffect(() => {
     if (!roleLoading && !isUserLoading) {
       fetchTickets();
     }
@@ -193,10 +222,20 @@ export default function TicketList() {
                 organization:organizations!tickets_org_id_fkey (
                   name
                 ),
-                ticket_email_chats!ticket_email_chats_ticket_id_fkey (
+                emailChats:ticket_email_chats!ticket_email_chats_ticket_id_fkey (
                   body,
                   from_address,
                   subject
+                ),
+                comments:comments!comments_ticket_id_fkey (
+                  id,
+                  body,
+                  created_at,
+                  author:profiles!comments_author_id_fkey (
+                    display_name,
+                    email,
+                    avatar_url
+                  )
                 )
               `)
               .eq('id', payload.new.id)
@@ -207,7 +246,8 @@ export default function TicketList() {
                 ...newTicket,
                 customer: newTicket.customer as Profile,
                 organization: newTicket.organization as Organization,
-                emailChats: newTicket.ticket_email_chats || []
+                emailChats: newTicket.emailChats || [],
+                comments: newTicket.comments || []
               };
 
               setTickets(currentTickets => {
@@ -405,32 +445,72 @@ export default function TicketList() {
               ) : (
                 <div className="divide-y divide-slate-200/50">
                   {filteredTickets.map((ticket) => {
-                    // Check both emailChats and description for email content
-                    const emailContent = ticket.emailChats?.[0]?.body || ticket.description;
-                    const emailPreview = emailContent ? getEmailPreview(emailContent) : '';
-
-                    // Extract sender information from subject or description
-                    let senderInfo = '';
-                    if (ticket.subject?.includes('sent you')) {
-                      senderInfo = ticket.subject.split(' sent you')[0];
-                    } else if (ticket.subject?.includes('from')) {
-                      senderInfo = ticket.subject.split(' from ')[1]?.split(' ')[0];
-                    } else if (ticket.subject?.includes('@')) {
-                      senderInfo = ticket.subject.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || '';
-                    } else if (emailContent?.includes('@')) {
-                      senderInfo = emailContent.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || '';
-                    }
-
-                    console.log('Processing ticket:', {
-                      id: ticket.id,
-                      subject: ticket.subject,
-                      hasEmailChats: !!ticket.emailChats?.length,
-                      hasDescription: !!ticket.description,
-                      emailContentSource: ticket.emailChats?.[0]?.body ? 'emailChats' : ticket.description ? 'description' : 'none',
-                      emailContentPreview: emailContent?.substring(0, 100),
-                      parsedPreview: emailPreview,
-                      extractedSender: senderInfo
+                    // Get the latest message (either email, comment, or ticket description)
+                    const latestEmail = ticket.emailChats?.[0];
+                    const latestComment = ticket.comments?.[0];
+                    
+                    // Add logging
+                    console.log('Ticket data:', {
+                      ticketId: ticket.id,
+                      latestEmail: {
+                        exists: !!latestEmail,
+                        from_name: latestEmail?.from_name,
+                        from_address: latestEmail?.from_address,
+                        body: latestEmail?.body?.substring(0, 100), // First 100 chars
+                        date: latestEmail?.gmail_date
+                      },
+                      latestComment: {
+                        exists: !!latestComment,
+                        author: latestComment?.author,
+                        date: latestComment?.created_at
+                      },
+                      customer: {
+                        display_name: ticket.customer?.display_name,
+                        email: ticket.customer?.email
+                      }
                     });
+
+                    // Compare timestamps to get the most recent message
+                    const emailDate = latestEmail?.gmail_date ? new Date(latestEmail.gmail_date) : new Date(0);
+                    const commentDate = latestComment?.created_at ? new Date(latestComment.created_at) : new Date(0);
+                    const ticketDate = new Date(ticket.created_at);
+                    
+                    // Determine which message is most recent
+                    const isEmailMoreRecent = emailDate > commentDate && emailDate > ticketDate;
+                    const isCommentMoreRecent = commentDate > emailDate && commentDate > ticketDate;
+                    
+                    // Use the most recent message content
+                    let messageContent;
+                    let senderInfo = '';
+                    let messageDate;
+                    let avatarUrl;
+                    
+                    if (isEmailMoreRecent) {
+                      messageContent = latestEmail?.body;
+                      // For email messages, use the organization name
+                      senderInfo = ticket.organization?.name || 'Unknown Organization';
+                      console.log('Using organization info:', {
+                        ticketId: ticket.id,
+                        orgName: ticket.organization?.name,
+                        senderInfo
+                      });
+                      messageDate = emailDate;
+                      avatarUrl = undefined;
+                    } else if (isCommentMoreRecent) {
+                      messageContent = latestComment?.body;
+                      // For comments, use the author's display name
+                      senderInfo = latestComment?.author?.display_name || latestComment?.author?.email || '';
+                      messageDate = commentDate;
+                      avatarUrl = latestComment?.author?.avatar_url;
+                    } else {
+                      messageContent = ticket.description;
+                      // For ticket descriptions, use the organization name
+                      senderInfo = ticket.organization?.name || 'Unknown Organization';
+                      messageDate = ticketDate;
+                      avatarUrl = ticket.customer?.avatar_url;
+                    }
+                    
+                    const messagePreview = messageContent ? getEmailPreview(messageContent) : '';
 
                     return (
                       <div
@@ -441,8 +521,8 @@ export default function TicketList() {
                         <div className="flex items-start gap-3">
                           <Avatar className="h-8 w-8">
                             <AvatarImage
-                              src={ticket.customer?.avatar_url || undefined}
-                              alt={ticket.customer?.display_name || ''}
+                              src={avatarUrl || undefined}
+                              alt={senderInfo}
                             />
                             <AvatarFallback>
                               {(senderInfo || 'U')[0].toUpperCase()}
@@ -451,15 +531,15 @@ export default function TicketList() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-medium text-[15px] text-slate-900 truncate">
-                                {senderInfo || ticket.emailChats?.[0]?.from_address || 'Unknown Sender'}
+                                {senderInfo}
                               </span>
                               <span className="shrink-0 text-xs text-slate-500">
-                                {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
+                                {formatDistanceToNow(messageDate, { addSuffix: true })}
                               </span>
                             </div>
                             <h4 className="text-[15px] text-slate-900 truncate">{ticket.subject}</h4>
                             <p className="text-sm text-slate-500 truncate">
-                              {emailPreview || 'No preview available'}
+                              {messagePreview || 'No preview available'}
                             </p>
                           </div>
                         </div>
@@ -631,32 +711,72 @@ export default function TicketList() {
             ) : (
               <div className="divide-y divide-slate-200/50">
                 {filteredTickets.map((ticket) => {
-                  // Check both emailChats and description for email content
-                  const emailContent = ticket.emailChats?.[0]?.body || ticket.description;
-                  const emailPreview = emailContent ? getEmailPreview(emailContent) : '';
-
-                  // Extract sender information from subject or description
-                  let senderInfo = '';
-                  if (ticket.subject?.includes('sent you')) {
-                    senderInfo = ticket.subject.split(' sent you')[0];
-                  } else if (ticket.subject?.includes('from')) {
-                    senderInfo = ticket.subject.split(' from ')[1]?.split(' ')[0];
-                  } else if (ticket.subject?.includes('@')) {
-                    senderInfo = ticket.subject.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || '';
-                  } else if (emailContent?.includes('@')) {
-                    senderInfo = emailContent.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)?.[0] || '';
-                  }
-
-                  console.log('Processing ticket:', {
-                    id: ticket.id,
-                    subject: ticket.subject,
-                    hasEmailChats: !!ticket.emailChats?.length,
-                    hasDescription: !!ticket.description,
-                    emailContentSource: ticket.emailChats?.[0]?.body ? 'emailChats' : ticket.description ? 'description' : 'none',
-                    emailContentPreview: emailContent?.substring(0, 100),
-                    parsedPreview: emailPreview,
-                    extractedSender: senderInfo
+                  // Get the latest message (either email, comment, or ticket description)
+                  const latestEmail = ticket.emailChats?.[0];
+                  const latestComment = ticket.comments?.[0];
+                  
+                  // Add logging
+                  console.log('Ticket data:', {
+                    ticketId: ticket.id,
+                    latestEmail: {
+                      exists: !!latestEmail,
+                      from_name: latestEmail?.from_name,
+                      from_address: latestEmail?.from_address,
+                      body: latestEmail?.body?.substring(0, 100), // First 100 chars
+                      date: latestEmail?.gmail_date
+                    },
+                    latestComment: {
+                      exists: !!latestComment,
+                      author: latestComment?.author,
+                      date: latestComment?.created_at
+                    },
+                    customer: {
+                      display_name: ticket.customer?.display_name,
+                      email: ticket.customer?.email
+                    }
                   });
+
+                  // Compare timestamps to get the most recent message
+                  const emailDate = latestEmail?.gmail_date ? new Date(latestEmail.gmail_date) : new Date(0);
+                  const commentDate = latestComment?.created_at ? new Date(latestComment.created_at) : new Date(0);
+                  const ticketDate = new Date(ticket.created_at);
+                  
+                  // Determine which message is most recent
+                  const isEmailMoreRecent = emailDate > commentDate && emailDate > ticketDate;
+                  const isCommentMoreRecent = commentDate > emailDate && commentDate > ticketDate;
+                  
+                  // Use the most recent message content
+                  let messageContent;
+                  let senderInfo = '';
+                  let messageDate;
+                  let avatarUrl;
+                  
+                  if (isEmailMoreRecent) {
+                    messageContent = latestEmail?.body;
+                    // For email messages, use the organization name
+                    senderInfo = ticket.organization?.name || 'Unknown Organization';
+                    console.log('Using organization info:', {
+                      ticketId: ticket.id,
+                      orgName: ticket.organization?.name,
+                      senderInfo
+                    });
+                    messageDate = emailDate;
+                    avatarUrl = undefined;
+                  } else if (isCommentMoreRecent) {
+                    messageContent = latestComment?.body;
+                    // For comments, use the author's display name
+                    senderInfo = latestComment?.author?.display_name || latestComment?.author?.email || '';
+                    messageDate = commentDate;
+                    avatarUrl = latestComment?.author?.avatar_url;
+                  } else {
+                    messageContent = ticket.description;
+                    // For ticket descriptions, use the organization name
+                    senderInfo = ticket.organization?.name || 'Unknown Organization';
+                    messageDate = ticketDate;
+                    avatarUrl = ticket.customer?.avatar_url;
+                  }
+                  
+                  const messagePreview = messageContent ? getEmailPreview(messageContent) : '';
 
                   return (
                     <div
@@ -667,8 +787,8 @@ export default function TicketList() {
                       <div className="flex items-start gap-3">
                         <Avatar className="h-8 w-8">
                           <AvatarImage
-                            src={ticket.customer?.avatar_url || undefined}
-                            alt={ticket.customer?.display_name || ''}
+                            src={avatarUrl || undefined}
+                            alt={senderInfo}
                           />
                           <AvatarFallback>
                             {(senderInfo || 'U')[0].toUpperCase()}
@@ -677,15 +797,15 @@ export default function TicketList() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-medium text-[15px] text-slate-900 truncate">
-                              {senderInfo || ticket.emailChats?.[0]?.from_address || 'Unknown Sender'}
+                              {senderInfo}
                             </span>
                             <span className="shrink-0 text-xs text-slate-500">
-                              {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true })}
+                              {formatDistanceToNow(messageDate, { addSuffix: true })}
                             </span>
                           </div>
                           <h4 className="text-[15px] text-slate-900 truncate">{ticket.subject}</h4>
                           <p className="text-sm text-slate-500 truncate">
-                            {emailPreview || 'No preview available'}
+                            {messagePreview || 'No preview available'}
                           </p>
                         </div>
                       </div>

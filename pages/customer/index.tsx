@@ -4,6 +4,7 @@ import { MessageSquare, Plus, RefreshCw, Ticket } from 'lucide-react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
+import CustomerHeader from '@/components/CustomerHeader';
 
 interface Ticket {
   id: string;
@@ -90,6 +91,8 @@ export default function CustomerDashboard() {
       <Head>
         <title>Customer Dashboard - Zendesk</title>
       </Head>
+
+      <CustomerHeader title="Dashboard" />
 
       <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 sm:px-0">

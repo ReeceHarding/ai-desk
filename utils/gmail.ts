@@ -171,10 +171,18 @@ export function parseGmailMessage(message: GmailMessage): ParsedEmail {
   const getHeader = (name: string) => headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
 
   const fromHeader = getHeader('from');
-  // Extract name and email from the From header
-  const fromMatch = fromHeader.match(/(?:"?([^"]*)"?\s*)?(?:<?(.+@[^>]+)>?)/);
+  // Updated regex to better handle email formats
+  const fromMatch = fromHeader.match(/^(?:(?:"?([^"]*)"?\s*)?(?:<(.+@[^>]+)>)|(.+@\S+))/i);
   const senderName = fromMatch?.[1]?.trim() || '';
-  const senderEmail = fromMatch?.[2]?.trim() || fromHeader;
+  const senderEmail = fromMatch?.[2]?.trim() || fromMatch?.[3]?.trim() || fromHeader;
+
+  console.log('Parsed email sender info:', {
+    fromHeader,
+    fromMatch,
+    senderName,
+    senderEmail,
+    displayName: senderName || senderEmail.split('@')[0]
+  });
 
   // If no name was found, use the local part of the email as a fallback
   const displayName = senderName || senderEmail.split('@')[0];
@@ -377,9 +385,9 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
     }
 
     // Extract sender name and email
-    const fromMatch = parsedEmail.from.match(/(?:"?([^"]*)"?\s*)?(?:<?(.+@[^>]+)>?)/);
+    const fromMatch = parsedEmail.from.match(/^(?:(?:"?([^"]*)"?\s*)?(?:<(.+@[^>]+)>)|(.+@\S+))/i);
     const senderName = fromMatch?.[1]?.trim() || '';
-    const senderEmail = fromMatch?.[2]?.trim() || parsedEmail.from;
+    const senderEmail = fromMatch?.[2]?.trim() || fromMatch?.[3]?.trim() || parsedEmail.from;
 
     // Create ticket with metadata as JSON string
     const { data: ticket, error } = await supabase

@@ -549,7 +549,20 @@ export default function SignUp() {
         }
       }
 
-      router.push('/auth/verify');
+      // Redirect based on user type
+      switch (type) {
+        case 'admin':
+          router.push('/tickets');
+          break;
+        case 'agent':
+          router.push('/tickets');
+          break;
+        case 'customer':
+          router.push('/customer');
+          break;
+        default:
+          router.push('/');
+      }
     } catch (err: any) {
       console.error('Signup error:', err);
       setError(err.message);

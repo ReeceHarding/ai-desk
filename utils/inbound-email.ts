@@ -143,6 +143,14 @@ export async function handleInboundEmail(
         ai_draft_response: null
       });
 
+    console.log('Creating email chat with sender info:', {
+      ticket_id: ticket.id,
+      from_name: parsedEmail.fromName,
+      from: parsedEmail.from,
+      fromEmail: parsedEmail.fromEmail,
+      subject: parsedEmail.subject
+    });
+
     if (emailChatError) {
       console.error('Error creating email chat:', {
         error: emailChatError,

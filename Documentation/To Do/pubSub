@@ -1,0 +1,318 @@
+Below is a comprehensive, consolidated plan for rebuilding and verifying your Gmail Pub/Sub integration, aligning the codebase with the Supabase schema, improving real-time notifications and token management, and ensuring secure, scalable operations across both development and production environments. I’ve included step-by-step guidance for Google Cloud Console setup, environment variable configuration, code fixes (particularly replacing all references to the non-existent customers table), and best practices for security and compliance. This plan incorporates your own final Implementation Checklist while correcting gaps in your current approach.
+
+Table of Contents
+	1.	Overview of Key Changes and Goals
+	2.	Google Cloud Pub/Sub Setup
+	3.	Environment Variables and Configuration
+	4.	Schema Alignment and Code Adjustments
+	•	4.1 Replace customers with profiles
+	•	4.2 Ensure Table/Column Names Match
+	•	4.3 Example Code Snippets
+	5.	Webhook Endpoint: /api/gmail/webhook
+	•	5.1 Security and Token Verification
+	•	5.2 Parsing and Ticket Creation Flow
+	6.	Automated Token Management (Gmail OAuth2)
+	7.	Real-Time Updates and Frontend Notifications
+	8.	Middleware and RBAC
+	9.	Attachments and Secure Storage
+	10.	Testing & QA Strategy
+	•	10.1 Unit / Integration Tests
+	•	10.2 End-to-End Testing with Pub/Sub
+	11.	Monitoring, Logging, and Alerts
+	12.	Deployment, Scaling & Future Enhancements
+	13.	Detailed Checklist Matrix
+
+1. Overview of Key Changes and Goals
+	1.	Rebuild Pub/Sub:
+	•	Create a new Pub/Sub topic dedicated to receiving Gmail push notifications.
+	•	Securely configure a push subscription that sends messages to your Next.js webhook endpoint (/api/gmail/webhook).
+	•	Validate that your webhook is receiving real messages from Google.
+	2.	Replace customers Table Usage:
+	•	Your schema uses profiles for storing user details (including customers, agents, and admins).
+	•	All references to customers must be replaced with profiles (where role = 'customer') or simply profiles if searching by email.
+	3.	Real-Time Notifications:
+	•	Ensure Supabase real-time subscriptions on tickets, ticket_email_chats, or comments are set up to provide in-app notifications (toasts) when new messages or tickets appear.
+	•	On the frontend, show a “You have new messages!” banner or toast.
+	4.	Token Refresh & Management:
+	•	Make sure your Gmail tokens (access and refresh) are properly stored in the profiles or organizations table.
+	•	Add automated refresh logic to avoid expired tokens.
+	•	Add CRON or fallback processes in case Pub/Sub fails.
+	5.	Attachment Handling:
+	•	Parse, store, and deliver attachments securely using Supabase storage with restricted policies.
+	•	Limit file sizes, handle multiple MIME types safely.
+	6.	Security & Compliance:
+	•	Disable or carefully configure Row-Level Security (RLS) once you move from dev to production.
+	•	Use environment variables for credentials.
+	•	Provide appropriate logging, encryption, and role-based constraints on user actions.
+
+2. Google Cloud Pub/Sub Setup
+
+Below is a step-by-step plan for building a fresh Pub/Sub configuration in Google Cloud:
+	1.	Create a New Topic
+	1.	Go to the Google Cloud Console.
+	2.	Navigate to “Pub/Sub” → “Topics.”
+	3.	Click “Create Topic,” name it something like gmail-updates-<env> (e.g., gmail-updates-dev).
+	4.	Leave defaults for region if you’re unsure, or pick a region near your server.
+	2.	Create a Push Subscription
+	1.	Under your newly created topic, click “Create Subscription.”
+	2.	Provide a subscription name, e.g., gmail-updates-sub-dev.
+	3.	Delivery Type: Choose “Push.”
+	4.	Endpoint URL: Provide the secure HTTPS endpoint in your Next.js app, e.g.:
+
+https://<your-domain>/api/gmail/webhook
+
+
+	5.	Authentication: Enable OIDC Token or set a custom header token (discussed below). For high security, use OIDC or a verified domain.
+	6.	Review optional configurations:
+	•	Dead Letter Policy: Consider enabling so that unacked messages go to a DLQ for debugging.
+	•	Ack Deadlines: 10 seconds to 60 seconds is typical; adjust as needed.
+
+	3.	Add a Verification / Security Mechanism
+	•	Option A: Use OIDC Token in your push subscription. Your Next.js webhook can verify the token in the Authorization header.
+	•	Option B: Use a Secret Bearer Token. In your subscription config, set Authorization: Bearer <PUBSUB_SECRET_TOKEN>. Then in Next.js, compare req.headers.authorization to Bearer <PUBSUB_SECRET_TOKEN>.
+	4.	Test the Pub/Sub Delivery
+	•	Before hooking it fully into Gmail, use the “Publish Message” feature in the GCP console to send a sample message and verify your /api/gmail/webhook sees it.
+	•	Check logs to confirm the message arrived.
+	5.	Set Up Gmail Watch
+	•	In your code (e.g., setupOrRefreshWatch or setupGmailWatch), pass the new topic’s name:
+
+topicName: `projects/<YOUR_GCP_PROJECT>/topics/gmail-updates-<env>`
+
+
+	•	Verify in the Google Cloud console that “Last push success” updates whenever new emails arrive.
+
+3. Environment Variables and Configuration
+
+Ensure the following environment variables exist in both development and production:
+	•	Supabase
+
+NEXT_PUBLIC_SUPABASE_URL=<your-supabase-url>
+SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>  # keep this server-side only
+
+
+	•	Gmail OAuth
+
+NEXT_PUBLIC_GMAIL_CLIENT_ID=<gmail-client-id>
+GMAIL_CLIENT_SECRET=<gmail-client-secret>
+NEXT_PUBLIC_GMAIL_REDIRECT_URI=<your-redirect-uri>
+
+
+	•	Pub/Sub
+
+GOOGLE_CLOUD_PROJECT=<your-gcp-project-id>
+GMAIL_PUBSUB_TOPIC=<new-topic-name>     # e.g. "projects/my-gcp-project/topics/gmail-updates-dev"
+CRON_SECRET=<any-secret-string-for-cron>
+
+
+	•	Webhook Secret (optional)
+
+PUBSUB_SECRET_TOKEN=<random-generated-32-char-string>
+
+
+	•	NODE_ENV
+	•	Typically “development” or “production” as needed.
+
+Recommended: Create .env.local for development, or set these in your hosting environment for production. Make sure sensitive fields are not prefixed with NEXT_PUBLIC_ if they must remain private on the server side.
+
+4. Schema Alignment and Code Adjustments
+
+4.1 Replace customers with profiles
+
+Anywhere your code references a nonexistent customers table, switch to:
+
+// Old (incorrect):
+.from('customers')
+
+// New (correct):
+.from('profiles').eq('role', 'customer')
+// or just .from('profiles') if searching by email
+
+For example, if you had:
+
+const { data: existingCustomer } = await supabase
+  .from('customers')
+  .select('*')
+  .eq('email', senderEmail)
+  .single();
+
+Change it to:
+
+const { data: existingProfile } = await supabase
+  .from('profiles')
+  .select('*')
+  .eq('email', senderEmail)
+  .single();
+
+4.2 Ensure Table/Column Names Match
+	•	For email logs, check that references to ticket_email_chats and email_logs in your code match the actual usage in the schema. You do have both ticket_email_chats and email_logs, so confirm which you want for storing inbound/outbound data.
+	•	Validate columns like org_id, gmail_refresh_token, gmail_access_token exist in organizations or profiles.
+
+4.3 Example Code Snippet
+
+If your existing code does something like:
+
+// Old snippet
+if (!customerRecord) {
+  await supabase.from('customers').insert({ ... });
+}
+
+Switch to:
+
+// New snippet
+if (!profileRecord) {
+  await supabase.from('profiles').insert({
+    id: userId,
+    role: 'customer',
+    email: senderEmail,
+    org_id: someOrgId,
+    ...
+  });
+}
+
+5. Webhook Endpoint: /api/gmail/webhook
+
+Your Next.js route (pages/api/gmail/webhook.ts) should:
+	1.	Verify Authorization
+
+const secretHeader = req.headers['authorization'];
+if (!secretHeader || secretHeader !== `Bearer ${process.env.PUBSUB_SECRET_TOKEN}`) {
+  res.status(401).json({ error: 'Unauthorized' });
+  return;
+}
+
+Or use OIDC token verification if your subscription was set that way.
+
+	2.	Parse Pub/Sub Message
+	•	Extract messageId, historyId, emailAddress from the Pub/Sub data.
+	•	If not provided, or if the message is invalid, log an error.
+	3.	Fetch History or Poll
+	•	Use the Gmail API to fetch new messages since the last known historyId, or fallback to a short poll if historyId is missing.
+	4.	Parse and Upsert Tickets
+	•	For each new or updated message, parse the from/to/subject/body.
+	•	Check profiles for a matching email (from_address).
+	•	Either create or update the existing ticket (matching on thread_id), then create a row in ticket_email_chats.
+	5.	Acknowledge or Return
+	•	Return a JSON response with success or error. Pub/Sub automatically acknowledges if the request is 2xx.
+
+Important:
+	•	Keep logs. If you store logs in audit_logs or logs, insert relevant details with level='error' or level='info' to troubleshoot easily.
+	•	Handle duplicates gracefully: watch out for Pub/Sub message redelivery.
+
+6. Automated Token Management (Gmail OAuth2)
+	1.	User Authorization Flow
+	•	You already have routes like /api/gmail/auth-url and /api/gmail/callback. Ensure the callback saves tokens to either profiles or organizations.
+	2.	Auto-Refresh
+	•	The google.auth.OAuth2 client can refresh tokens automatically if you call oauth2Client.refreshAccessToken().
+	•	Update the stored tokens in Supabase.
+	•	If a token refresh fails, log the error and possibly notify an admin.
+	3.	Scheduled Watch Refresh
+	•	Use your CRON job (gmail-watch-manager.ts or check-gmail-watches.ts) to refresh watch subscriptions before they expire.
+	•	If watch creation fails, fallback to poll-based fetching every few minutes.
+	4.	Vaulting / Encrypting
+	•	For extra security, consider encrypting refresh tokens at rest.
+	•	Alternatively, rely on Supabase’s built-in encryption if you trust the environment.
+
+7. Real-Time Updates and Frontend Notifications
+	1.	Supabase Subscriptions
+	•	Subscribe to ticket_email_chats and tickets changes.
+	•	On INSERT, show a toast that says “A new message arrived!” or “A new ticket was created!”
+	•	The user can click the toast to open the relevant ticket or refresh the list.
+	2.	State Management
+	•	Option A: Use React Context.
+	•	Option B: Use Redux or Zustand.
+	•	Store your tickets in global state, update them when a subscription event arrives.
+	3.	Toast Implementation
+	•	The code you have (useToast, etc.) is sufficient. Just ensure subscription callbacks call toast(...).
+	4.	Polling Fallback
+	•	If you do not trust Pub/Sub or if tokens expire incorrectly, you can do periodic polling from the frontend or a server CRON job. But ideally, your Pub/Sub + Real-Time setup eliminates most manual refreshes.
+
+8. Middleware and RBAC
+	1.	Middleware
+	•	middleware.ts: ensures that only authenticated users can access certain routes and that roles match the route (/admin, /agent, /customer).
+	2.	Role Enforcement
+	•	Inside your Next.js / Supabase logic, confirm the user has role agent, admin, or super_admin for actions like updating other users’ tickets.
+	3.	RLS for Production
+	•	Once you’re stable, re-enable RLS on critical tables.
+	•	Create policies that ensure org_id matches the user’s org_id to prevent data leaks.
+
+9. Attachments and Secure Storage
+	1.	File Ingestion
+	•	Download attachments from Gmail (if part.filename && part.body.attachmentId).
+	•	Store them in a Supabase storage bucket, e.g., attachments or re-use avatars if you prefer.
+	•	Make sure you have a bucket policy that only allows access via signed URLs or for owners.
+	2.	File Serving
+	•	Provide signed URLs from your Next.js endpoints or use Supabase’s built-in URL signing.
+	•	Time-limit them so that they expire quickly, minimizing unauthorized re-use.
+	3.	Size & Type Limits
+	•	Use MAX_FILE_SIZE checks in your code. Reject attachments above 5MB (or 10MB, etc.).
+	•	Accept only known MIME types or validate them to avoid security issues with malicious attachments.
+
+10. Testing & QA Strategy
+
+10.1 Unit / Integration Tests
+	•	Parsing Functions:
+	•	Test parseGmailMessage with different email headers (including missing/invalid headers).
+	•	Verify attachments are extracted correctly.
+	•	Database Insertion:
+	•	Mock Supabase calls.
+	•	Check that “new email” → “insert into ticket_email_chats” or creates a new ticket with correct fields.
+
+10.2 End-to-End Testing with Pub/Sub
+	1.	Local Testing
+	•	Use a local tool or the GCP console to publish a test message to your topic.
+	•	Confirm the local endpoint receives it (requires a publicly accessible URL or an SSH tunnel like ngrok).
+	2.	Production
+	•	Send an actual email to your connected Gmail.
+	•	Check GCP logs to see if the message was delivered to your subscription.
+	•	Confirm logs in your Supabase logs or audit_logs table that an inbound message was processed.
+	•	See if a new ticket or email chat row was created.
+
+11. Monitoring, Logging, and Alerts
+	1.	Supabase Logging
+	•	Insert log rows on inbound email events (level: info, warn, or error).
+	•	Use a structured format in JSON so you can filter logs easily.
+	2.	Google Cloud Monitoring
+	•	Track subscription metrics: unacked messages, push success rate, etc.
+	•	Set up alerts if message acknowledgment drops or push errors spike.
+	3.	External Tools (Optional)
+	•	Sentry or Datadog for error tracing.
+	•	LogRocket or FullStory for UI monitoring.
+
+12. Deployment, Scaling & Future Enhancements
+	1.	Dev vs. Prod
+	•	Keep separate topics and separate environment variables.
+	•	Example: GMAIL_PUBSUB_TOPIC_DEV vs. GMAIL_PUBSUB_TOPIC_PROD.
+	2.	Scalability
+	•	As ticket volume grows, you may want to enable more concurrency or usage of a job queue (like BullMQ) for message processing.
+	3.	Security Hardening
+	•	Re-enable Row-Level Security with appropriate policies once stable.
+	•	Add encryption for fields like refresh_token.
+	4.	Feature Extensions
+	•	AI-based classification or auto-responses.
+	•	Additional Slack or Teams notifications.
+	•	Extended analytics on ticket resolution times.
+
+13. Detailed Checklist Matrix
+
+Below is a condensed reference chart to keep track of progress:
+
+Checklist Item	Action	Status
+1. Rebuild Pub/Sub Integration	New topic + subscription, set push endpoint, verify deliveries	Not Started / In Progress / Done
+2. Replace customers with profiles	Update code references, rename queries to match profiles	Not Started / In Progress / Done
+3. Real-Time Subscriptions	Sub to tickets & ticket_email_chats; show toasts for new updates	Not Started / In Progress / Done
+4. Automate Token Management	Refresh tokens, store updated in DB, watch for expiry	Not Started / In Progress / Done
+5. Attachments	Parse + store in Supabase; restrict file size + use signed URLs	Not Started / In Progress / Done
+6. RBAC & Middleware	Enforce roles in code + DB (RLS). Admin pages for user mgmt	Not Started / In Progress / Done
+7. Enhance Logging & Monitoring	Insert into logs, set up alerts in GCP console (Pub/Sub errors)	Not Started / In Progress / Done
+8. Extensive Testing	Unit tests, integration, e2e with mock Pub/Sub + real Gmail	Not Started / In Progress / Done
+9. Security & Compliance	Store secrets securely, limit usage of service role key, RLS if needed	Not Started / In Progress / Done
+10. Deploy & Monitor	Deploy to dev/prod, watch logs, confirm new tickets creation flow	Not Started / In Progress / Done
+
+Final Remarks
+	•	Disable RLS for Development: As you stated, you can leave RLS disabled in dev. Just be sure to re-enable and create specific policies before going to production.
+	•	Stay Consistent: Keep your environment variable usage, naming, and code references consistent so as not to mismatch them.
+	•	Plan Thorough Testing: As soon as you have the new Pub/Sub up, do a round of integration tests. Try sending different types of emails (with attachments, HTML vs. plain text, etc.).
+
+Following the plan above should give you a robust email-to-ticket system with secure, automatically refreshed tokens and real-time updates whenever a new message is received. If you encounter further issues, rely on the enhanced logging to pinpoint the exact failure stage—Pub/Sub subscription, webhook, Gmail API token refresh, or database insertion—and address accordingly.
+
+Good luck rebuilding the Pub/Sub workflow and aligning everything with your Supabase schema! If you systematically follow each step, you’ll end up with a reliable, secure, and well-monitored Gmail integration that automatically creates and updates tickets in real time.
