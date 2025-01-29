@@ -1,8 +1,6 @@
-import { Database } from '@/types/supabase';
 import { logger } from '@/utils/logger';
-import { createPagesServerClient } from '@supabase/auth-helpers-nextjs';
+import { getGmailClient } from '@/utils/server/gmail';
 import { createClient } from '@supabase/supabase-js';
-import { google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 function encodeBase64(text: string): string {
@@ -105,260 +103,63 @@ export default async function handler(
   }
 
   try {
-    await logger.info('Starting email send process', { 
-      to: req.body.toAddresses,
-      subject: req.body.subject,
-      hasAttachments: req.body.attachments?.length > 0 
-    });
+    const { threadId, inReplyTo, to, subject, htmlBody } = req.body;
 
-    const supabase = createPagesServerClient<Database>({ req, res });
-    const {
-      data: { session },
-      error: sessionError
-    } = await supabase.auth.getSession();
-
-    if (sessionError) {
-      await logger.error('Session error', { error: sessionError });
-      return res.status(401).json({ error: 'Session error' });
+    if (!threadId || !inReplyTo || !to || !subject || !htmlBody) {
+      return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    if (!session) {
-      await logger.warn('No session found');
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
+    // Get the Gmail client
+    const gmail = await getGmailClient();
 
-    const {
-      fromAddress,
-      toAddresses,
-      ccAddresses,
-      bccAddresses,
-      subject,
-      htmlBody,
-      inReplyTo,
-      references,
-      threadId,
-      ticketId,
-      attachments,
-      orgId,
-    } = req.body;
+    // Create the email message
+    const message = [
+      'Content-Type: text/html; charset=utf-8',
+      'MIME-Version: 1.0',
+      `To: ${to.join(', ')}`,
+      `Subject: ${subject}`,
+      `In-Reply-To: ${inReplyTo}`,
+      `References: ${inReplyTo}`,
+      `Thread-Id: ${threadId}`,
+      '',
+      htmlBody
+    ].join('\r\n');
 
-    // Validate required fields with detailed logging
-    const requiredFields = {
-      fromAddress,
-      toAddresses,
-      subject,
-      htmlBody,
-      orgId,
-      ticketId
-    };
+    // Encode the message
+    const encodedMessage = Buffer.from(message)
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
 
-    const missingFields = Object.entries(requiredFields)
-      .filter(([_, value]) => !value)
-      .map(([key]) => key);
-
-    if (missingFields.length > 0) {
-      await logger.error('Missing required fields', { 
-        missingFields,
-        providedFields: Object.keys(req.body),
-        values: {
-          hasFrom: !!fromAddress,
-          hasTo: Array.isArray(toAddresses) && toAddresses.length > 0,
-          hasSubject: !!subject,
-          hasBody: !!htmlBody,
-          hasOrgId: !!orgId,
-          hasTicketId: !!ticketId
-        }
-      });
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        details: `Missing fields: ${missingFields.join(', ')}`
-      });
-    }
-
-    // Validate email addresses
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const invalidEmails = [];
-    
-    if (!emailRegex.test(fromAddress)) {
-      invalidEmails.push(`fromAddress: ${fromAddress}`);
-    }
-    
-    if (!toAddresses.every((email: string) => emailRegex.test(email))) {
-      invalidEmails.push(`toAddresses: ${toAddresses.join(', ')}`);
-    }
-
-    if (invalidEmails.length > 0) {
-      await logger.error('Invalid email addresses', { invalidEmails });
-      return res.status(400).json({ 
-        error: 'Invalid email addresses',
-        details: invalidEmails
-      });
-    }
-
-    // Remove the RPC call and use the passed orgId directly
-    await logger.info('Using organization ID from request', { 
-      orgId,
-      ticketId,
-      threadId: threadId || 'none',
-      emailDetails: {
-        from: fromAddress,
-        to: toAddresses,
-        subject
-      }
-    });
-
-    // Get current user's profile first
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('gmail_access_token, gmail_refresh_token')
-      .eq('id', session.user.id)
-      .single();
-
-    if (profileError) {
-      await logger.error('Failed to get profile', { error: profileError });
-      return res.status(500).json({ error: 'Failed to get profile' });
-    }
-
-    // Use profile tokens if available
-    let accessToken = profile?.gmail_access_token;
-    let refreshToken = profile?.gmail_refresh_token;
-
-    // If no profile tokens, try organization tokens
-    if (!accessToken || !refreshToken) {
-      await logger.info('No profile tokens found, checking organization tokens');
-      
-      // Get organization's Gmail tokens using the orgId we already have
-      const { data: orgData, error: orgError } = await supabase
-        .from('organizations')
-        .select('gmail_access_token, gmail_refresh_token')
-        .eq('id', orgId)
-        .single();
-
-      if (orgError || !orgData) {
-        await logger.error('Failed to get organization tokens', { error: orgError });
-        return res.status(500).json({ error: 'Failed to get organization tokens' });
-      }
-
-      accessToken = orgData.gmail_access_token;
-      refreshToken = orgData.gmail_refresh_token;
-    }
-
-    if (!accessToken || !refreshToken) {
-      await logger.error('No Gmail tokens found in profile or organization');
-      return res.status(500).json({ error: 'Gmail tokens not configured' });
-    }
-
-    await logger.info('Setting up Gmail OAuth2 client');
-
-    // Set up Gmail OAuth2 client
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GMAIL_CLIENT_ID,
-      process.env.GMAIL_CLIENT_SECRET,
-      process.env.GMAIL_REDIRECT_URI
-    );
-
-    oauth2Client.setCredentials({
-      access_token: accessToken,
-      refresh_token: refreshToken,
-    });
-
-    await logger.info('Constructing email with attachments', { 
-      attachmentCount: attachments?.length || 0 
-    });
-
-    // Construct email with attachments
-    const raw = await constructEmailWithAttachments(
-      {
-        fromAddress,
-        toAddresses,
-        ccAddresses,
-        bccAddresses,
-        subject,
-        htmlBody,
-        inReplyTo,
-        references,
-      },
-      attachments || []
-    );
-
-    await logger.info('Sending email via Gmail API');
-
-    // Send email via Gmail API
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
-    
-    // Prepare the message request
-    const messageRequest: any = {
+    // Send the email
+    const response = await gmail.users.messages.send({
       userId: 'me',
       requestBody: {
-        raw,
-      }
-    };
-
-    // Only add threadId if it exists and is valid
-    if (threadId && typeof threadId === 'string' && threadId.length > 0) {
-      messageRequest.requestBody.threadId = threadId;
-    }
-
-    // Send the message
-    const result = await gmail.users.messages.send(messageRequest).catch(async (error) => {
-      await logger.error('Gmail API error', { 
-        error: error.message,
-        code: error.code,
-        status: error.status,
+        raw: encodedMessage,
         threadId,
-        inReplyTo,
-        references
-      });
-      throw error;
+      },
     });
 
-    await logger.info('Email sent successfully, storing in database', {
-      messageId: result.data.id,
-      threadId: result.data.threadId,
-      inReplyTo,
-      references
-    });
-
-    // Store in ticket_email_chats
-    const { data: chatData, error: chatError } = await supabase
-      .from('ticket_email_chats')
-      .insert({
-        ticket_id: ticketId,
-        message_id: result.data.id || '',
-        thread_id: result.data.threadId || threadId || '',
-        from_address: fromAddress,
-        to_address: toAddresses,
-        cc_address: ccAddresses || [],
-        bcc_address: bccAddresses || [],
-        subject: subject || '',
-        body: htmlBody,
-        attachments: attachments,
-        gmail_date: new Date().toISOString(),
-        org_id: orgId,
-      })
-      .select()
-      .single();
-
-    if (chatError) {
-      await logger.error('Failed to store email in ticket_email_chats', { error: chatError });
-      return res.status(500).json({ error: 'Failed to store email' });
+    if (!response.data.id) {
+      throw new Error('Failed to send email: No message ID returned');
     }
 
-    await logger.info('Email process completed successfully', { 
-      messageId: result.data.id,
-      threadId: result.data.threadId
+    logger.info('Sent Gmail reply', {
+      messageId: response.data.id,
+      threadId,
+      inReplyTo,
     });
 
-    return res.status(200).json(chatData);
-  } catch (error: any) {
-    await logger.error('Unhandled error in email send process', { 
-      error: error.message,
-      stack: error.stack,
-      name: error.name
+    return res.status(200).json({
+      success: true,
+      messageId: response.data.id,
     });
-    return res.status(500).json({ 
+  } catch (error: any) {
+    logger.error('Failed to send Gmail reply', { error: error.message });
+    return res.status(500).json({
       error: 'Failed to send email',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      details: error.message,
     });
   }
 } 

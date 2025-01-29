@@ -2,7 +2,8 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/customer/tickets/new": "pages/customer/tickets/new.js",
-  "/customer/tickets/[id]": "pages/customer/tickets/[id].js",
-  "/customer": "pages/customer.js"
+  "/tickets": "pages/tickets.js",
+  "/api/gmail/profile": "pages/api/gmail/profile.js",
+  "/profile/settings": "pages/profile/settings.js",
+  "/notifications": "pages/notifications.js"
 }

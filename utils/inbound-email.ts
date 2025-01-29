@@ -3,7 +3,9 @@ import { config } from 'dotenv';
 import { v4 as uuidv4 } from 'uuid';
 import { ParsedEmail } from '../types/gmail';
 import { Database } from '../types/supabase';
+import { processInboundEmailWithAI } from './ai-email-processor';
 import { EmailLogger } from './emailLogger';
+import { logger } from './logger';
 
 // Load environment variables
 config();
@@ -62,6 +64,49 @@ export async function handleInboundEmail(
         } as Database['public']['Tables']['comments']['Insert']['metadata']
       });
 
+      // Create corresponding email chat entry
+      const { data: emailChat, error: emailChatError } = await supabase
+        .from('ticket_email_chats')
+        .insert({
+          ticket_id: ticketId,
+          message_id: parsedEmail.messageId,
+          thread_id: parsedEmail.threadId,
+          from_name: parsedEmail.fromName || null,
+          from_address: parsedEmail.from,
+          to_address: Array.isArray(parsedEmail.to) ? parsedEmail.to : [parsedEmail.to],
+          cc_address: parsedEmail.cc ? (Array.isArray(parsedEmail.cc) ? parsedEmail.cc : [parsedEmail.cc]) : [],
+          bcc_address: parsedEmail.bcc ? (Array.isArray(parsedEmail.bcc) ? parsedEmail.bcc : [parsedEmail.bcc]) : [],
+          subject: parsedEmail.subject || null,
+          body: parsedEmail.body.text || parsedEmail.body.html || 'No content available',
+          gmail_date: parsedEmail.date,
+          org_id: orgId,
+          ai_classification: 'unknown',
+          ai_confidence: 0,
+          ai_auto_responded: false,
+          ai_draft_response: null
+        })
+        .select()
+        .single();
+
+      if (emailChatError) {
+        logger.error('Error creating email chat:', { error: emailChatError });
+        throw new Error(`Failed to create email chat: ${emailChatError.message}`);
+      }
+
+      // Process with AI
+      if (emailChat) {
+        try {
+          await processInboundEmailWithAI(
+            emailChat.id,
+            parsedEmail.body.text || parsedEmail.body.html || '',
+            orgId
+          );
+        } catch (aiError) {
+          logger.error('Error processing email with AI:', { error: aiError });
+          // Don't throw - we still want to continue with the rest of the process
+        }
+      }
+
       // Log the email
       await EmailLogger.logEmail({
         ticketId: ticketId,
@@ -113,16 +158,7 @@ export async function handleInboundEmail(
     }
 
     // Create corresponding email chat entry
-    if (!parsedEmail.from || !parsedEmail.to || !parsedEmail.date) {
-      console.error('Missing required fields for email chat:', {
-        from: parsedEmail.from,
-        to: parsedEmail.to,
-        date: parsedEmail.date
-      });
-      throw new Error('Missing required fields for email chat');
-    }
-
-    const { error: emailChatError } = await supabase
+    const { data: emailChat, error: emailChatError } = await supabase
       .from('ticket_email_chats')
       .insert({
         ticket_id: ticket.id,
@@ -141,33 +177,27 @@ export async function handleInboundEmail(
         ai_confidence: 0,
         ai_auto_responded: false,
         ai_draft_response: null
-      });
-
-    console.log('Creating email chat with sender info:', {
-      ticket_id: ticket.id,
-      from_name: parsedEmail.fromName,
-      from: parsedEmail.from,
-      fromEmail: parsedEmail.fromEmail,
-      subject: parsedEmail.subject
-    });
+      })
+      .select()
+      .single();
 
     if (emailChatError) {
-      console.error('Error creating email chat:', {
-        error: emailChatError,
-        ticket_id: ticket.id,
-        message_id: parsedEmail.messageId,
-        thread_id: parsedEmail.threadId,
-        org_id: orgId,
-        error_details: emailChatError.details,
-        error_message: emailChatError.message,
-        error_hint: emailChatError.hint
-      });
+      logger.error('Error creating email chat:', { error: emailChatError });
       throw new Error(`Failed to create email chat: ${emailChatError.message}`);
-    } else {
-      console.log('Successfully created email chat for ticket:', {
-        ticket_id: ticket.id,
-        message_id: parsedEmail.messageId
-      });
+    }
+
+    // Process with AI
+    if (emailChat) {
+      try {
+        await processInboundEmailWithAI(
+          emailChat.id,
+          parsedEmail.body.text || parsedEmail.body.html || '',
+          orgId
+        );
+      } catch (aiError) {
+        logger.error('Error processing email with AI:', { error: aiError });
+        // Don't throw - we still want to continue with the rest of the process
+      }
     }
 
     // Log the email

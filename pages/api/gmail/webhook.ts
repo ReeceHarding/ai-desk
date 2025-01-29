@@ -1,5 +1,7 @@
 import { Database } from '@/types/supabase';
+import { classifyInboundEmail, decideAutoSend, generateRagResponse } from '@/utils/ai-responder';
 import { logger } from '@/utils/logger';
+import { sendGmailReply } from '@/utils/server/gmail';
 import { createClient } from '@supabase/supabase-js';
 import rateLimit from 'express-rate-limit';
 import { gmail_v1, google } from 'googleapis';
@@ -122,10 +124,9 @@ const supabase = createClient<Database>(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
+const CONFIDENCE_THRESHOLD = 85.00;
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const metrics: ProcessingMetrics = {
     startTime: Date.now(),
     messageProcessingTime: 0,
@@ -707,7 +708,7 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
   }
 
   // Create ticket_email_chat entry
-  const { error: chatError } = await supabase
+  const { data: chatRecord, error: chatError } = await supabase
     .from('ticket_email_chats')
     .insert({
       ticket_id: ticketId,
@@ -729,7 +730,9 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
       ai_confidence: 0,
       ai_auto_responded: false,
       ai_draft_response: null
-    });
+    })
+    .select()
+    .single();
 
   if (chatError) {
     await logger.error('Failed to create email chat', {
@@ -738,6 +741,74 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
       ticketId
     });
     throw chatError;
+  }
+
+  // Step 1: Classify the email
+  const { classification, confidence } = await classifyInboundEmail(body);
+
+  // Step 2: If should_respond, generate RAG response
+  if (classification === 'should_respond') {
+    const { response: ragResponse, confidence: ragConfidence, references } = await generateRagResponse(
+      body,
+      orgId,
+      5
+    );
+
+    // Step 3: Decide auto-send vs. draft
+    const { autoSend } = decideAutoSend(ragConfidence, CONFIDENCE_THRESHOLD);
+
+    const referencesObj = { rag_references: references };
+
+    if (autoSend) {
+      // Auto-send the response
+      try {
+        await sendGmailReply({
+          threadId: message.threadId,
+          inReplyTo: message.id,
+          to: [fromAddress],
+          subject: `Re: ${subject || 'Support Request'}`,
+          htmlBody: ragResponse,
+        });
+
+        // Update chat record
+        await supabase
+          .from('ticket_email_chats')
+          .update({
+            ai_auto_responded: true,
+            ai_draft_response: ragResponse,
+            metadata: {
+              ...chatRecord.metadata,
+              ...referencesObj,
+            },
+          })
+          .eq('id', chatRecord.id);
+
+        logger.info('Auto-sent AI response', {
+          chatId: chatRecord.id,
+          confidence: ragConfidence,
+        });
+      } catch (sendError) {
+        logger.error('Failed to auto-send email', { error: sendError });
+      }
+    } else {
+      // Store as draft
+      await supabase
+        .from('ticket_email_chats')
+        .update({
+          ai_auto_responded: false,
+          ai_draft_response: ragResponse,
+          metadata: {
+            ...chatRecord.metadata,
+            ...referencesObj,
+          },
+        })
+        .eq('id', chatRecord.id);
+
+      logger.info('Stored AI draft response', {
+        chatId: chatRecord.id,
+        confidence: ragConfidence,
+      });
+    }
   }
 
   const processingTime = Date.now() - startTime;

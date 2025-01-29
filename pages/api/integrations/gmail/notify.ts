@@ -1,9 +1,11 @@
-import { GmailMessage } from '@/types/gmail';
-import { createTicketFromEmail, parseGmailMessage, refreshGmailTokens, setupGmailWatch } from '@/utils/gmail';
+import { GmailMessage, GmailMessagePart } from '@/types/gmail';
+import { classifyInboundEmail, generateRagResponse } from '@/utils/ai-responder';
+import { processInboundEmail } from '@/utils/email-processor';
 import { logger } from '@/utils/logger';
+import { createTicketFromEmail, refreshGmailTokens, setupGmailWatch } from '@/utils/server/gmail';
 import { createClient } from '@supabase/supabase-js';
 import rateLimit from 'express-rate-limit';
-import { google } from 'googleapis';
+import { gmail_v1, google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 // Initialize rate limiter
@@ -19,6 +21,17 @@ const supabase = createClient(
 );
 
 const gmail = google.gmail('v1');
+
+interface ExtendedGmailMessage extends GmailMessage {
+  from?: string;
+  to?: string;
+  subject?: string;
+  date?: string;
+  body?: {
+    text?: string;
+    html?: string;
+  };
+}
 
 // Validate Pub/Sub message
 function validatePubSubMessage(req: NextApiRequest): boolean {
@@ -70,23 +83,27 @@ async function handleWatchExpiration(mailbox: any, type: 'organization' | 'profi
     type,
     mailbox.id);
 
-    // Update watch status
-    await supabase
-      .from(type === 'organization' ? 'organizations' : 'profiles')
-      .update({
-        gmail_watch_status: 'active',
-        gmail_watch_expiration: new Date(watchResult.expiration).toISOString(),
-        gmail_watch_resource_id: watchResult.resourceId,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', mailbox.id);
+    if (watchResult.expiration) {
+      const expirationDate = new Date(watchResult.expiration);
+      await supabase
+        .from(type === 'organization' ? 'organizations' : 'profiles')
+        .update({
+          gmail_watch_status: 'active',
+          gmail_watch_expiry: expirationDate.toISOString(),
+          gmail_watch_resource_id: watchResult.resourceId,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', mailbox.id);
 
-    logger.info('Successfully refreshed expired watch', {
-      type,
-      id: mailbox.id,
-      resourceId: watchResult.resourceId,
-      expiration: new Date(watchResult.expiration).toISOString()
-    });
+      logger.info('Successfully refreshed expired watch', {
+        type,
+        id: mailbox.id,
+        resourceId: watchResult.resourceId,
+        expiration: expirationDate.toISOString()
+      });
+    } else {
+      throw new Error('Watch setup did not return expiration time');
+    }
   } catch (error) {
     logger.error('Failed to refresh expired watch', {
       type,
@@ -95,6 +112,34 @@ async function handleWatchExpiration(mailbox: any, type: 'organization' | 'profi
     });
     throw error;
   }
+}
+
+function convertMessagePart(part: gmail_v1.Schema$MessagePart | null): GmailMessagePart | null {
+  if (!part) return null;
+
+  return {
+    partId: part.partId || undefined,
+    mimeType: part.mimeType || undefined,
+    filename: part.filename || undefined,
+    headers: part.headers?.map((h: { name?: string | null; value?: string | null }) => ({
+      name: h.name || '',
+      value: h.value || '',
+    })),
+    body: part.body ? {
+      attachmentId: part.body.attachmentId || undefined,
+      size: part.body.size || undefined,
+      data: part.body.data || undefined,
+    } : undefined,
+    parts: part.parts?.map((p: gmail_v1.Schema$MessagePart) => convertMessagePart(p))
+      .filter((p): p is GmailMessagePart => p !== null) || undefined,
+  };
+}
+
+// Add a simple decideAutoSend function since it's not exported from ai-responder
+function decideAutoSend(confidence: number, threshold: number) {
+  return {
+    autoSend: confidence >= threshold
+  };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -230,41 +275,139 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                   const message = messageResponse.data;
                   if (message && message.payload) {
                     // Convert Gmail API message to our GmailMessage type
-                    const gmailMessage: GmailMessage = {
+                    const gmailMessage: ExtendedGmailMessage = {
                       id: message.id!,
                       threadId: message.threadId!,
                       labelIds: message.labelIds || [],
                       snippet: message.snippet || '',
-                      from: message.payload.headers?.find(h => h.name === 'From')?.value || '',
-                      to: message.payload.headers?.find(h => h.name === 'To')?.value || '',
-                      subject: message.payload.headers?.find(h => h.name === 'Subject')?.value || '',
-                      date: message.payload.headers?.find(h => h.name === 'Date')?.value || new Date().toISOString(),
+                      historyId: message.historyId || '',
+                      internalDate: message.internalDate || '',
+                      payload: convertMessagePart(message.payload),
+                      sizeEstimate: message.sizeEstimate || 0,
+                      // Extended properties
+                      from: message.payload?.headers?.find(h => h.name === 'From')?.value || '',
+                      to: message.payload?.headers?.find(h => h.name === 'To')?.value || '',
+                      subject: message.payload?.headers?.find(h => h.name === 'Subject')?.value || '',
+                      date: message.payload?.headers?.find(h => h.name === 'Date')?.value || new Date().toISOString(),
                       body: {
-                        text: message.payload.body?.data 
+                        text: message.payload?.body?.data 
                           ? Buffer.from(message.payload.body.data, 'base64').toString()
                           : undefined,
-                        html: message.payload.mimeType?.includes('html') && message.payload.body?.data
+                        html: message.payload?.mimeType?.includes('html') && message.payload?.body?.data
                           ? Buffer.from(message.payload.body.data, 'base64').toString()
                           : undefined
                       }
                     };
 
-                    const parsedEmail = parseGmailMessage(gmailMessage);
-                    try {
-                      // Create ticket from the parsed email
-                      const ticket = await createTicketFromEmail(parsedEmail, mailbox.id);
-                      logger.info('Created ticket from email', { 
-                        ticketId: ticket.id, 
-                        messageId: parsedEmail.messageId 
-                      });
-                      processedCount++;
-                    } catch (error) {
-                      logger.error('Failed to create ticket from email', {
-                        error: error instanceof Error ? error.message : String(error),
-                        messageId: parsedEmail.messageId
-                      });
-                      errorCount++;
+                    // Parse the message for ticket creation
+                    const parsedEmail = {
+                      id: gmailMessage.id,
+                      threadId: gmailMessage.threadId,
+                      historyId: gmailMessage.historyId,
+                      from: gmailMessage.from || '',
+                      to: gmailMessage.to ? [gmailMessage.to] : [],
+                      subject: gmailMessage.subject || '',
+                      date: gmailMessage.date || new Date().toISOString(),
+                      bodyText: gmailMessage.body?.text,
+                      bodyHtml: gmailMessage.body?.html,
+                      attachments: []
+                    };
+                    
+                    // Create ticket from email
+                    const { ticketId } = await createTicketFromEmail(parsedEmail, org?.id || profile?.id || '');
+
+                    if (!ticketId) {
+                      throw new Error('Failed to create ticket');
                     }
+
+                    // Process with AI
+                    const aiResult = await processInboundEmail(
+                      gmailMessage,
+                      org?.id || profile?.id || '',
+                      ticketId
+                    );
+
+                    // Add AI classification and RAG
+                    const messageText = gmailMessage.body?.text || gmailMessage.body?.html || '';
+                    const classification = await classifyInboundEmail(messageText);
+                    const { classification: emailClass, confidence: classConfidence } = classification;
+
+                    // Update the chat record with classification
+                    const { error: updateError } = await supabase
+                      .from('ticket_email_chats')
+                      .update({
+                        ai_classification: emailClass,
+                        ai_confidence: classConfidence,
+                      })
+                      .eq('message_id', gmailMessage.id);
+
+                    if (updateError) {
+                      logger.error('Failed to update classification', { updateError });
+                    }
+
+                    // If should respond, generate RAG response
+                    if (emailClass === 'should_respond') {
+                      const { response: ragResponse, confidence: ragConfidence, references } = await generateRagResponse(
+                        messageText,
+                        org?.id || profile?.id || '',
+                        5
+                      );
+
+                      // Decide auto-send vs. draft
+                      const { autoSend } = decideAutoSend(ragConfidence, 85.00);
+
+                      // Store response and references
+                      const { error: ragError } = await supabase
+                        .from('ticket_email_chats')
+                        .update({
+                          ai_draft_response: ragResponse,
+                          ai_auto_responded: autoSend,
+                          metadata: {
+                            rag_references: references
+                          }
+                        })
+                        .eq('message_id', gmailMessage.id);
+
+                      if (ragError) {
+                        logger.error('Failed to store RAG response', { ragError });
+                      }
+
+                      // If auto-send, send the email
+                      if (autoSend) {
+                        try {
+                          await gmail.users.messages.send({
+                            auth,
+                            userId: 'me',
+                            requestBody: {
+                              threadId: gmailMessage.threadId,
+                              raw: Buffer.from(
+                                `To: ${gmailMessage.from}\r\n` +
+                                `Subject: Re: ${gmailMessage.subject}\r\n` +
+                                `Content-Type: text/html; charset=utf-8\r\n` +
+                                `References: ${gmailMessage.id}\r\n` +
+                                `In-Reply-To: ${gmailMessage.id}\r\n\r\n` +
+                                ragResponse
+                              ).toString('base64')
+                            }
+                          });
+
+                          logger.info('Auto-sent RAG response', {
+                            messageId: gmailMessage.id,
+                            confidence: ragConfidence
+                          });
+                        } catch (sendError) {
+                          logger.error('Failed to auto-send response', { sendError });
+                        }
+                      }
+                    }
+
+                    logger.info('Processed inbound email with AI', {
+                      messageId: message.id,
+                      ticketId,
+                      aiResult
+                    });
+
+                    processedCount++;
                   }
                 } catch (error) {
                   logger.error('Failed to process message', {

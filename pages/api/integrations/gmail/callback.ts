@@ -63,14 +63,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Initialize Supabase client with service role key
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
       log('Missing Supabase configuration');
       throw new Error('Missing Supabase configuration');
     }
 
     const supabase = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
       {
         auth: {
           persistSession: false,

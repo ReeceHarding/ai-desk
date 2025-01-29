@@ -231,7 +231,13 @@ export function TicketInterface({
         <EmailThreadPanel
           isOpen={isEmailPanelOpen}
           onClose={() => setIsEmailPanelOpen(false)}
-          ticket={{ id: ticket.id }}
+          ticket={ticket ? {
+            id: ticket.id,
+            org_id: ticket.org_id,
+            thread_id: ticket.thread_id,
+            message_id: ticket.message_id,
+            subject: ticket.subject
+          } : null}
         />
       </div>
     </div>

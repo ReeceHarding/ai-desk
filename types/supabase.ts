@@ -732,6 +732,94 @@ export interface Database {
           }
         ]
       }
+      knowledge_docs: {
+        Row: {
+          id: string
+          org_id: string
+          title: string
+          description: string | null
+          file_path: string | null
+          source_url: string | null
+          metadata: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          title: string
+          description?: string | null
+          file_path?: string | null
+          source_url?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          title?: string
+          description?: string | null
+          file_path?: string | null
+          source_url?: string | null
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_docs_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      knowledge_doc_chunks: {
+        Row: {
+          id: string
+          doc_id: string
+          chunk_index: number
+          chunk_content: string
+          embedding: string | null
+          token_length: number
+          metadata: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          doc_id: string
+          chunk_index: number
+          chunk_content: string
+          embedding?: string | null
+          token_length?: number
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          doc_id?: string
+          chunk_index?: number
+          chunk_content?: string
+          embedding?: string | null
+          token_length?: number
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_doc_chunks_doc_id_fkey"
+            columns: ["doc_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_docs"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never

@@ -27,7 +27,7 @@ export default function SignIn() {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${origin}/auth/callback`,
+          redirectTo: `${origin}/auth/callback?from=${encodeURIComponent(from as string || '/dashboard')}`,
         },
       });
 
@@ -74,8 +74,8 @@ export default function SignIn() {
         hasSession: !!data.session
       });
 
-      // After successful signin, redirect to dashboard
-      router.push('/dashboard');
+      // After successful signin, redirect to the from URL or dashboard
+      router.push(from as string || '/dashboard');
     } catch (error: any) {
       console.error('[SIGNIN] Unexpected error during signin:', error);
       setError(error.message);
@@ -88,7 +88,7 @@ export default function SignIn() {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
-        redirectTo: `${origin}/auth/callback`,
+        redirectTo: `${origin}/auth/callback?from=${encodeURIComponent(from as string || '/dashboard')}`,
       },
     });
 

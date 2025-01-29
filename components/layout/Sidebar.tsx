@@ -1,14 +1,18 @@
+import { Badge } from '@/components/ui/badge';
 import { useUserRole } from '@/hooks/useUserRole';
+import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Bot } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
 
-export default function Sidebar() {
+export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientComponentClient<Database>();
   const { role } = useUserRole();
   const [orgId, setOrgId] = useState<string | null>(null);
+  const [draftCount, setDraftCount] = useState(0);
   const isAdmin = role === 'admin' || role === 'super_admin';
 
   useEffect(() => {
@@ -39,6 +43,41 @@ export default function Sidebar() {
     getOrgId();
   }, [supabase]);
 
+  useEffect(() => {
+    const fetchDraftCount = async () => {
+      const { count } = await supabase
+        .from('ticket_email_chats')
+        .select('id', { count: 'exact', head: true })
+        .eq('ai_auto_responded', false)
+        .not('ai_draft_response', 'is', null);
+
+      setDraftCount(count || 0);
+    };
+
+    fetchDraftCount();
+
+    // Subscribe to changes
+    const channel = supabase
+      .channel('ticket_email_chats')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'ticket_email_chats',
+          filter: 'ai_auto_responded=eq.false'
+        },
+        () => {
+          fetchDraftCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      channel.unsubscribe();
+    };
+  }, [supabase]);
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push('/auth/signin');
@@ -49,6 +88,7 @@ export default function Sidebar() {
     return (
       <Link
         href={href}
+        onClick={() => onNavigate?.()}
         className={`
           group flex items-center px-4 py-3 sm:py-2.5 
           text-base sm:text-sm font-medium rounded-lg
@@ -77,6 +117,20 @@ export default function Sidebar() {
           <nav className="space-y-1">
             <NavLink href="/dashboard">Dashboard</NavLink>
             <NavLink href="/tickets">Tickets</NavLink>
+            
+            <NavLink href="/notifications">
+              <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-4 w-4" />
+                  <span>AI Drafts</span>
+                </div>
+                {draftCount > 0 && (
+                  <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400">
+                    {draftCount}
+                  </Badge>
+                )}
+              </div>
+            </NavLink>
             
             {isAdmin && (
               <>

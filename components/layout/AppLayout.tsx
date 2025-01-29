@@ -1,23 +1,29 @@
 import { Toaster } from '@/components/ui/toaster';
 import { useUserRole } from '@/hooks/useUserRole';
+import { cn } from '@/lib/utils';
+import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { Bell } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { ReactNode, useEffect, useState } from 'react';
 import { useThreadPanel } from '../../contexts/ThreadPanelContext';
+import { EmailNotifications } from '../notifications/EmailNotifications';
 import Sidebar from './Sidebar';
 
 interface AppLayoutProps {
   children: ReactNode;
 }
 
-export default function AppLayout({ children }: AppLayoutProps) {
+export function AppLayout({ children }: AppLayoutProps) {
   const router = useRouter();
-  const supabase = createClientComponentClient();
+  const supabase = createClientComponentClient<Database>();
   const { role } = useUserRole();
   const [orgId, setOrgId] = useState<string | null>(null);
   const isAdmin = role === 'admin' || role === 'super_admin';
   const { isThreadPanelOpen } = useThreadPanel();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [pendingDraftsCount, setPendingDraftsCount] = useState(0);
 
   useEffect(() => {
     async function fetchUserOrg() {
@@ -37,6 +43,41 @@ export default function AppLayout({ children }: AppLayoutProps) {
     fetchUserOrg();
   }, [supabase]);
 
+  useEffect(() => {
+    const fetchPendingDraftsCount = async () => {
+      const { count } = await supabase
+        .from('ticket_email_chats')
+        .select('*', { count: 'exact', head: true })
+        .eq('ai_auto_responded', false)
+        .not('ai_draft_response', 'is', null);
+
+      setPendingDraftsCount(count || 0);
+    };
+
+    fetchPendingDraftsCount();
+
+    // Subscribe to changes
+    const channel = supabase
+      .channel('ticket_email_chats_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'ticket_email_chats',
+          filter: 'ai_auto_responded=eq.false',
+        },
+        () => {
+          fetchPendingDraftsCount();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.push('/auth/signin');
@@ -47,8 +88,34 @@ export default function AppLayout({ children }: AppLayoutProps) {
     setIsMobileMenuOpen(false);
   }, [router.pathname]);
 
+  const handleMobileMenuClose = () => {
+    setIsMobileMenuOpen(false);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 font-sans antialiased">
+      <EmailNotifications />
+      <nav className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16">
+            <div className="flex">
+              {/* Existing navigation items */}
+              <Link
+                href="/notifications"
+                className={cn(
+                  'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md',
+                  router.pathname === '/notifications'
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                )}
+              >
+                <Bell className="h-5 w-5" />
+                <span>Notifications</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </nav>
       {/* Header */}
       <header className="fixed top-0 z-30 w-full backdrop-blur-lg bg-white/80 border-b border-slate-200/50 shadow-sm transition-all duration-300">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -103,7 +170,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           } md:relative md:translate-x-0 transition-transform duration-300 ease-in-out z-40 bg-white w-72 md:w-64 top-16 border-r border-slate-200/50 shadow-lg md:shadow-none`}
         >
           <div className="h-full overflow-y-auto">
-            <Sidebar />
+            <Sidebar onNavigate={handleMobileMenuClose} />
           </div>
         </div>
 

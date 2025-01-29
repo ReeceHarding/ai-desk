@@ -1,11 +1,11 @@
-import AppLayout from '@/components/layout/AppLayout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
-import { getGmailProfile } from '@/utils/gmail';
+import { logger } from '@/utils/logger';
 import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
@@ -63,26 +63,30 @@ export default function ProfileSettings() {
     }
   }, [supabase, user?.id, toast]);
 
-  const fetchGmailProfile = useCallback(async () => {
+  const fetchGmailProfile = async (tokens: { access_token: string, refresh_token: string }) => {
     try {
-      if (!profile?.gmail_refresh_token || !profile?.gmail_access_token) {
-        setGmailAddress(null);
-        return;
+      const response = await fetch('/api/gmail/profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch Gmail profile: ${response.statusText}`);
       }
 
-      const gmailProfile = await getGmailProfile({
-        refresh_token: profile.gmail_refresh_token,
-        access_token: profile.gmail_access_token,
-        token_type: 'Bearer',
-        scope: 'https://www.googleapis.com/auth/gmail.modify',
-        expiry_date: 0
-      });
-      setGmailAddress(gmailProfile.emailAddress);
+      const gmailProfile = await response.json();
+      return gmailProfile;
     } catch (error) {
-      console.error('Error fetching Gmail profile:', error);
-      setGmailAddress(null);
+      logger.error('Failed to fetch Gmail profile', { error });
+      throw error;
     }
-  }, [profile?.gmail_refresh_token, profile?.gmail_access_token]);
+  };
 
   useEffect(() => {
     if (user) {
@@ -114,7 +118,12 @@ export default function ProfileSettings() {
   useEffect(() => {
     // Fetch Gmail profile when tokens are available
     if (profile?.gmail_refresh_token && profile?.gmail_access_token) {
-      fetchGmailProfile();
+      fetchGmailProfile({ access_token: profile.gmail_access_token, refresh_token: profile.gmail_refresh_token })
+        .then(setGmailAddress)
+        .catch((error) => {
+          console.error('Error fetching Gmail profile:', error);
+          setGmailAddress(null);
+        });
     } else {
       setGmailAddress(null);
     }

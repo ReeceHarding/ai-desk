@@ -8,4 +8,10 @@ You must be thorough and read every line of it and make sure our code calls it e
 
 Don't stop reading files until you've traced the entire call trace and understand everything that gets called from the frontend until the end of the chain when it returns something to the frontend
 
-make sure to update the routing in the middleware
+Mmake ell your documents work within [20250123111534_schema.sql](mdc:supabase/migrations/20250123111534_schema.sql) 
+
+For each element I want you to write out what the schema is looking for and then what our code is actually calling and if these are different that make sure they're exactly the same and make sure everything we call in the code exists in the schema 
+
+you must write out your chain of thought for all code you write
+
+never enable RLS

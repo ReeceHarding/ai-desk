@@ -1,3 +1,41 @@
+import { GmailMessage } from '@/types/gmail';
+
+export interface ParsedEmail {
+  messageId: string;
+  threadId: string;
+  fromName: string;
+  fromEmail: string;
+  toEmail: string;
+  subject: string;
+  body: string;
+  date: string;
+}
+
+/**
+ * Parse a Gmail message into our internal format
+ */
+export function parseGmailMessage(message: GmailMessage): ParsedEmail {
+  // Extract name and email from the "from" field
+  const fromMatch = message.from.match(/^(?:([^<]*)<)?([^>]+)>?$/);
+  const fromName = (fromMatch?.[1] || '').trim();
+  const fromEmail = (fromMatch?.[2] || message.from).trim();
+
+  // Extract email from the "to" field
+  const toMatch = message.to.match(/^(?:([^<]*)<)?([^>]+)>?$/);
+  const toEmail = (toMatch?.[2] || message.to).trim();
+
+  return {
+    messageId: message.id,
+    threadId: message.threadId,
+    fromName,
+    fromEmail,
+    toEmail,
+    subject: message.subject,
+    body: message.body.html || message.body.text || message.snippet,
+    date: message.date,
+  };
+}
+
 export function parseEmailBody(html: string | null): string {
   if (!html) return '';
   

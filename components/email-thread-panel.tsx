@@ -10,6 +10,7 @@ import { Loader2, Mail, Paperclip, Send, Smile, X } from "lucide-react"
 import md5 from "md5"
 import { useEffect, useRef, useState } from "react"
 import { useInView } from "react-intersection-observer"
+import { AIDraftPanel } from './ai-draft-panel'
 
 interface Message {
   id: string;
@@ -53,6 +54,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
   const limit = 20
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
+  const [currentDraft, setCurrentDraft] = useState<Database['public']['Tables']['ticket_email_chats']['Row'] | null>(null)
 
   const fetchMessages = async (pageNum: number) => {
     if (!ticket?.id || isLoading) {
@@ -249,6 +251,26 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
     };
   }, [ticket?.id, supabase]);
 
+  useEffect(() => {
+    if (!ticket?.id) return;
+
+    const fetchLatestDraft = async () => {
+      const { data } = await supabase
+        .from('ticket_email_chats')
+        .select('*')
+        .eq('ticket_id', ticket.id)
+        .eq('ai_auto_responded', false)
+        .not('ai_draft_response', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      setCurrentDraft(data || null);
+    };
+
+    fetchLatestDraft();
+  }, [ticket?.id]);
+
   const handleSendMessage = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (!replyText.trim() || sending || !ticket) {
@@ -380,6 +402,15 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
     return null;
   }
 
+  const handleDraftSent = () => {
+    setCurrentDraft(null);
+    fetchMessages(0);
+  };
+
+  const handleDraftDiscarded = () => {
+    setCurrentDraft(null);
+  };
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full sm:max-w-xl overflow-y-auto bg-white text-slate-900 border-l border-slate-200">
@@ -399,6 +430,15 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto py-4 space-y-4">
+            {/* Show AI draft at the top if available */}
+            {currentDraft && (
+              <AIDraftPanel
+                ticketEmailChat={currentDraft}
+                onDraftSent={handleDraftSent}
+                onDraftDiscarded={handleDraftDiscarded}
+              />
+            )}
+
             {isLoading && messages.length === 0 ? (
               // Loading skeleton
               Array.from({ length: 3 }).map((_, i) => (

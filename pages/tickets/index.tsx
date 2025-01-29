@@ -1,5 +1,5 @@
 import { EmailThreadPanel } from '@/components/email-thread-panel';
-import AppLayout from '@/components/layout/AppLayout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -588,7 +588,7 @@ export default function TicketList() {
           </div>
           <h1 className="text-2xl font-semibold">Please log in to view tickets</h1>
           <Button
-            onClick={() => router.push('/auth/login')}
+            onClick={() => router.push('/auth/signin')}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-sm shadow-blue-500/10 hover:shadow-md hover:shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200"
           >
             Log In
