@@ -2,9 +2,27 @@ import OpenAI from 'openai';
 import { logger } from './logger';
 import { generateEmbedding, queryPinecone } from './rag';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+// Check if we're on the server side
+const isServer = typeof window === 'undefined';
+
+if (!isServer) {
+  logger.warn('AI responder utilities should only be used on the server side');
+}
+
+// Only initialize OpenAI client on the server side
+let openai: OpenAI | null = null;
+
+if (isServer) {
+  if (!process.env.OPENAI_API_KEY) {
+    logger.error('OPENAI_API_KEY is not set in environment variables');
+    throw new Error('OPENAI_API_KEY environment variable is required');
+  }
+
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_API_BASE_URL,
+  });
+}
 
 /**
  * Classify an inbound email text into "should_respond", "no_response", or "unknown".
@@ -14,6 +32,14 @@ export async function classifyInboundEmail(emailText: string): Promise<{
   classification: 'should_respond' | 'no_response' | 'unknown';
   confidence: number;  // 0-100
 }> {
+  if (!isServer) {
+    throw new Error('classifyInboundEmail can only be called on the server side');
+  }
+  
+  if (!openai) {
+    throw new Error('OpenAI client not initialized');
+  }
+
   const systemPrompt = `
 You are an email classifier. 
 Decide if this inbound email is a real support question that needs a response 
@@ -68,6 +94,29 @@ Otherwise classification = "should_respond".
   }
 }
 
+export interface RagDebugInfo {
+  chunks?: Array<{
+    docId: string;
+    text: string;
+    similarity: number;
+  }>;
+  prompt?: {
+    system: string;
+    user: string;
+    temperature: number;
+    maxTokens: number;
+  };
+  modelResponse?: string;
+  processingTimeMs?: number;
+}
+
+export interface RagResponse {
+  response: string;
+  confidence: number;
+  references: string[];
+  debugInfo?: RagDebugInfo;
+}
+
 /**
  * Generate a RAG-based response for an inbound email using Pinecone & GPT-3.5.
  * 
@@ -79,22 +128,53 @@ Otherwise classification = "should_respond".
 export async function generateRagResponse(
   emailText: string,
   orgId: string,
-  topK: number = 5
-): Promise<{ response: string; confidence: number; references: string[] }> {
+  topK: number = 5,
+  debug: boolean = false
+): Promise<RagResponse> {
+  if (!isServer) {
+    throw new Error('generateRagResponse can only be called on the server side');
+  }
+  
+  if (!openai) {
+    throw new Error('OpenAI client not initialized');
+  }
+
+  const startTime = Date.now();
+  const debugInfo: RagDebugInfo = {};
+
   try {
     // Step 1: Embed the email text
     const embedding = await generateEmbedding(emailText);
 
     // Step 2: Query Pinecone for top K org-specific chunks
-    const matches = await queryPinecone(embedding, topK);
+    const matches = await queryPinecone(embedding, topK, orgId);
 
-    // Filter results that match this org
-    const filtered = matches.filter(m => m.metadata?.orgId === orgId);
+    if (debug) {
+      debugInfo.chunks = matches.map(match => ({
+        docId: match.id?.split('_')[0] || '',
+        text: match.metadata?.text || '',
+        similarity: match.score || 0
+      }));
+    }
 
-    // Step 3: Prepare a context string from top chunks
+    // If no matches found, return early with "Not enough info"
+    if (matches.length === 0) {
+      logger.info('No relevant chunks found for query', { emailText, orgId });
+      return { 
+        response: 'Not enough info.', 
+        confidence: 0, // Set to 0 when no matches found
+        references: [],
+        debugInfo: debug ? {
+          ...debugInfo,
+          processingTimeMs: Date.now() - startTime
+        } : undefined
+      };
+    }
+
+    // Step 3: Prepare a context string from chunks
     let contextString = '';
     const references: string[] = [];
-    filtered.forEach((match, index) => {
+    matches.forEach((match, index) => {
       contextString += `\n[Chunk ${index + 1}]:\n${match.metadata?.text || ''}\n`;
       references.push(match.id || '');
     });
@@ -108,9 +188,21 @@ User's question: "${emailText}"
 
 You can only use the context provided. If not enough info, say "Not enough info."
 Return a JSON object: { "answer": "...", "confidence": 0-100 } 
-  - "answer": your best answer
-  - "confidence": integer from 0 to 100
+  - "answer": your best answer based ONLY on the provided context
+  - "confidence": integer from 0 to 100, where:
+    * 0-30: not enough relevant info in context
+    * 31-70: partial match or uncertain
+    * 71-100: high confidence answer from context
 `;
+
+    if (debug) {
+      debugInfo.prompt = {
+        system: systemPrompt,
+        user: emailText,
+        temperature: 0.2,
+        maxTokens: 500
+      };
+    }
 
     // Step 4: Chat completion
     const completion = await openai.chat.completions.create({
@@ -125,7 +217,11 @@ Return a JSON object: { "answer": "...", "confidence": 0-100 }
 
     const rawContent = completion.choices[0]?.message?.content?.trim() || '';
     let finalAnswer = 'Not enough info.';
-    let confidence = 60;
+    let confidence = 0; // Default to 0 confidence
+
+    if (debug) {
+      debugInfo.modelResponse = rawContent;
+    }
 
     try {
       // Attempt JSON parse
@@ -141,19 +237,33 @@ Return a JSON object: { "answer": "...", "confidence": 0-100 }
           confidence = Math.max(0, Math.min(100, parsed.confidence));
         }
       } else {
-        // fallback
+        // If not JSON, use raw content as answer with low confidence
         finalAnswer = rawContent;
+        confidence = 30; // Low confidence for non-JSON responses
       }
     } catch (err) {
       logger.warn('Failed to parse RAG answer JSON from GPT', { content: rawContent, error: err });
       finalAnswer = rawContent;
+      confidence = 30; // Low confidence for parse errors
+    }
+
+    if (debug) {
+      debugInfo.processingTimeMs = Date.now() - startTime;
     }
 
     logger.info('Generated RAG response', { finalAnswer, confidence, references });
-    return { response: finalAnswer, confidence, references };
+    return { response: finalAnswer, confidence, references, debugInfo: debug ? debugInfo : undefined };
   } catch (error) {
     logger.error('RAG generation error', { error });
-    return { response: 'Not enough info.', confidence: 50, references: [] };
+    return { 
+      response: 'Not enough info.', 
+      confidence: 0, // Set to 0 for errors
+      references: [],
+      debugInfo: debug ? {
+        ...debugInfo,
+        processingTimeMs: Date.now() - startTime
+      } : undefined
+    };
   }
 }
 
