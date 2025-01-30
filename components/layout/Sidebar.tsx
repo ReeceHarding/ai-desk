@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Bot } from 'lucide-react';
+import { Bell, Bot } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
@@ -13,6 +13,11 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { role } = useUserRole();
   const [orgId, setOrgId] = useState<string | null>(null);
   const [draftCount, setDraftCount] = useState(0);
+  const [latestDraft, setLatestDraft] = useState<{
+    subject: string;
+    from_name?: string;
+    from_address: string;
+  } | null>(null);
   const isAdmin = role === 'admin' || role === 'super_admin';
 
   useEffect(() => {
@@ -44,17 +49,24 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   }, [supabase]);
 
   useEffect(() => {
-    const fetchDraftCount = async () => {
-      const { count } = await supabase
+    const fetchDrafts = async () => {
+      const { data, count } = await supabase
         .from('ticket_email_chats')
-        .select('id', { count: 'exact', head: true })
+        .select('id, subject, from_name, from_address', { count: 'exact' })
         .eq('ai_auto_responded', false)
-        .not('ai_draft_response', 'is', null);
+        .not('ai_draft_response', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1);
 
       setDraftCount(count || 0);
+      if (data && data.length > 0) {
+        setLatestDraft(data[0]);
+      } else {
+        setLatestDraft(null);
+      }
     };
 
-    fetchDraftCount();
+    fetchDrafts();
 
     // Subscribe to changes
     const channel = supabase
@@ -68,7 +80,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           filter: 'ai_auto_responded=eq.false'
         },
         () => {
-          fetchDraftCount();
+          fetchDrafts();
         }
       )
       .subscribe();
@@ -119,15 +131,53 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             <NavLink href="/tickets">Tickets</NavLink>
             
             <NavLink href="/notifications">
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-2">
-                  <Bot className="h-4 w-4" />
-                  <span>AI Drafts</span>
+              <div className="flex flex-col w-full">
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-2">
+                    <Bell className="h-4 w-4" />
+                    <span>Notifications</span>
+                  </div>
+                  {draftCount > 0 && (
+                    <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400 z-50">
+                      {draftCount}
+                    </Badge>
+                  )}
                 </div>
-                {draftCount > 0 && (
-                  <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400">
-                    {draftCount}
-                  </Badge>
+                {latestDraft && (
+                  <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-md">
+                    <div className="text-xs text-slate-700 dark:text-slate-300 truncate">
+                      <div className="font-medium truncate">{latestDraft.subject || '(No Subject)'}</div>
+                      <div className="truncate text-slate-500 dark:text-slate-400">
+                        From: {latestDraft.from_name || latestDraft.from_address}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </NavLink>
+
+            <NavLink href="/ai-drafts">
+              <div className="flex flex-col w-full">
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-4 w-4" />
+                    <span>AI Drafts</span>
+                  </div>
+                  {draftCount > 0 && (
+                    <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400 z-50">
+                      {draftCount}
+                    </Badge>
+                  )}
+                </div>
+                {latestDraft && (
+                  <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-md">
+                    <div className="text-xs text-slate-700 dark:text-slate-300 truncate">
+                      <div className="font-medium truncate">{latestDraft.subject || '(No Subject)'}</div>
+                      <div className="truncate text-slate-500 dark:text-slate-400">
+                        From: {latestDraft.from_name || latestDraft.from_address}
+                      </div>
+                    </div>
+                  </div>
                 )}
               </div>
             </NavLink>

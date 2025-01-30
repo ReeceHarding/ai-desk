@@ -3,8 +3,6 @@ import { useUserRole } from '@/hooks/useUserRole';
 import { cn } from '@/lib/utils';
 import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Bell } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { ReactNode, useEffect, useState } from 'react';
 import { useThreadPanel } from '../../contexts/ThreadPanelContext';
@@ -95,29 +93,8 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-slate-50 font-sans antialiased">
       <EmailNotifications />
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex">
-              {/* Existing navigation items */}
-              <Link
-                href="/notifications"
-                className={cn(
-                  'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md',
-                  router.pathname === '/notifications'
-                    ? 'bg-gray-100 text-gray-900'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                )}
-              >
-                <Bell className="h-5 w-5" />
-                <span>Notifications</span>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </nav>
       {/* Header */}
-      <header className="fixed top-0 z-30 w-full backdrop-blur-lg bg-white/80 border-b border-slate-200/50 shadow-sm transition-all duration-300">
+      <header className="fixed top-0 z-20 w-full backdrop-blur-lg bg-white/80 border-b border-slate-200/50 shadow-sm transition-all duration-300">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             {/* Mobile menu button */}
