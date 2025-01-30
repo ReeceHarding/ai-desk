@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { applyCorrections, factCheck } from './factChecker';
 import { logger } from './logger';
 import { generateEmbedding, queryPinecone } from './rag';
 
@@ -108,6 +109,15 @@ export interface RagDebugInfo {
   };
   modelResponse?: string;
   processingTimeMs?: number;
+  factCheck?: {
+    isFactual: boolean;
+    corrections: Array<{
+      original: string;
+      correction: string;
+      type?: string;
+    }>;
+    confidence: number;
+  };
 }
 
 export interface RagResponse {
@@ -187,18 +197,41 @@ export async function generateRagResponse(
     const customerName = senderInfo?.fromName?.split(' ')[0] || 'there';
     const agentFirstName = senderInfo?.agentName?.split(' ')[0] || 'Support Agent';
 
-    // Construct GPT system prompt
+    // Construct GPT system prompt with stronger factual accuracy guidelines
     const systemPrompt = `
-You are a knowledgeable support agent crafting email responses. Use the following context to answer the customer's question:
+You are a knowledgeable support agent crafting email responses. Use ONLY the following context to answer the customer's question:
 ${contextString}
 
-Guidelines for response:
-1. Be concise and direct - aim for 3-4 sentences maximum
+CRITICAL GUIDELINES:
+1. Be concise but specific - aim for 3-4 well-structured paragraphs
 2. Start with a warm but brief greeting using "${customerName}"
 3. Focus on answering the specific question or addressing the main concern
 4. End with a simple "Best regards," followed by "${agentFirstName}"
 5. Maintain a professional yet friendly tone
-6. Only include information from the provided context
+6. ONLY include information that is EXPLICITLY present in the provided context
+7. DO NOT make up or hallucinate any information, especially:
+   - Contact information
+   - Specific numbers or statistics
+   - Features or services not mentioned
+   - Prices or dates
+8. If information is not in the context, say "I don't have that information" instead of making assumptions
+9. Format with proper HTML line breaks and paragraphs:
+   - Use <p> tags for paragraphs with margin-bottom
+   - Use <br/> for line breaks within paragraphs
+   - One blank line after greeting
+   - One blank line between paragraphs
+   - One blank line before sign-off
+10. When listing amenities or features:
+    - Group similar items together
+    - Use bullet points for clarity
+    - Include specific details from the context
+11. For room descriptions:
+    - List exact square footage if available
+    - Mention specific amenities in the room
+    - Describe the view or location if mentioned
+12. For contact information:
+    - Only include verified email/phone from context
+    - Format consistently with proper spacing
 
 User's email: "${emailText}"
 
@@ -206,17 +239,11 @@ Return a JSON object: {
   "answer": "...", 
   "confidence": 0-100 
 } where:
-- "answer": your complete email response
+- "answer": your complete email response with proper HTML formatting
 - "confidence": integer from 0 to 100, where:
   * 0-30: not enough relevant info
   * 31-70: partial match or uncertain
   * 71-100: high confidence answer
-
-Example format:
-{
-  "answer": "Hi [Name],\\n\\nThank you for your question. [Clear, direct answer]\\n\\nBest regards,\\n[Agent Name]",
-  "confidence": 85
-}
 
 If you cannot answer based on the context, respond with "Not enough info." and low confidence.`;
 
@@ -229,7 +256,7 @@ If you cannot answer based on the context, respond with "Not enough info." and l
       };
     }
 
-    // Step 4: Chat completion
+    // Step 4: Generate initial response
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
@@ -242,42 +269,89 @@ If you cannot answer based on the context, respond with "Not enough info." and l
 
     const rawContent = completion.choices[0]?.message?.content?.trim() || '';
     let finalAnswer = 'Not enough info.';
-    let confidence = 0; // Default to 0 confidence
+    let confidence = 0;
 
     if (debug) {
       debugInfo.modelResponse = rawContent;
     }
 
     try {
-      // Attempt JSON parse
+      // Parse the initial response
       const jsonStart = rawContent.indexOf('{');
       const jsonEnd = rawContent.lastIndexOf('}');
       if (jsonStart !== -1 && jsonEnd !== -1) {
         const jsonString = rawContent.slice(jsonStart, jsonEnd + 1);
         const parsed = JSON.parse(jsonString);
         if (parsed.answer) {
-          finalAnswer = parsed.answer;
+          // Process the answer to ensure proper HTML formatting
+          finalAnswer = parsed.answer
+            .replace(/\n{2,}/g, '</p><p>') // Convert multiple newlines to paragraph breaks
+            .replace(/\n/g, '<br/>') // Convert single newlines to line breaks
+            .replace(/\s{2,}/g, ' &nbsp;'.repeat(2)) // Preserve multiple spaces
+            .trim();
+          
+          // Ensure the response is wrapped in paragraphs
+          if (!finalAnswer.startsWith('<p>')) {
+            finalAnswer = `<p>${finalAnswer}</p>`;
+          }
         }
         if (typeof parsed.confidence === 'number') {
           confidence = Math.max(0, Math.min(100, parsed.confidence));
         }
       } else {
-        // If not JSON, use raw content as answer with low confidence
-        finalAnswer = rawContent;
-        confidence = 30; // Low confidence for non-JSON responses
+        finalAnswer = `<p>${rawContent}</p>`;
+        confidence = 30;
       }
+
+      // Step 5: Fact check the response
+      const factCheckResult = await factCheck(finalAnswer, embedding, orgId, topK);
+      
+      // If fact check failed or corrections needed
+      if (!factCheckResult.isFactual || factCheckResult.corrections.length > 0) {
+        // Apply corrections to create a verified response
+        const correctedAnswer = applyCorrections(finalAnswer, factCheckResult.corrections);
+        finalAnswer = correctedAnswer;
+        confidence = Math.min(confidence, factCheckResult.confidence);
+
+        // If the response is too mangled after corrections, fall back to a simpler response
+        if (finalAnswer.includes('information available upon request') || 
+            finalAnswer.split('\n\n').length < 3) {
+          finalAnswer = `Hi ${customerName},\n\nThank you for your interest in Las Canas Beach Retreat. For detailed information about our amenities and services, please contact us directly.\n\nBest regards,\n${agentFirstName}`;
+          confidence = 30;
+        }
+      }
+
+      if (debug) {
+        debugInfo.factCheck = {
+          isFactual: factCheckResult.isFactual,
+          corrections: factCheckResult.corrections,
+          confidence: factCheckResult.confidence
+        };
+      }
+
     } catch (err) {
-      logger.warn('Failed to parse RAG answer JSON from GPT', { content: rawContent, error: err });
-      finalAnswer = rawContent;
-      confidence = 30; // Low confidence for parse errors
+      logger.warn('Failed to parse or fact-check response', { content: rawContent, error: err });
+      finalAnswer = 'Not enough info.';
+      confidence = 0;
     }
 
     if (debug) {
       debugInfo.processingTimeMs = Date.now() - startTime;
     }
 
-    logger.info('Generated RAG response', { finalAnswer, confidence, references });
-    return { response: finalAnswer, confidence, references, debugInfo: debug ? debugInfo : undefined };
+    logger.info('Generated RAG response', { 
+      finalAnswer, 
+      confidence, 
+      references,
+      factChecked: true
+    });
+    
+    return { 
+      response: finalAnswer, 
+      confidence, 
+      references, 
+      debugInfo: debug ? debugInfo : undefined 
+    };
   } catch (error) {
     logger.error('RAG generation error', { error });
     return { 

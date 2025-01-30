@@ -106,26 +106,37 @@ export async function getGmailClient(orgId: string) {
     const { gmail_access_token, gmail_refresh_token } = org;
 
     if (!gmail_access_token || !gmail_refresh_token) {
-      logger.error('Gmail tokens not found in organization');
+      logger.error('Gmail tokens not found in organization', { orgId });
       throw new Error('Gmail tokens not configured');
     }
 
-    // Set up Gmail OAuth2 client
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.GMAIL_CLIENT_ID,
-      process.env.GMAIL_CLIENT_SECRET,
-      process.env.GMAIL_REDIRECT_URI
-    );
+    // Set up Gmail OAuth2 client with proper credentials
+    const oauth2Client = new google.auth.OAuth2({
+      clientId: process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
+      clientSecret: process.env.GMAIL_CLIENT_SECRET,
+      redirectUri: process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
+    });
 
+    // Set credentials
     oauth2Client.setCredentials({
       access_token: gmail_access_token,
       refresh_token: gmail_refresh_token,
+      token_type: 'Bearer',
+      scope: 'https://www.googleapis.com/auth/gmail.modify'
     });
 
     // Create and return Gmail client
-    return google.gmail({ version: 'v1', auth: oauth2Client });
+    const gmail = google.gmail({ 
+      version: 'v1', 
+      auth: oauth2Client 
+    });
+
+    return gmail;
   } catch (error: any) {
-    logger.error('Failed to initialize Gmail client', { error: error.message });
+    logger.error('Failed to initialize Gmail client', { 
+      error: error.message,
+      orgId 
+    });
     throw error;
   }
 }
@@ -217,9 +228,9 @@ function convertMessagePart(part: gmail_v1.Schema$MessagePart | null | undefined
 export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[]> {
   try {
     const oauth2Client = new google.auth.OAuth2(
-      process.env.GMAIL_CLIENT_ID,
+      process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
       process.env.GMAIL_CLIENT_SECRET,
-      process.env.GMAIL_REDIRECT_URI
+      process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
     );
 
     oauth2Client.setCredentials(tokens);
@@ -452,9 +463,9 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
 export async function setupGmailWatch(tokens: GmailTokens, type: 'organization' | 'profile', id: string) {
   try {
     const oauth2Client = new google.auth.OAuth2(
-      process.env.GMAIL_CLIENT_ID,
+      process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
       process.env.GMAIL_CLIENT_SECRET,
-      process.env.GMAIL_REDIRECT_URI
+      process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
     );
 
     oauth2Client.setCredentials(tokens);
@@ -511,9 +522,9 @@ export async function setupGmailWatch(tokens: GmailTokens, type: 'organization' 
 export async function refreshGmailTokens(refreshToken: string): Promise<GmailTokens> {
   try {
     const oauth2Client = new google.auth.OAuth2(
-      process.env.GMAIL_CLIENT_ID,
+      process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
       process.env.GMAIL_CLIENT_SECRET,
-      process.env.GMAIL_REDIRECT_URI
+      process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
     );
 
     oauth2Client.setCredentials({

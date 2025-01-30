@@ -7,6 +7,7 @@ import { useRouter } from 'next/router';
 import { ReactNode, useEffect, useState } from 'react';
 import { useThreadPanel } from '../../contexts/ThreadPanelContext';
 import { EmailNotifications } from '../notifications/EmailNotifications';
+import { BackButton } from '../ui/back-button';
 import Sidebar from './Sidebar';
 
 interface AppLayoutProps {
@@ -120,8 +121,11 @@ export function AppLayout({ children }: AppLayoutProps) {
               </svg>
             </button>
 
-            {/* Logo */}
-            <div className="flex-1 flex items-center justify-center lg:justify-start">
+            {/* Back button */}
+            <div className="flex items-center gap-4">
+              <BackButton className="hidden sm:flex" />
+              
+              {/* Logo */}
               <span className="text-lg sm:text-xl font-semibold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
                 Zendesk Clone
               </span>
@@ -190,7 +194,13 @@ export function AppLayout({ children }: AppLayoutProps) {
         {isThreadPanelOpen && (
           <div 
             className="fixed inset-0 bg-black/20 backdrop-blur-sm z-10 lg:hidden"
-            onClick={() => router.push('/tickets')}
+            onClick={() => {
+              // Close the thread panel instead of redirecting
+              if (typeof window !== 'undefined') {
+                const event = new CustomEvent('closeThreadPanel');
+                window.dispatchEvent(event);
+              }
+            }}
           />
         )}
       </div>

@@ -1,7 +1,9 @@
 import { Database } from '@/types/supabase';
-import { parseGmailMessage, pollGmailInbox } from '@/utils/gmail';
+import { getGmailClient, parseGmailMessage } from '@/utils/gmail';
 import { handleInboundEmail } from '@/utils/inbound-email';
+import { logger } from '@/utils/logger';
 import { createClient } from '@supabase/supabase-js';
+import { gmail_v1 } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 const supabase = createClient<Database>(
@@ -24,15 +26,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Get all organizations and profiles with Gmail tokens
+    // Get all organizations with Gmail tokens
     const { data: orgs } = await supabase
       .from('organizations')
       .select('id, gmail_refresh_token, gmail_access_token')
-      .not('gmail_refresh_token', 'is', null);
-
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, org_id, gmail_refresh_token, gmail_access_token')
       .not('gmail_refresh_token', 'is', null);
 
     const processPromises = [];
@@ -42,44 +39,58 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       for (const org of orgs) {
         if (org.gmail_refresh_token && org.gmail_access_token) {
           processPromises.push(
-            pollGmailInbox({ 
-              refresh_token: org.gmail_refresh_token,
-              access_token: org.gmail_access_token,
-              token_type: 'Bearer',
-              scope: 'https://www.googleapis.com/auth/gmail.modify',
-              expiry_date: 0 // Will force token refresh
-            }).then(async (messages) => {
-              for (const message of messages) {
-                const parsedEmail = parseGmailMessage(message);
-                await handleInboundEmail(parsedEmail, org.id);
-              }
-            }).catch(error => {
-              console.error(`Error processing org ${org.id} mailbox:`, error);
-            })
-          );
-        }
-      }
-    }
+            (async () => {
+              try {
+                const gmail = await getGmailClient(org.id);
+                const response = await gmail.users.messages.list({
+                  userId: 'me',
+                  q: 'is:unread',
+                  maxResults: 10
+                });
 
-    // Process personal mailboxes
-    if (profiles) {
-      for (const profile of profiles) {
-        if (profile.gmail_refresh_token && profile.gmail_access_token) {
-          processPromises.push(
-            pollGmailInbox({
-              refresh_token: profile.gmail_refresh_token,
-              access_token: profile.gmail_access_token,
-              token_type: 'Bearer',
-              scope: 'https://www.googleapis.com/auth/gmail.modify',
-              expiry_date: 0 // Will force token refresh
-            }).then(async (messages) => {
-              for (const message of messages) {
-                const parsedEmail = parseGmailMessage(message);
-                await handleInboundEmail(parsedEmail, profile.org_id);
+                const messages = response.data.messages || [];
+                for (const msg of messages) {
+                  if (!msg.id) continue;
+
+                  const message = await gmail.users.messages.get({
+                    userId: 'me',
+                    id: msg.id,
+                    format: 'full'
+                  });
+
+                  // Parse the message and convert to the expected format
+                  const parsedGmailEmail = await parseGmailMessage(message.data as gmail_v1.Schema$Message);
+                  if (!parsedGmailEmail) {
+                    logger.warn('Failed to parse email message', {
+                      messageId: msg.id,
+                      orgId: org.id
+                    });
+                    continue;
+                  }
+
+                  // Map Gmail ParsedEmail to inbound email ParsedEmail format
+                  await handleInboundEmail({
+                    messageId: parsedGmailEmail.id,
+                    threadId: parsedGmailEmail.threadId,
+                    from: parsedGmailEmail.from,
+                    to: parsedGmailEmail.to,
+                    cc: parsedGmailEmail.cc,
+                    bcc: parsedGmailEmail.bcc,
+                    subject: parsedGmailEmail.subject,
+                    body: {
+                      text: parsedGmailEmail.bodyText,
+                      html: parsedGmailEmail.bodyHtml
+                    },
+                    date: parsedGmailEmail.date
+                  }, org.id);
+                }
+              } catch (error) {
+                logger.error('Error processing org mailbox:', { 
+                  error: error instanceof Error ? error.message : String(error),
+                  orgId: org.id 
+                });
               }
-            }).catch(error => {
-              console.error(`Error processing profile ${profile.id} mailbox:`, error);
-            })
+            })()
           );
         }
       }
@@ -90,7 +101,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     res.status(200).json({ status: 'ok' });
   } catch (error) {
-    console.error('Error polling Gmail:', error);
+    logger.error('Error polling Gmail:', { 
+      error: error instanceof Error ? error.message : String(error)
+    });
     res.status(500).json({ error: String(error) });
   }
 } 

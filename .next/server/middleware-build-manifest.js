@@ -24,10 +24,10 @@ self.__BUILD_MANIFEST = {
       "static/chunks/main.js",
       "static/chunks/pages/notifications.js"
     ],
-    "/tickets": [
+    "/profile/settings": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
-      "static/chunks/pages/tickets.js"
+      "static/chunks/pages/profile/settings.js"
     ]
   },
   "ampFirstPages": []

@@ -1,7 +1,7 @@
 import { Database } from '@/types/supabase';
 import { createClient } from '@supabase/supabase-js';
-import { google } from 'googleapis';
 import OpenAI from 'openai';
+import { getGmailClient } from '../gmail';
 import { logger } from '../logger';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -173,6 +173,50 @@ Content: ${emailText}`;
   }
 }
 
+async function getThreadMessages(threadId: string, orgId: string): Promise<{
+  messages: {
+    id: string;
+    body: string;
+    from: string;
+    subject: string;
+  }[];
+  error?: string;
+}> {
+  try {
+    // Get Gmail client using organization ID
+    const gmail = await getGmailClient(orgId);
+
+    const thread = await gmail.users.threads.get({
+      userId: 'me',
+      id: threadId,
+      format: 'full'
+    });
+
+    if (!thread.data.messages) {
+      return { messages: [], error: 'No messages found in thread' };
+    }
+
+    const messages = thread.data.messages.map(message => {
+      const headers = message.payload?.headers || [];
+      const from = headers.find(h => h.name?.toLowerCase() === 'from')?.value || '';
+      const subject = headers.find(h => h.name?.toLowerCase() === 'subject')?.value || '';
+      const body = message.snippet || '';
+
+      return {
+        id: message.id || '',
+        body,
+        from,
+        subject
+      };
+    });
+
+    return { messages };
+  } catch (error: any) {
+    logger.error('Error fetching thread messages:', { error: error.message, threadId, orgId });
+    return { messages: [], error: error.message };
+  }
+}
+
 export async function processPotentialPromotionalEmail(
   ticketEmailChatId: string,
   orgId: string,
@@ -183,7 +227,6 @@ export async function processPotentialPromotionalEmail(
   subject: string = ''
 ): Promise<void> {
   try {
-    // Enhanced UUID validation with retries
     if (!ticketEmailChatId) {
       logger.error('Missing ticket email chat ID', { messageId, threadId });
       return;
@@ -192,7 +235,7 @@ export async function processPotentialPromotionalEmail(
     // First verify the record exists
     const { data: chatRecord, error: chatError } = await supabase
       .from('ticket_email_chats')
-      .select('id, metadata')
+      .select('id, metadata, thread_id')
       .eq('id', ticketEmailChatId)
       .single();
 
@@ -206,167 +249,94 @@ export async function processPotentialPromotionalEmail(
       return;
     }
 
-    // Log the incoming email details
-    logger.info('PROMOTION AGENT: Processing Email', {
-      separator: '='.repeat(50),
-      messageId,
-      threadId,
-      ticketEmailChatId,
-      fromAddress,
-      subject: subject || '(no subject)',
-      length: emailBody.length,
-      preview: emailBody.substring(0, 100).replace(/\n/g, ' ') + '...'
-    });
-
+    // Get thread context for better classification
+    const threadContext = await getThreadMessages(threadId, orgId);
+    const threadMessageCount = threadContext.messages.length;
+    
+    // Classify the email
     const classification = await classifyEmailAsPromotional(emailBody, fromAddress, subject);
     if (!classification) {
-      logger.warn('PROMOTION AGENT: Classification Failed', {
-        separator: '!'.repeat(50),
-        messageId,
-        reason: 'GPT classification returned null',
-        timestamp: new Date().toISOString()
-      });
+      logger.error('Failed to classify email', { messageId, threadId });
       return;
     }
 
-    // Log detailed classification result
     logger.info('PROMOTION AGENT: Classification Result', {
-      separator: '='.repeat(50),
+      separator: '==================================================',
       messageId,
       threadId,
       fromAddress,
-      subject: subject || '(no subject)',
+      subject,
       classification: {
         type: classification.isPromotional ? 'PROMOTIONAL' : 'NEEDS RESPONSE',
         reason: classification.reason,
-        action: classification.isPromotional ? 'Will Archive' : 'Needs Response'
+        action: classification.isPromotional ? 'Will Archive' : 'Needs Response',
+        threadContext: `Thread has ${threadMessageCount} messages, ${classification.isPromotional ? 'all promotional' : 'requires response'}`
       },
       timestamp: new Date().toISOString()
     });
 
-    // If classification says "promotional", set metadata and call archive
-    if (classification.isPromotional) {
-      logger.info('\n=== [PROMOTION AGENT] Processing Promotional Email ===', {
-        messageId,
-        reason: classification.reason
-      });
+    // Update metadata
+    const newMetadata = {
+      ...chatRecord.metadata,
+      promotional: classification.isPromotional,
+      promotional_reason: classification.reason,
+      archivedByAgent: classification.isPromotional,
+      classification_timestamp: new Date().toISOString()
+    };
 
-      // Get existing metadata
-      const { data: existingChat, error: chatError } = await supabase
-        .from('ticket_email_chats')
-        .select('metadata')
-        .eq('id', ticketEmailChatId)
-        .single();
+    const { error: updateError } = await supabase
+      .from('ticket_email_chats')
+      .update({ metadata: newMetadata })
+      .eq('id', ticketEmailChatId);
 
-      if (chatError) {
-        logger.error('\n=== [PROMOTION AGENT] Failed to Get Chat Record ===', { 
-          error: chatError,
-          ticketEmailChatId
-        });
-        return;
-      }
-
-      // Prepare new metadata
-      const newMetadata = {
-        ...(existingChat?.metadata || {}),
-        promotional: true,
-        promotional_reason: classification.reason,
-        archivedByAgent: true,
-        classification_timestamp: new Date().toISOString()
-      };
-
-      // Update metadata
-      const { error: updateError } = await supabase
-        .from('ticket_email_chats')
-        .update({ 
-          metadata: newMetadata,
-          ai_classification: 'promotional',
-          ai_confidence: 100 // Since this is a promotional classification
-        })
-        .eq('id', ticketEmailChatId);
-
-      if (updateError) {
-        logger.error('\n=== [PROMOTION AGENT] Failed to Update Metadata ===', { 
-          error: updateError,
-          ticketEmailChatId
-        });
-        return;
-      }
-
-      logger.info('\n=== [PROMOTION AGENT] Successfully Updated Metadata ===', {
-        messageId,
+    if (updateError) {
+      logger.error('Failed to update email metadata', {
         ticketEmailChatId,
-        newMetadata
-      });
-
-      // Archive in Gmail
-      try {
-        logger.info('\n=== [PROMOTION AGENT] Archiving Email in Gmail ===', {
-          messageId,
-          orgId
-        });
-        
-        await archiveEmail(messageId, orgId);
-     
-        logger.info('\n=== [PROMOTION AGENT] Successfully Archived Email ===', { 
-          messageId,
-          orgId
-        });
-      } catch (archiveError) {
-        logger.error('\n=== [PROMOTION AGENT] Failed to Archive Email ===', { 
-          error: archiveError,
-          messageId,
-          orgId
-        });
-      }
-    } else {
-      logger.info('\n=== [PROMOTION AGENT] Email Requires Response ===', { 
         messageId,
-        reason: classification.reason
+        error: updateError
+      });
+      return;
+    }
+
+    logger.info('\n=== [PROMOTION AGENT] Successfully Updated Metadata ===', {
+      messageId,
+      ticketEmailChatId,
+      newMetadata
+    });
+
+    // Archive promotional emails
+    if (classification.isPromotional) {
+      logger.info('\n=== [PROMOTION AGENT] Archiving Email in Gmail ===', {
+        messageId,
+        orgId
+      });
+      await archiveEmail(messageId, orgId);
+      logger.info('[PROMOTION AGENT] Removed INBOX label', {
+        orgId,
+        messageId
+      });
+    } else {
+      logger.info('\n=== [PROMOTION AGENT] Email Requires Response ===', {
+        messageId,
+        reason: 'Thread contains messages requiring response'
       });
     }
   } catch (error) {
-    logger.error('\n=== [PROMOTION AGENT] Unexpected Error ===', {
-      error,
+    logger.error('Error in promotion agent', {
+      ticketEmailChatId,
       messageId,
-      ticketEmailChatId
+      threadId,
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 }
 
 async function archiveEmail(messageId: string, orgId: string): Promise<void> {
   try {
-    // 1. get org tokens
-    const { data: org, error: orgError } = await supabase
-      .from('organizations')
-      .select('gmail_access_token, gmail_refresh_token')
-      .eq('id', orgId)
-      .single();
-
-    if (orgError || !org) {
-      throw new Error(`Failed to find organization tokens for orgId: ${orgId}`);
-    }
-
-    // 2. Set up tokens
-    const tokens = {
-      access_token: org.gmail_access_token!,
-      refresh_token: org.gmail_refresh_token!,
-      token_type: 'Bearer',
-      scope: 'https://www.googleapis.com/auth/gmail.modify',
-      expiry_date: Date.now() + 3600000
-    };
-
-    // 3. Set up Gmail client
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
-      process.env.GMAIL_CLIENT_SECRET,
-      process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
-    );
-    oauth2Client.setCredentials(tokens);
-
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    // Get Gmail client using organization ID
+    const gmail = await getGmailClient(orgId);
     
-    // 4. Remove INBOX label
+    // Remove INBOX label
     await gmail.users.messages.modify({
       userId: 'me',
       id: messageId,
@@ -384,37 +354,10 @@ async function archiveEmail(messageId: string, orgId: string): Promise<void> {
 
 async function unarchiveEmail(messageId: string, orgId: string): Promise<void> {
   try {
-    // 1. get org tokens
-    const { data: org, error: orgError } = await supabase
-      .from('organizations')
-      .select('gmail_access_token, gmail_refresh_token')
-      .eq('id', orgId)
-      .single();
-
-    if (orgError || !org) {
-      throw new Error(`Failed to find organization tokens for orgId: ${orgId}`);
-    }
-
-    // 2. Set up tokens
-    const tokens = {
-      access_token: org.gmail_access_token!,
-      refresh_token: org.gmail_refresh_token!,
-      token_type: 'Bearer',
-      scope: 'https://www.googleapis.com/auth/gmail.modify',
-      expiry_date: Date.now() + 3600000
-    };
-
-    // 3. Set up Gmail client
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
-      process.env.GMAIL_CLIENT_SECRET,
-      process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
-    );
-    oauth2Client.setCredentials(tokens);
-
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    // Get Gmail client using organization ID
+    const gmail = await getGmailClient(orgId);
     
-    // 4. Add INBOX label back
+    // Add INBOX label back
     await gmail.users.messages.modify({
       userId: 'me',
       id: messageId,

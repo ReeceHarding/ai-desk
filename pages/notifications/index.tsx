@@ -1,6 +1,7 @@
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
@@ -50,6 +51,11 @@ export default function NotificationsPage() {
   const [sending, setSending] = useState<Record<string, boolean>>({});
   const [unarchiving, setUnarchiving] = useState<Record<string, boolean>>({});
   const loadMoreRef = useRef(null);
+  
+  // Add new state for email import progress
+  const [importProgress, setImportProgress] = useState(0);
+  const [isImporting, setIsImporting] = useState(false);
+  const [totalEmailsToImport, setTotalEmailsToImport] = useState(0);
 
   const showToast = useCallback((props: { title: string; description: string; variant?: 'default' | 'destructive' }) => {
     toast(props);
@@ -530,6 +536,73 @@ export default function NotificationsPage() {
     </Card>
   );
 
+  const importEmails = async (count: number) => {
+    try {
+      setIsImporting(true);
+      setImportProgress(0);
+      setTotalEmailsToImport(count);
+
+      const response = await fetch(`/api/gmail/import?count=${count}`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to start email import');
+      }
+
+      const { importId } = await response.json();
+      if (!importId) {
+        throw new Error('No import ID returned');
+      }
+
+      // Set up EventSource for progress updates
+      const eventSource = new EventSource(`/api/gmail/import/progress?importId=${importId}`);
+      
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        setImportProgress(data.progress);
+        
+        if (data.progress === 100 || data.progress === -1) {
+          eventSource.close();
+          setIsImporting(false);
+          
+          if (data.progress === 100) {
+            showToast({
+              title: 'Import Complete',
+              description: `Successfully imported ${count} emails`,
+            });
+          } else {
+            showToast({
+              title: 'Import Failed',
+              description: 'Failed to import emails. Please try again.',
+              variant: 'destructive',
+            });
+          }
+          
+          fetchNotifications();
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        setIsImporting(false);
+        showToast({
+          title: 'Import Error',
+          description: 'Failed to import emails. Please try again.',
+          variant: 'destructive',
+        });
+      };
+    } catch (error) {
+      logger.error('Error importing emails', { error });
+      setIsImporting(false);
+      showToast({
+        title: 'Import Error',
+        description: 'Failed to import emails. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   if (loading) {
     return (
       <AppLayout>
@@ -552,6 +625,89 @@ export default function NotificationsPage() {
           <p className="mt-2 text-sm text-slate-500">Manage your email notifications and drafts</p>
         </div>
         
+        {/* Add Email Import Section */}
+        <Card className="p-6">
+          <div className="space-y-4">
+            <h2 className="text-lg font-semibold text-slate-900">Import Emails</h2>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => importEmails(10)}
+                disabled={isImporting}
+                variant="outline"
+                className="relative overflow-hidden group/btn"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/5 to-blue-500/0 translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700"/>
+                <div className="relative flex items-center">
+                  {isImporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <MailIcon className="h-4 w-4 mr-2 text-blue-600 dark:text-blue-400" />
+                  )}
+                  <span>Import Last 10 Emails</span>
+                </div>
+              </Button>
+              <Button
+                onClick={() => importEmails(50)}
+                disabled={isImporting}
+                variant="outline"
+                className="relative overflow-hidden group/btn"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/5 to-blue-500/0 translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700"/>
+                <div className="relative flex items-center">
+                  {isImporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <MailIcon className="h-4 w-4 mr-2 text-blue-600 dark:text-blue-400" />
+                  )}
+                  <span>Import Last 50 Emails</span>
+                </div>
+              </Button>
+              <Button
+                onClick={() => importEmails(100)}
+                disabled={isImporting}
+                variant="outline"
+                className="relative overflow-hidden group/btn"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/5 to-blue-500/0 translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700"/>
+                <div className="relative flex items-center">
+                  {isImporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <MailIcon className="h-4 w-4 mr-2 text-blue-600 dark:text-blue-400" />
+                  )}
+                  <span>Import Last 100 Emails</span>
+                </div>
+              </Button>
+              <Button
+                onClick={() => importEmails(-1)}
+                disabled={isImporting}
+                variant="outline"
+                className="relative overflow-hidden group/btn"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/5 to-blue-500/0 translate-x-[-100%] group-hover/btn:translate-x-[100%] transition-transform duration-700"/>
+                <div className="relative flex items-center">
+                  {isImporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <MailIcon className="h-4 w-4 mr-2 text-blue-600 dark:text-blue-400" />
+                  )}
+                  <span>Import All Emails</span>
+                </div>
+              </Button>
+            </div>
+            
+            {isImporting && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm text-slate-600">
+                  <span>Importing emails...</span>
+                  <span>{Math.round(importProgress)}%</span>
+                </div>
+                <Progress value={importProgress} className="w-full" />
+              </div>
+            )}
+          </div>
+        </Card>
+
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabType)} className="w-full">
           <TabsList className="mb-4 bg-slate-100/50 p-1 rounded-lg">
             <TabsTrigger 

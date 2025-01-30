@@ -190,13 +190,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           throw profileError || new Error('No organization found for profile');
         }
 
-        // Update profile
-        const { error: updateError } = await supabase
-          .from('profiles')
+        // Update profile and organization with Gmail tokens
+        const { error: updateError } = await supabase.from('profiles')
           .update({
             gmail_access_token: access_token,
             gmail_refresh_token: refresh_token,
-            updated_at: new Date().toISOString(),
+            gmail_token_expiry: new Date(Date.now() + (expires_in * 1000)).toISOString(),
+            updated_at: new Date().toISOString()
           })
           .eq('id', id);
 
@@ -205,19 +205,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           throw updateError;
         }
 
-        // Update organization
-        const { error: orgUpdateError } = await supabase
-          .from('organizations')
+        // Update organization with Gmail tokens
+        const { error: orgUpdateError } = await supabase.from('organizations')
           .update({
             gmail_access_token: access_token,
             gmail_refresh_token: refresh_token,
-            updated_at: new Date().toISOString(),
+            gmail_token_expiry: new Date(Date.now() + (expires_in * 1000)).toISOString(),
+            updated_at: new Date().toISOString()
           })
           .eq('id', profile.org_id);
 
         if (orgUpdateError) {
           log('Error updating organization:', orgUpdateError);
-          // Don't throw, continue with watch setup
+          throw orgUpdateError;
         }
 
         log('Successfully updated profile and organization with Gmail tokens');

@@ -286,6 +286,7 @@ CREATE TABLE IF NOT EXISTS public.organizations (
   gmail_history_id text,
   gmail_watch_resource_id text,
   gmail_watch_status text CHECK (gmail_watch_status IN ('active', 'expired', 'failed', 'pending')),
+  gmail_token_expiry timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -316,6 +317,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   gmail_watch_expiration timestamptz,
   gmail_watch_resource_id text,
   gmail_watch_status text CHECK (gmail_watch_status IN ('active', 'expired', 'failed', 'pending')),
+  gmail_token_expiry timestamptz,
   -- Optional new columns
   agent_rank int,
   preferences jsonb DEFAULT '{}'::jsonb,
@@ -771,12 +773,14 @@ WITH CHECK (
 ALTER TABLE public.organizations
   ADD COLUMN IF NOT EXISTS gmail_watch_expiration timestamptz,
   ADD COLUMN IF NOT EXISTS gmail_watch_resource_id text,
-  ADD COLUMN IF NOT EXISTS gmail_watch_status text CHECK (gmail_watch_status IN ('active', 'expired', 'failed', 'pending'));
+  ADD COLUMN IF NOT EXISTS gmail_watch_status text CHECK (gmail_watch_status IN ('active', 'expired', 'failed', 'pending')),
+  ADD COLUMN IF NOT EXISTS gmail_token_expiry timestamptz;
 
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS gmail_watch_expiration timestamptz,
   ADD COLUMN IF NOT EXISTS gmail_watch_resource_id text,
-  ADD COLUMN IF NOT EXISTS gmail_watch_status text CHECK (gmail_watch_status IN ('active', 'expired', 'failed', 'pending'));
+  ADD COLUMN IF NOT EXISTS gmail_watch_status text CHECK (gmail_watch_status IN ('active', 'expired', 'failed', 'pending')),
+  ADD COLUMN IF NOT EXISTS gmail_token_expiry timestamptz;
 
 CREATE INDEX IF NOT EXISTS idx_org_gmail_watch_expiration
   ON public.organizations(gmail_watch_expiration);
@@ -833,6 +837,10 @@ CREATE INDEX IF NOT EXISTS ticket_email_chats_message_idx ON public.ticket_email
 CREATE INDEX IF NOT EXISTS ticket_email_chats_thread_idx ON public.ticket_email_chats (thread_id);
 CREATE INDEX IF NOT EXISTS ticket_email_chats_org_idx ON public.ticket_email_chats (org_id);
 CREATE INDEX IF NOT EXISTS ticket_email_chats_gmail_date_idx ON public.ticket_email_chats (gmail_date);
+
+-- Create indexes for ticket_email_chats
+CREATE INDEX IF NOT EXISTS ticket_email_chats_message_thread_idx 
+ON public.ticket_email_chats(message_id, thread_id);
 
 --------------------------------------------------------------------------------
 -- 15. LOGS TABLE (Already Created Above)

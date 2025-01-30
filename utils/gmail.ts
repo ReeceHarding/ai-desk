@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import { google } from 'googleapis';
+import { gmail_v1, google } from 'googleapis';
 import { resolve } from 'path';
 import { GmailMessage, GmailProfile, GmailTokens, ParsedEmail } from '../types/gmail';
 import { Database } from '../types/supabase';
@@ -242,73 +242,105 @@ export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[
 // Helper function to ensure date is in string format
 const formatDate = (date: Date): string => date.toISOString();
 
-export async function parseGmailMessage(message: GmailMessage): Promise<ParsedEmail> {
-  if (!message.payload) {
-    throw new Error('Message payload is missing');
+export async function parseGmailMessage(message: gmail_v1.Schema$Message): Promise<ParsedEmail | null> {
+  try {
+    if (!message.payload || !message.id || !message.threadId || !message.historyId) {
+      logger.warn('Missing required fields in Gmail message', {
+        messageId: message.id,
+        hasPayload: !!message.payload,
+        hasThreadId: !!message.threadId,
+        hasHistoryId: !!message.historyId
+      });
+      return null;
+    }
+
+    const headers = message.payload.headers || [];
+    const fromHeader = headers.find(h => h.name?.toLowerCase() === 'from')?.value || '';
+    const toHeader = headers.find(h => h.name?.toLowerCase() === 'to')?.value || '';
+    const subject = headers.find(h => h.name?.toLowerCase() === 'subject')?.value || '(No Subject)';
+    const date = headers.find(h => h.name?.toLowerCase() === 'date')?.value || new Date().toISOString();
+    const ccHeader = headers.find(h => h.name?.toLowerCase() === 'cc')?.value || '';
+    const bccHeader = headers.find(h => h.name?.toLowerCase() === 'bcc')?.value || '';
+
+    if (!fromHeader || !toHeader) {
+      logger.warn('Missing required header fields in Gmail message', {
+        messageId: message.id,
+        hasFrom: !!fromHeader,
+        hasTo: !!toHeader
+      });
+      return null;
+    }
+
+    // Split email addresses into arrays, but keep 'from' as a single string
+    const to = toHeader.split(',').map(addr => addr.trim());
+    const cc = ccHeader ? ccHeader.split(',').map(addr => addr.trim()) : [];
+    const bcc = bccHeader ? bccHeader.split(',').map(addr => addr.trim()) : [];
+
+    const parts = message.payload.parts || [];
+    let bodyText = '';
+    let bodyHtml = '';
+
+    // Process message parts recursively
+    const processPart = (part: gmail_v1.Schema$MessagePart) => {
+      if (part.mimeType === 'text/plain' && part.body?.data) {
+        bodyText = Buffer.from(part.body.data, 'base64').toString('utf-8');
+      } else if (part.mimeType === 'text/html' && part.body?.data) {
+        bodyHtml = Buffer.from(part.body.data, 'base64').toString('utf-8');
+      }
+
+      if (part.parts) {
+        part.parts.forEach(processPart);
+      }
+    };
+
+    processPart(message.payload);
+
+    // If no parts were found, try to get the body from the payload directly
+    if (!bodyText && !bodyHtml && message.payload.body?.data) {
+      const body = Buffer.from(message.payload.body.data, 'base64').toString('utf-8');
+      if (message.payload.mimeType === 'text/html') {
+        bodyHtml = body;
+      } else {
+        bodyText = body;
+      }
+    }
+
+    // Ensure we have at least one form of body content
+    if (!bodyText && !bodyHtml) {
+      bodyText = '(No content)';
+    }
+
+    const result = {
+      id: message.id,
+      threadId: message.threadId,
+      historyId: message.historyId,
+      from: fromHeader,
+      to,
+      subject,
+      date,
+      cc,
+      bcc,
+      bodyText: bodyText || '(No plain text content)',
+      bodyHtml: bodyHtml || '',
+      attachments: [] // Add empty attachments array to match interface
+    } as const;
+
+    // Validate the result before returning
+    if (!isValidParsedEmail(result)) {
+      logger.warn('Failed to create valid ParsedEmail object', {
+        messageId: message.id
+      });
+      return null;
+    }
+
+    return result;
+  } catch (error) {
+    logger.error('Error parsing Gmail message:', {
+      error: error instanceof Error ? error.message : String(error),
+      messageId: message.id
+    });
+    return null;
   }
-  
-  const headers = message.payload.headers || [];
-  const getHeader = (name: string) => headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
-
-  const attachments: Array<{
-    filename: string;
-    mimeType: string;
-    size: number;
-    attachmentId: string;
-  }> = [];
-
-  const plainTextBody = message.payload ? extractBody(message.payload) : '';
-  const htmlBody = message.payload ? extractHtmlBody(message.payload) : '';
-
-  const fromHeader = getHeader('from');
-  // Updated regex to better handle email formats
-  const fromMatch = fromHeader.match(/^(?:(?:"?([^"]*)"?\s*)?(?:<(.+@[^>]+)>)|(.+@\S+))/i);
-  const senderName = fromMatch?.[1]?.trim() || '';
-  const senderEmail = fromMatch?.[2]?.trim() || fromMatch?.[3]?.trim() || fromHeader;
-
-  console.log('\n=== Email Sender Info ===');
-  console.log('From Header:', fromHeader);
-  console.log('Parsed Details:');
-  console.log('  • Name:', senderName || '(none)');
-  console.log('  • Email:', senderEmail);
-  console.log('  • Display:', senderName || senderEmail.split('@')[0]);
-  console.log('  • Match Groups:', {
-    full: fromMatch?.[0],
-    name: fromMatch?.[1],
-    email: fromMatch?.[2],
-    fallback: fromMatch?.[3]
-  });
-  console.log('========================\n');
-
-  // If no name was found, use the local part of the email as a fallback
-  const displayName = senderName || senderEmail.split('@')[0];
-
-  const to = getHeader('to');
-  const cc = getHeader('cc');
-  const bcc = getHeader('bcc');
-  const subject = getHeader('subject');
-  const date = new Date(getHeader('date'));
-
-  // Parse email addresses
-  const parseAddresses = (addressStr: string): string[] => {
-    if (!addressStr) return [];
-    return addressStr.split(',').map(addr => addr.trim());
-  };
-
-  return {
-    id: message.id,
-    threadId: message.threadId,
-    historyId: message.historyId,
-    from: getHeader('from'),
-    to: getHeader('to').split(',').map(addr => addr.trim()),
-    cc: getHeader('cc') ? getHeader('cc').split(',').map(addr => addr.trim()) : [],
-    bcc: getHeader('bcc') ? getHeader('bcc').split(',').map(addr => addr.trim()) : [],
-    subject: getHeader('subject'),
-    date: message.internalDate,
-    bodyText: plainTextBody || '',
-    bodyHtml: htmlBody || '',
-    attachments
-  };
 }
 
 export async function refreshGmailTokens(refreshToken: string): Promise<GmailTokens> {
@@ -530,66 +562,165 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
   }
 }
 
-export async function pollAndCreateTickets(userId: string): Promise<any[]> {
-  await gmailLogger.info(`Starting email polling for user { userId: '${userId}' }`);
+/**
+ * Type guard to check if a value is a valid ParsedEmail
+ */
+function isValidParsedEmail(email: unknown): email is ParsedEmail {
+  if (!email || typeof email !== 'object') return false;
+  
+  const e = email as any;
+  
+  // Check all required fields are present and valid
+  if (!e.id || typeof e.id !== 'string' ||
+      !e.threadId || typeof e.threadId !== 'string' ||
+      !e.historyId || typeof e.historyId !== 'string' ||
+      !e.from || typeof e.from !== 'string' ||
+      !e.subject || typeof e.subject !== 'string' ||
+      !e.date || typeof e.date !== 'string' ||
+      !e.bodyText || typeof e.bodyText !== 'string' ||
+      !e.bodyHtml || typeof e.bodyHtml !== 'string') {
+    return false;
+  }
 
+  // Ensure arrays are present and valid
+  if (!Array.isArray(e.to) || !Array.isArray(e.cc) || !Array.isArray(e.bcc)) {
+    return false;
+  }
+
+  // Ensure array elements are strings
+  if (!e.to.every((x: any) => typeof x === 'string') ||
+      !e.cc.every((x: any) => typeof x === 'string') ||
+      !e.bcc.every((x: any) => typeof x === 'string')) {
+    return false;
+  }
+
+  // Ensure attachments array is present
+  if (!Array.isArray(e.attachments)) {
+    return false;
+  }
+
+  // All checks passed
+  return true;
+}
+
+export async function getThreadMessages(threadId: string, orgId: string): Promise<ParsedEmail[]> {
   try {
-    const { data: profile, error: profileError } = await supabase
+    const gmail = await getGmailClient(orgId);
+    const response = await gmail.users.threads.get({
+      userId: 'me',
+      id: threadId,
+      format: 'full'
+    });
+
+    const messages = response.data.messages || [];
+    const parsedMessages: ParsedEmail[] = [];
+
+    for (const message of messages) {
+      const parsedEmailResult = await parseGmailMessage(message);
+      if (isValidParsedEmail(parsedEmailResult)) {
+        parsedMessages.push(parsedEmailResult);
+      } else {
+        logger.warn('Failed to parse or validate thread message', {
+          messageId: message.id,
+          threadId,
+          orgId
+        });
+      }
+    }
+
+    return parsedMessages;
+  } catch (error) {
+    logger.error('Error fetching thread messages:', {
+      error: error instanceof Error ? error.message : String(error),
+      threadId,
+      orgId
+    });
+    throw error;
+  }
+}
+
+export async function processGmailMessages(messages: GmailMessage[], userId: string) {
+  const results = [];
+
+  for (const message of messages) {
+    try {
+      const parsedEmail = await parseGmailMessage(message);
+      if (!parsedEmail) {
+        logger.warn('Failed to parse email message', {
+          messageId: message.id,
+          userId
+        });
+        results.push({
+          success: false,
+          messageId: message.id,
+          error: 'Failed to parse email'
+        });
+        continue;
+      }
+
+      // At this point, TypeScript knows parsedEmail is a valid ParsedEmail
+      const { ticket, emailChatId } = await createTicketFromEmail(parsedEmail, userId);
+      
+      // Process for promotional content
+      const emailBody = parsedEmail.bodyText.length > 0 ? parsedEmail.bodyText : parsedEmail.bodyHtml;
+      
+      await processPotentialPromotionalEmail(
+        emailChatId,
+        ticket.org_id,
+        emailBody,
+        parsedEmail.id,
+        parsedEmail.threadId,
+        parsedEmail.from,
+        parsedEmail.subject
+      );
+
+      results.push({
+        success: true,
+        messageId: parsedEmail.id
+      });
+    } catch (error) {
+      logger.error('Error processing message:', {
+        error: error instanceof Error ? error.message : String(error),
+        messageId: message.id,
+        userId
+      });
+      results.push({
+        success: false,
+        messageId: message.id,
+        error: String(error)
+      });
+    }
+  }
+
+  return results;
+}
+
+export async function pollAndCreateTickets(userId: string): Promise<any[]> {
+  try {
+    // Get user's Gmail tokens
+    const { data: user } = await supabase
       .from('profiles')
       .select('gmail_access_token, gmail_refresh_token')
       .eq('id', userId)
       .single();
 
-    if (profileError || !profile) {
-      throw new Error('Failed to get user profile');
+    if (!user?.gmail_access_token || !user?.gmail_refresh_token) {
+      throw new Error('Gmail tokens not found');
     }
 
     const tokens: GmailTokens = {
-      access_token: profile.gmail_access_token!,
-      refresh_token: profile.gmail_refresh_token!,
-      scope: 'https://www.googleapis.com/auth/gmail.modify',
-      token_type: 'Bearer',
+      access_token: user.gmail_access_token,
+      refresh_token: user.gmail_refresh_token,
       expiry_date: Date.now() + 3600000 // 1 hour from now
     };
 
-    try {
-      const messages = await pollGmailInbox(tokens);
-      const results = [];
-
-      for (const message of messages) {
-        try {
-          const parsedEmail = await parseGmailMessage(message);
-          const { ticket, emailChatId } = await createTicketFromEmail(parsedEmail, userId);
-          
-          // Process for promotional content
-          await processPotentialPromotionalEmail(
-            emailChatId,
-            ticket.org_id,
-            parsedEmail.bodyText || parsedEmail.bodyHtml || '',
-            message.id,
-            parsedEmail.threadId,
-            parsedEmail.from,
-            parsedEmail.subject || ''
-          );
-          
-          results.push({ success: true, ticket, emailChatId });
-        } catch (error) {
-          await gmailLogger.error('Error creating ticket from email', error);
-          results.push({ success: false, error });
-        }
-      }
-
-      return results;
-    } catch (error: any) {
-      if (error.message.includes('401')) {
-        await gmailLogger.info('Access token expired, refreshing...');
-        const newTokens = await refreshGmailTokens(tokens.refresh_token);
-        return pollAndCreateTickets(userId);
-      }
-      throw error;
-    }
-  } catch (error: any) {
-    await gmailLogger.error('Error in pollAndCreateTickets', error);
+    const messages = await pollGmailInbox(tokens);
+    return processGmailMessages(messages, userId);
+  } catch (error) {
+    logger.error('Error polling and creating tickets:', {
+      error: error instanceof Error ? error.message : String(error),
+      userId
+    });
     throw error;
   }
 }
@@ -640,7 +771,7 @@ export async function fetchLastTenEmails(tokens: GmailTokens): Promise<GmailMess
 
 export async function importInitialEmails(userId: string, tokens: GmailTokens) {
   try {
-    await gmailLogger.info('Starting initial email import', { userId });
+    gmailLogger.info('Starting initial email import', { userId });
     
     // Get user profile to get org_id
     const { data: profile, error: profileError } = await supabase
@@ -653,52 +784,77 @@ export async function importInitialEmails(userId: string, tokens: GmailTokens) {
       throw new Error('Failed to get user profile');
     }
     
-    // Fetch last 10 emails
     const messages = await fetchLastTenEmails(tokens);
-    await gmailLogger.info('Fetched initial emails', { count: messages.length });
     
-    // Process each message
-    const results = await Promise.allSettled(
-      messages.map(async (message) => {
-        try {
-          const parsedEmail = await parseGmailMessage(message);
-          const ticket = await createTicketFromEmail(parsedEmail, userId);
-          
-          // Process for promotional content
-          await processPotentialPromotionalEmail(
-            ticket.emailChatId,
-            profile.org_id,
-            parsedEmail.bodyText || parsedEmail.bodyHtml || '',
-            message.id,
-            parsedEmail.threadId,
-            parsedEmail.from,
-            parsedEmail.subject || ''
-          );
-          
-          return { success: true, messageId: message.id };
-        } catch (error) {
-          await gmailLogger.error(`Failed to process message ${message.id}`, error);
-          return { success: false, messageId: message.id, error };
+    const results = await Promise.all(messages.map(async (message) => {
+      try {
+        if (!message.id || !message.threadId) {
+          gmailLogger.warn('Message missing required IDs', {
+            messageId: message.id,
+            threadId: message.threadId
+          });
+          return { success: false, messageId: message.id || 'unknown', error: new Error('Message missing required IDs') };
         }
-      })
-    );
-    
-    // Log results
-    const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-    const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
-    
-    await gmailLogger.info('Completed initial email import', {
-      total: messages.length,
-      successful,
-      failed,
-      results: results.map(r => r.status === 'fulfilled' ? r.value : { success: false, error: r.reason })
-    });
-    
+
+        const parsedEmail = await parseGmailMessage(message);
+        if (!parsedEmail) {
+          gmailLogger.warn('Failed to parse email', { 
+            messageId: message.id,
+            reason: 'Parsing returned null',
+            headers: message.payload?.headers
+          });
+          return { success: false, messageId: message.id, error: new Error('Failed to parse email') };
+        }
+
+        // Create ticket from email
+        const ticket = await createTicketFromEmail(parsedEmail, userId);
+        
+        // Process for promotional content
+        await processPotentialPromotionalEmail(
+          ticket.emailChatId,
+          profile.org_id,
+          parsedEmail.bodyText || parsedEmail.bodyHtml || '',
+          message.id,
+          message.threadId,
+          parsedEmail.from || '',
+          parsedEmail.subject || ''
+        );
+        
+        return { success: true, messageId: message.id };
+      } catch (error) {
+        gmailLogger.error('Failed to process email', {
+          messageId: message.id,
+          error: formatError(error),
+          payload: {
+            headers: message.payload?.headers,
+            mimeType: message.payload?.mimeType,
+            hasBody: !!message.payload?.body,
+            hasParts: !!message.payload?.parts
+          }
+        });
+        return { success: false, messageId: message.id || 'unknown', error };
+      }
+    }));
+
+    const failedCount = results.filter(r => !r.success).length;
+    if (failedCount > 0) {
+      gmailLogger.warn('Some emails failed to import', {
+        total: results.length,
+        failed: failedCount,
+        failedMessages: results.filter(r => !r.success).map(r => ({
+          messageId: r.messageId,
+          error: formatError(r.error)
+        }))
+      });
+    }
+
     return results;
   } catch (error) {
-    await gmailLogger.error('Failed to import initial emails', error);
-    // Don't throw error - we want the OAuth flow to complete even if import fails
-    return [];
+    gmailLogger.error('Failed to import initial emails', {
+      userId,
+      error: formatError(error)
+    });
+    throw error;
   }
 }
 
@@ -727,16 +883,8 @@ export async function setupGmailWatch(
   try {
     gmailLogger.info('Setting up Gmail watch', { type, id });
 
-    // Set up Gmail client
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
-      process.env.GMAIL_CLIENT_SECRET,
-      process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
-    );
-
-    oauth2Client.setCredentials(tokens);
-
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    // Get Gmail client using organization ID
+    const gmail = await getGmailClient(id);
 
     // Get current history ID
     const profile = await gmail.users.getProfile({ userId: 'me' });
@@ -910,7 +1058,7 @@ export async function getGmailClient(orgId: string) {
     // Get organization's Gmail tokens
     const { data: org, error: orgError } = await supabase
       .from('organizations')
-      .select('gmail_access_token, gmail_refresh_token')
+      .select('gmail_access_token, gmail_refresh_token, gmail_token_expiry')
       .eq('id', orgId)
       .single();
 
@@ -919,29 +1067,56 @@ export async function getGmailClient(orgId: string) {
       throw new Error('Failed to get organization tokens');
     }
 
-    const { gmail_access_token, gmail_refresh_token } = org;
+    const { gmail_access_token, gmail_refresh_token, gmail_token_expiry } = org;
 
     if (!gmail_access_token || !gmail_refresh_token) {
-      gmailLogger.error('Gmail tokens not found in organization');
+      gmailLogger.error('Gmail tokens not found', { 
+        orgId,
+        hasAccessToken: !!gmail_access_token,
+        hasRefreshToken: !!gmail_refresh_token
+      });
       throw new Error('Gmail tokens not configured');
     }
 
     // Set up Gmail OAuth2 client
     const oauth2Client = new google.auth.OAuth2(
-      process.env.GMAIL_CLIENT_ID,
+      process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
       process.env.GMAIL_CLIENT_SECRET,
-      process.env.GMAIL_REDIRECT_URI
+      process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
     );
 
+    // Set credentials and force token refresh if expired
     oauth2Client.setCredentials({
       access_token: gmail_access_token,
       refresh_token: gmail_refresh_token,
+      expiry_date: gmail_token_expiry ? new Date(gmail_token_expiry).getTime() : undefined
     });
 
-    // Create and return Gmail client
+    // Add token refresh handler
+    oauth2Client.on('tokens', async (tokens) => {
+      const updates: any = {
+        gmail_access_token: tokens.access_token,
+        gmail_token_expiry: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null
+      };
+      
+      if (tokens.refresh_token) {
+        updates.gmail_refresh_token = tokens.refresh_token;
+      }
+
+      await supabase
+        .from('organizations')
+        .update(updates)
+        .eq('id', orgId);
+    });
+
+    // Create Gmail client
     return google.gmail({ version: 'v1', auth: oauth2Client });
   } catch (error: any) {
-    gmailLogger.error('Failed to initialize Gmail client', { error: error.message });
+    gmailLogger.error('Failed to initialize Gmail client', { 
+      error: error.message,
+      orgId,
+      stack: error.stack
+    });
     throw error;
   }
 } 

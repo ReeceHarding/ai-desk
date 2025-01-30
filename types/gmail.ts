@@ -1,3 +1,4 @@
+import { gmail_v1 } from 'googleapis';
 
 export type EmailDirection = 'inbound' | 'outbound';
 
@@ -26,44 +27,27 @@ export interface EmailLog {
 export interface GmailTokens {
   access_token: string;
   refresh_token: string;
-  token_type: string;
-  scope: string;
-  expiry_date: number;
+  scope?: string;
+  token_type?: string;
+  expiry_date?: number;
 }
 
 export interface GmailProfile {
   emailAddress: string;
-  messagesTotal: number;
-  threadsTotal: number;
-  historyId: string;
+  messagesTotal?: number;
+  threadsTotal?: number;
+  historyId?: string;
 }
 
-export interface GmailMessagePart {
-  partId?: string;
+export interface GmailMessagePart extends gmail_v1.Schema$MessagePart {
   mimeType?: string;
-  filename?: string;
-  headers?: Array<{
-    name: string;
-    value: string;
-  }>;
   body?: {
-    attachmentId?: string;
-    size?: number;
     data?: string;
   };
   parts?: GmailMessagePart[];
 }
 
-export interface GmailMessage {
-  id: string;
-  threadId: string;
-  labelIds: string[];
-  snippet: string;
-  historyId: string;
-  internalDate: string;
-  payload: GmailMessagePart | null;
-  sizeEstimate: number;
-}
+export type GmailMessage = gmail_v1.Schema$Message;
 
 export interface ParsedEmail {
   id: string;
@@ -71,19 +55,18 @@ export interface ParsedEmail {
   historyId: string;
   from: string;
   to: string[];
-  cc?: string[];
-  bcc?: string[];
+  cc: string[];
+  bcc: string[];
   subject: string;
   date: string;
-  bodyText?: string;
-  bodyHtml?: string;
+  bodyText: string;
+  bodyHtml: string;
   attachments: Array<{
     filename: string;
     mimeType: string;
     size: number;
     attachmentId: string;
   }>;
-  raw?: string;
 }
 
 export interface EmailLogParams {

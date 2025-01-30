@@ -23,12 +23,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .select('id, ticket_id, subject, ai_draft_response, created_at, from_address, from_name, thread_id, message_id, ai_confidence')
         .eq('ai_auto_responded', false)
         .not('ai_draft_response', 'is', null)
+        .eq('metadata->promotional', false)
         .order('created_at', { ascending: false }),
       supabase
         .from('ticket_email_chats')
         .select('id, ticket_id, subject, ai_draft_response, created_at, from_address, from_name, thread_id, message_id, ai_confidence')
         .eq('ai_auto_responded', true)
         .not('ai_draft_response', 'is', null)
+        .eq('metadata->promotional', false)
         .order('created_at', { ascending: false })
     ]);
 
