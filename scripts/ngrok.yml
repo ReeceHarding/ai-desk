@@ -1,0 +1,7 @@
+version: "2"
+authtoken: "2rmMFZzwIZtNhWHblqb5XVNKgDz_4Y261TJgvv1jGtU9GZab3"
+web_addr: "127.0.0.1:4040"
+tunnels:
+  web:
+    proto: http
+    addr: 3020 

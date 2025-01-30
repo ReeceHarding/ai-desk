@@ -148,7 +148,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .from('organizations')
             .update({
               gmail_watch_status: 'active',
-              gmail_watch_expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              gmail_watch_expiration: watchResult.expiration 
+                ? new Date(parseInt(watchResult.expiration)).toISOString() 
+                : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
               gmail_watch_resource_id: watchResult.resourceId,
               updated_at: new Date().toISOString()
             })

@@ -51,8 +51,15 @@ interface MessageProcessingRecord {
 
 // Rate limiting configuration
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  windowMs: 60 * 1000, // 1 minute
+  max: 100, // limit each IP to 100 requests per minute
+  message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    // Use a fixed key for PubSub webhooks since they come from Google
+    return 'pubsub-webhook';
+  }
 });
 
 // Request validation schema
@@ -60,8 +67,9 @@ const PubSubMessageSchema = z.object({
   message: z.object({
     data: z.string(),
     messageId: z.string(),
-    publishTime: z.string()
-  }).optional(),
+    publishTime: z.string(),
+    attributes: z.record(z.string()).optional()
+  }),
   subscription: z.string()
 });
 
@@ -106,26 +114,50 @@ async function getEmailBody(message: gmail_v1.Schema$Message): Promise<string> {
     return null;
   };
 
+  // Function to find text part
+  const findTextPart = (parts: gmail_v1.Schema$MessagePart[]): gmail_v1.Schema$MessagePart | null => {
+    for (const part of parts) {
+      if (part.mimeType === 'text/plain') {
+        return part;
+      }
+      if (part.parts) {
+        const textPart = findTextPart(part.parts);
+        if (textPart) return textPart;
+      }
+    }
+    return null;
+  };
+
   let body = '';
   
-  // If the message has parts, look for HTML content
+  // If the message has parts, look for content
   if (message.payload.parts) {
     await logger.info('Processing multipart message', { 
       messageId: message.id,
       partCount: message.payload.parts.length 
     });
     
+    // First try to get HTML content
     const htmlPart = findHtmlPart(message.payload.parts);
     if (htmlPart && htmlPart.body?.data) {
       body = decodeBase64(htmlPart.body.data);
       await logger.info('Found HTML part', { messageId: message.id });
     }
+
+    // If no HTML, try to get plain text
+    if (!body) {
+      const textPart = findTextPart(message.payload.parts);
+      if (textPart && textPart.body?.data) {
+        body = decodeBase64(textPart.body.data);
+        await logger.info('Found text part', { messageId: message.id });
+      }
+    }
   }
 
-  // If no HTML part found but there's body data, use that
+  // If no parts or no content found in parts, try the main body
   if (!body && message.payload.body?.data) {
     body = decodeBase64(message.payload.body.data);
-    await logger.info('Using plain body data', { messageId: message.id });
+    await logger.info('Using main body data', { messageId: message.id });
   }
 
   // Fallback to snippet
@@ -177,6 +209,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const secretToken = process.env.PUBSUB_SECRET_TOKEN;
     const authHeader = req.headers.authorization;
 
+    await logger.info('Checking webhook authorization', {
+      hasSecretToken: !!secretToken,
+      hasAuthHeader: !!authHeader,
+      authHeader,
+      expectedToken: `Bearer ${secretToken}`
+    });
+
     if (secretToken) {
       if (!authHeader) {
         await logger.error('Missing authorization header');
@@ -186,7 +225,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
       }
       if (authHeader !== `Bearer ${secretToken}`) {
-        await logger.error('Invalid authorization token');
+        await logger.error('Invalid authorization token', {
+          received: authHeader,
+          expected: `Bearer ${secretToken}`
+        });
         return res.status(401).json({ 
           error: 'Unauthorized',
           message: 'Invalid authorization token'
@@ -499,7 +541,15 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
   await logger.info('Processing message', { 
     messageId: message.id,
     threadId: message.threadId,
-    orgId
+    orgId,
+    messageData: {
+      snippet: message.snippet,
+      labelIds: message.labelIds,
+      historyId: message.historyId,
+      internalDate: message.internalDate,
+      hasPayload: !!message.payload,
+      hasHeaders: !!message.payload?.headers?.length
+    }
   });
 
   // Check if message was already processed
@@ -520,7 +570,7 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
 
     // If failed and under max attempts, retry
     if (existingMessage.attempt_count < Number(process.env.PUBSUB_MAX_DELIVERY_ATTEMPTS || 5)) {
-      await supabase
+      const { error: updateError } = await supabase
         .from('processed_messages')
         .update({
           status: 'retrying',
@@ -528,6 +578,15 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
           updated_at: new Date().toISOString()
         })
         .eq('id', existingMessage.id);
+
+      if (updateError) {
+        await logger.error('Failed to update retry count', {
+          error: updateError,
+          messageId: message.id,
+          processedMessageId: existingMessage.id
+        });
+        return;
+      }
     } else {
       // Move to DLQ if max attempts reached
       await logger.error('Message failed max retry attempts', {
@@ -585,12 +644,16 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
   // Create processing record
   const { data: processingRecord, error: recordError } = await supabase
     .from('processed_messages')
-    .insert({
+    .upsert({
       message_id: messageId,
       thread_id: threadId,
       org_id: orgId,
       status: 'retrying' as const,
-      attempt_count: 1
+      attempt_count: 1,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'message_id',
+      ignoreDuplicates: false
     })
     .select()
     .single();
@@ -623,6 +686,17 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
     const fromMatch = from.match(/(?:"?([^"]*)"?\s*)?(?:<(.+)>)/);
     const fromName = fromMatch ? fromMatch[1]?.trim() : '';
     const fromAddress = fromMatch ? fromMatch[2] : from;
+
+    await logger.info('Extracted email headers', {
+      messageId,
+      subject,
+      from,
+      to,
+      cc,
+      bcc,
+      fromName,
+      fromAddress
+    });
 
     // Helper to convert email string to array
     const emailsToArray = (emails: string): string[] => {
@@ -758,10 +832,29 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
     if (existingProfile) {
       profileId = existingProfile.id;
     } else {
+      // Create new auth user first
+      const { data: auth, error: authError } = await supabase.auth.admin.createUser({
+        email: fromAddress,
+        email_confirm: true,
+        user_metadata: {
+          source: 'gmail_webhook',
+          created_at: new Date().toISOString()
+        }
+      });
+
+      if (authError || !auth.user) {
+        await logger.error('Failed to create auth user', {
+          error: authError,
+          email: fromAddress
+        });
+        throw authError;
+      }
+
       // Create new profile for the sender
       const { data: newProfile, error: profileError } = await supabase
         .from('profiles')
         .insert({
+          id: auth.user.id,
           email: fromAddress,
           role: 'customer',
           org_id: orgId,
@@ -776,7 +869,7 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
         .select()
         .single();
 
-      if (profileError) {
+      if (profileError || !newProfile) {
         await logger.error('Failed to create profile', {
           error: profileError,
           email: fromAddress
@@ -825,7 +918,7 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
         .select()
         .single();
 
-      if (ticketError) {
+      if (ticketError || !newTicket) {
         await logger.error('Failed to create ticket', {
           error: ticketError,
           subject,
@@ -864,7 +957,7 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
       .select()
       .single();
 
-    if (chatError) {
+    if (chatError || !chatRecord) {
       await logger.error('Failed to create email chat', {
         error: chatError,
         messageId: message.id,

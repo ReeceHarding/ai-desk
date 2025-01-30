@@ -638,39 +638,74 @@ interface WatchResponse {
   resourceId: string;
 }
 
+type Credentials = {
+  access_token: string;
+  refresh_token: string;
+  scope?: string;
+  token_type?: string;
+  expiry_date?: number;
+};
+
 /**
  * Sets up or refreshes a Gmail watch for a mailbox
  */
-export async function setupOrRefreshWatch(
-  tokens: GmailTokens, 
-  type: 'organization' | 'profile', 
+export async function setupGmailWatch(
+  tokens: Credentials,
+  type: 'organization' | 'profile',
   id: string
-): Promise<WatchResponse> {
+): Promise<{ historyId: string; expiration: string; resourceId: string }> {
   try {
-    const response = await fetch(`${API_BASE_URL}/api/gmail/watch`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        type,
-        id
-      }),
+    gmailLogger.info('Setting up Gmail watch', { type, id });
+
+    // Set up Gmail client
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
+      process.env.GMAIL_CLIENT_SECRET,
+      process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
+    );
+
+    oauth2Client.setCredentials(tokens);
+
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+    // Get current history ID
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+    const currentHistoryId = profile.data.historyId;
+
+    // Format topic name correctly
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT || 'zendesk-clone-448507';
+    const topicName = `projects/${projectId}/topics/gmail-updates`;
+
+    // Set up watch
+    const response = await gmail.users.watch({
+      userId: 'me',
+      requestBody: {
+        labelIds: [], // Empty array means all labels except SPAM and TRASH
+        topicName,
+        labelFilterAction: 'include'
+      }
     });
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        const newTokens = await refreshGmailTokens(tokens.refresh_token);
-        return setupOrRefreshWatch(newTokens, type, id);
-      }
-      throw new Error(`Failed to setup watch: ${response.statusText}`);
+    if (!response.data.historyId || !response.data.expiration) {
+      throw new Error('Invalid watch response');
     }
 
-    return await response.json();
+    gmailLogger.info('Gmail watch setup successful', {
+      type,
+      id,
+      historyId: response.data.historyId,
+      expiration: new Date(Number(response.data.expiration)).toISOString(),
+      topicName,
+      currentHistoryId
+    });
+
+    return {
+      historyId: response.data.historyId,
+      expiration: response.data.expiration,
+      resourceId: response.data.resourceId || ''
+    };
   } catch (error) {
-    console.error('Error setting up Gmail watch:', error);
+    gmailLogger.error('Failed to set up Gmail watch', { error, type, id });
     throw error;
   }
 }
@@ -726,7 +761,7 @@ export async function checkAndRefreshWatches(): Promise<void> {
   }
 }
 
-export const setupGmailWatch = setupOrRefreshWatch;
+export const setupGmailWatch = setupGmailWatch;
 
 interface SendGmailReplyParams {
   threadId: string;

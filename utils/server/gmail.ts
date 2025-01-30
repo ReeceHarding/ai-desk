@@ -263,15 +263,8 @@ export async function parseGmailMessage(message: GmailMessage): Promise<ParsedEm
     const to = headers.find(h => h.name?.toLowerCase() === 'to')?.value?.split(',').map(e => e.trim()) || [];
     const cc = headers.find(h => h.name?.toLowerCase() === 'cc')?.value?.split(',').map(e => e.trim()) || [];
     
-    // Convert internalDate to ISO string
-    let date: string;
-    if (message.internalDate) {
-      // internalDate is a string containing Unix timestamp in milliseconds
-      date = new Date(parseInt(message.internalDate)).toISOString();
-    } else {
-      // Fallback to current time if no internalDate
-      date = new Date().toISOString();
-    }
+    // Use internalDate for consistent timestamp handling
+    const date = message.internalDate || response.data.internalDate || Date.now().toString();
 
     // Extract body
     let bodyText = '';
@@ -349,7 +342,8 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
           email_thread_id: parsedEmail.threadId,
           email_from: parsedEmail.from,
           email_to: parsedEmail.to.join(', '),
-          email_cc: parsedEmail.cc?.join(', ') || ''
+          email_cc: parsedEmail.cc?.join(', ') || '',
+          email_bcc: parsedEmail.bcc?.join(', ') || ''
         })
       })
       .select()
@@ -363,8 +357,19 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
     // Ensure we have a valid date for gmail_date
     let gmailDate: string;
     try {
-      // If parsedEmail.date is already an ISO string, this will work
-      gmailDate = new Date(parsedEmail.date).toISOString();
+      // Handle different date formats
+      if (typeof parsedEmail.date === 'string') {
+        if (/^\d+$/.test(parsedEmail.date)) {
+          // If it's a Unix timestamp (milliseconds)
+          gmailDate = new Date(parseInt(parsedEmail.date)).toISOString();
+        } else {
+          // If it's an ISO string or other date string
+          gmailDate = new Date(parsedEmail.date).toISOString();
+        }
+      } else {
+        // Fallback to current time
+        gmailDate = new Date().toISOString();
+      }
     } catch (error) {
       // If there's any error parsing the date, use current time
       gmailLogger.warn('Invalid date format, using current time', { 
