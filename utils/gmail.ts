@@ -4,6 +4,7 @@ import { google } from 'googleapis';
 import { resolve } from 'path';
 import { GmailMessage, GmailProfile, GmailTokens, ParsedEmail } from '../types/gmail';
 import { Database } from '../types/supabase';
+import { processPotentialPromotionalEmail } from './agent/gmailPromotionAgent';
 import { logger } from './logger';
 
 // Load environment variables
@@ -265,13 +266,19 @@ export async function parseGmailMessage(message: GmailMessage): Promise<ParsedEm
   const senderName = fromMatch?.[1]?.trim() || '';
   const senderEmail = fromMatch?.[2]?.trim() || fromMatch?.[3]?.trim() || fromHeader;
 
-  console.log('Parsed email sender info:', {
-    fromHeader,
-    fromMatch,
-    senderName,
-    senderEmail,
-    displayName: senderName || senderEmail.split('@')[0]
+  console.log('\n=== Email Sender Info ===');
+  console.log('From Header:', fromHeader);
+  console.log('Parsed Details:');
+  console.log('  • Name:', senderName || '(none)');
+  console.log('  • Email:', senderEmail);
+  console.log('  • Display:', senderName || senderEmail.split('@')[0]);
+  console.log('  • Match Groups:', {
+    full: fromMatch?.[0],
+    name: fromMatch?.[1],
+    email: fromMatch?.[2],
+    fallback: fromMatch?.[3]
   });
+  console.log('========================\n');
 
   // If no name was found, use the local part of the email as a fallback
   const displayName = senderName || senderEmail.split('@')[0];
@@ -481,7 +488,7 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       gmailDate = new Date().toISOString();
     }
 
-    const { error: chatError } = await supabase
+    const { data: emailChat, error: chatError } = await supabase
       .from('ticket_email_chats')
       .insert({
         ticket_id: ticket.id,
@@ -501,14 +508,19 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
         ai_confidence: 0,
         ai_auto_responded: false,
         ai_draft_response: null
-      });
+      })
+      .select()
+      .single();
 
     if (chatError) {
       gmailLogger.error('Failed to create email chat', { error: chatError });
       throw chatError;
     }
 
-    return ticket;
+    return {
+      ticket,
+      emailChatId: emailChat.id
+    };
   } catch (error) {
     gmailLogger.error('Error in createTicketFromEmail', {
       error,
@@ -547,8 +559,20 @@ export async function pollAndCreateTickets(userId: string): Promise<any[]> {
       for (const message of messages) {
         try {
           const parsedEmail = await parseGmailMessage(message);
-          const ticket = await createTicketFromEmail(parsedEmail, userId);
-          results.push({ success: true, ticket });
+          const { ticket, emailChatId } = await createTicketFromEmail(parsedEmail, userId);
+          
+          // Process for promotional content
+          await processPotentialPromotionalEmail(
+            emailChatId,
+            ticket.org_id,
+            parsedEmail.bodyText || parsedEmail.bodyHtml || '',
+            message.id,
+            parsedEmail.threadId,
+            parsedEmail.from,
+            parsedEmail.subject || ''
+          );
+          
+          results.push({ success: true, ticket, emailChatId });
         } catch (error) {
           await gmailLogger.error('Error creating ticket from email', error);
           results.push({ success: false, error });
@@ -618,6 +642,17 @@ export async function importInitialEmails(userId: string, tokens: GmailTokens) {
   try {
     await gmailLogger.info('Starting initial email import', { userId });
     
+    // Get user profile to get org_id
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('org_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error('Failed to get user profile');
+    }
+    
     // Fetch last 10 emails
     const messages = await fetchLastTenEmails(tokens);
     await gmailLogger.info('Fetched initial emails', { count: messages.length });
@@ -627,7 +662,19 @@ export async function importInitialEmails(userId: string, tokens: GmailTokens) {
       messages.map(async (message) => {
         try {
           const parsedEmail = await parseGmailMessage(message);
-          await createTicketFromEmail(parsedEmail, userId);
+          const ticket = await createTicketFromEmail(parsedEmail, userId);
+          
+          // Process for promotional content
+          await processPotentialPromotionalEmail(
+            ticket.emailChatId,
+            profile.org_id,
+            parsedEmail.bodyText || parsedEmail.bodyHtml || '',
+            message.id,
+            parsedEmail.threadId,
+            parsedEmail.from,
+            parsedEmail.subject || ''
+          );
+          
           return { success: true, messageId: message.id };
         } catch (error) {
           await gmailLogger.error(`Failed to process message ${message.id}`, error);

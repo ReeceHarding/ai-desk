@@ -264,14 +264,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Import initial emails
         try {
-          await importInitialEmails(id, {
+          const results = await importInitialEmails(id, {
             access_token,
             refresh_token,
             token_type: 'Bearer',
             scope: GMAIL_SCOPES.join(' '),
             expiry_date: Date.now() + (expires_in * 1000)
           });
-          log('Successfully imported initial emails');
+          
+          const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+          const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
+          
+          log('Successfully imported initial emails', {
+            total: results.length,
+            successful,
+            failed
+          });
         } catch (importError) {
           log('Error importing initial emails:', importError);
           // Continue with redirect even if import fails
