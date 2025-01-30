@@ -21,3 +21,5 @@ you must write out your chain of thought for all code you write
 i always give you permission to read our @.env.local file to see what we have decleared and how we have it declared
 
 never enable RLS
+
+IMPORTANT: after every feature you implement, you MUST trace the entire call from beginning to end and note all incongruencies and then say what's wrong and fix them. don't stop unti the entire call trace passes and calls the same info

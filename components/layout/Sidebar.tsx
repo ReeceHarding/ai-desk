@@ -2,7 +2,20 @@ import { Badge } from '@/components/ui/badge';
 import { useUserRole } from '@/hooks/useUserRole';
 import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { Bell, Bot } from 'lucide-react';
+import {
+    BarChart,
+    Bell,
+    BookOpen,
+    Bot,
+    Building,
+    Inbox,
+    LayoutDashboard,
+    LogOut,
+    Mail,
+    Plus,
+    Ticket,
+    User
+} from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
@@ -19,6 +32,8 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     from_address: string;
   } | null>(null);
   const isAdmin = role === 'admin' || role === 'super_admin';
+  const isAgent = role === 'agent' || isAdmin;
+  const isCustomer = role === 'customer';
 
   useEffect(() => {
     const getOrgId = async () => {
@@ -92,10 +107,10 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    router.push('/auth/signin');
+    router.push('/');
   };
 
-  const NavLink = ({ href, children }: { href: string; children: React.ReactNode }) => {
+  const NavLink = ({ href, children, icon: Icon, badge }: { href: string; children: React.ReactNode; icon?: any; badge?: number }) => {
     const isActive = router.pathname === href || router.pathname.startsWith(`${href}/`);
     return (
       <Link
@@ -112,8 +127,14 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           }
         `}
       >
-        <span className="relative">
-          {children}
+        <span className="relative flex items-center gap-2 w-full">
+          {Icon && <Icon className="h-4 w-4" />}
+          <span className="flex-1">{children}</span>
+          {badge !== undefined && badge > 0 && (
+            <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400">
+              {badge}
+            </Badge>
+          )}
           {isActive && (
             <span className="absolute inset-x-1 -bottom-1 h-px bg-gradient-to-r from-blue-500/0 via-blue-500/70 to-blue-500/0"></span>
           )}
@@ -127,21 +148,25 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       <div className="flex flex-col h-full">
         <div className="flex-1 px-3 py-6 space-y-2">
           <nav className="space-y-1">
-            <NavLink href="/dashboard">Dashboard</NavLink>
-            <NavLink href="/tickets">Tickets</NavLink>
+            <NavLink href="/dashboard" icon={LayoutDashboard}>Dashboard</NavLink>
             
-            <NavLink href="/notifications">
+            {isAgent && (
+              <>
+                <NavLink href="/agent/inbox" icon={Inbox}>Inbox</NavLink>
+                <NavLink href="/agent/analytics" icon={BarChart}>Analytics</NavLink>
+              </>
+            )}
+
+            {isCustomer && (
+              <NavLink href="/customer/tickets/new" icon={Plus}>Create Ticket</NavLink>
+            )}
+
+            <NavLink href="/tickets" icon={Ticket}>Tickets</NavLink>
+            
+            <NavLink href="/notifications" icon={Bell} badge={draftCount}>
               <div className="flex flex-col w-full">
                 <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-2">
-                    <Bell className="h-4 w-4" />
-                    <span>Notifications</span>
-                  </div>
-                  {draftCount > 0 && (
-                    <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400 z-50">
-                      {draftCount}
-                    </Badge>
-                  )}
+                  <span>Notifications</span>
                 </div>
                 {latestDraft && (
                   <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-md">
@@ -156,45 +181,39 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
               </div>
             </NavLink>
 
-            <NavLink href="/ai-drafts">
-              <div className="flex flex-col w-full">
-                <div className="flex items-center justify-between w-full">
-                  <div className="flex items-center gap-2">
-                    <Bot className="h-4 w-4" />
+            {isAgent && (
+              <NavLink href="/ai-drafts" icon={Bot} badge={draftCount}>
+                <div className="flex flex-col w-full">
+                  <div className="flex items-center justify-between w-full">
                     <span>AI Drafts</span>
                   </div>
-                  {draftCount > 0 && (
-                    <Badge variant="secondary" className="ml-2 bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-400 z-50">
-                      {draftCount}
-                    </Badge>
-                  )}
-                </div>
-                {latestDraft && (
-                  <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-md">
-                    <div className="text-xs text-slate-700 dark:text-slate-300 truncate">
-                      <div className="font-medium truncate">{latestDraft.subject || '(No Subject)'}</div>
-                      <div className="truncate text-slate-500 dark:text-slate-400">
-                        From: {latestDraft.from_name || latestDraft.from_address}
+                  {latestDraft && (
+                    <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-md">
+                      <div className="text-xs text-slate-700 dark:text-slate-300 truncate">
+                        <div className="font-medium truncate">{latestDraft.subject || '(No Subject)'}</div>
+                        <div className="truncate text-slate-500 dark:text-slate-400">
+                          From: {latestDraft.from_name || latestDraft.from_address}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            </NavLink>
+                  )}
+                </div>
+              </NavLink>
+            )}
             
             {isAdmin && (
               <>
-                <NavLink href={`/organizations/${orgId}/settings`}>
+                <NavLink href={`/organizations/${orgId}/settings`} icon={Building}>
                   Organization Settings
                 </NavLink>
-                <NavLink href={`/organizations/${orgId}/kb`}>
+                <NavLink href={`/organizations/${orgId}/kb`} icon={BookOpen}>
                   Knowledge Base
                 </NavLink>
               </>
             )}
             
-            <NavLink href="/profile">Profile</NavLink>
-            <NavLink href="/profile/settings">Settings</NavLink>
+            <NavLink href="/profile" icon={User}>Profile</NavLink>
+            <NavLink href="/profile/settings" icon={Mail}>Connect Gmail</NavLink>
           </nav>
         </div>
 
@@ -202,7 +221,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <button
             onClick={handleSignOut}
             className="
-              w-full flex items-center justify-center 
+              w-full flex items-center justify-center gap-2
               px-4 py-3 sm:py-2.5 
               text-base sm:text-sm font-medium rounded-lg
               text-white
@@ -216,6 +235,7 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
               active:scale-[0.98]
             "
           >
+            <LogOut className="h-4 w-4" />
             Sign Out
           </button>
         </div>

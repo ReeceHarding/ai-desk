@@ -2,8 +2,15 @@ import { Database } from '@/types/supabase';
 import { logger } from '@/utils/logger';
 import { createClient } from '@supabase/supabase-js';
 import { OAuth2Client } from 'google-auth-library';
-import { google } from 'googleapis';
+import { gmail_v1, google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
+
+// Type definition for Gmail watch response that includes all base properties
+interface ExtendedWatchResponse extends gmail_v1.Schema$WatchResponse {
+  historyId?: string;
+  expiration?: string;
+  resourceId?: string;
+}
 
 // Initialize Supabase client with service role
 const supabase = createClient<Database>(
@@ -49,15 +56,18 @@ export default async function handler(
         }
       });
 
+      const response = watchResponse.data as ExtendedWatchResponse;
+
       await logger.info('Single account Gmail watch setup successful', {
-        historyId: watchResponse.data.historyId,
-        expiration: new Date(Number(watchResponse.data.expiration)).toISOString()
+        historyId: response.historyId,
+        expiration: new Date(Number(response.expiration)).toISOString(),
+        resourceId: response.resourceId || null
       });
 
       return res.status(200).json({
-        historyId: watchResponse.data.historyId,
-        expiration: watchResponse.data.expiration,
-        resourceId: watchResponse.data.resourceId || ''
+        historyId: response.historyId,
+        expiration: response.expiration,
+        resourceId: response.resourceId || null
       });
     }
 
@@ -105,14 +115,16 @@ export default async function handler(
           },
         });
 
-        if (watchResponse.data.expiration) {
+        const response = watchResponse.data as ExtendedWatchResponse;
+
+        if (response.expiration) {
           // Update organization with watch expiration and resourceId
           const { error: updateError } = await supabase
             .from('organizations')
             .update({
-              gmail_watch_expiration: new Date(parseInt(watchResponse.data.expiration)).toISOString(),
-              gmail_history_id: watchResponse.data.historyId,
-              gmail_resource_id: watchResponse.data.resourceId || null
+              gmail_watch_expiration: new Date(parseInt(response.expiration)).toISOString(),
+              gmail_history_id: response.historyId,
+              gmail_resource_id: response.resourceId || null
             })
             .eq('id', org.id);
 
@@ -124,9 +136,9 @@ export default async function handler(
           } else {
             await logger.info('Successfully set up Gmail watch', {
               orgId: org.id,
-              expiration: watchResponse.data.expiration,
-              historyId: watchResponse.data.historyId,
-              resourceId: watchResponse.data.resourceId
+              expiration: response.expiration,
+              historyId: response.historyId,
+              resourceId: response.resourceId || null
             });
           }
         }
@@ -134,7 +146,7 @@ export default async function handler(
         results.push({
           orgId: org.id,
           success: true,
-          watchResponse: watchResponse.data,
+          watchResponse: response,
         });
       } catch (error) {
         await logger.error('Error setting up Gmail watch for organization', {

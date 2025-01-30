@@ -790,9 +790,9 @@ CREATE INDEX IF NOT EXISTS idx_profiles_gmail_watch_expiration
 
 CREATE TABLE IF NOT EXISTS public.ticket_email_chats (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  ticket_id uuid NOT NULL REFERENCES public.tickets (id) ON DELETE CASCADE,
-  message_id text NOT NULL,
-  thread_id text NOT NULL,
+  ticket_id uuid REFERENCES public.tickets (id) ON DELETE CASCADE,
+  message_id text,
+  thread_id text,
   from_name text,
   from_address text,
   to_address text[] DEFAULT '{}'::text[],
@@ -800,15 +800,16 @@ CREATE TABLE IF NOT EXISTS public.ticket_email_chats (
   bcc_address text[] DEFAULT '{}'::text[],
   subject text,
   body text,
-  attachments jsonb NOT NULL DEFAULT '{}'::jsonb,
+  attachments jsonb DEFAULT '{}'::jsonb,
+  metadata jsonb DEFAULT '{}'::jsonb,
   gmail_date timestamptz,
-  org_id uuid NOT NULL REFERENCES public.organizations (id) ON DELETE CASCADE,
+  org_id uuid REFERENCES public.organizations (id) ON DELETE CASCADE,
   ai_classification text DEFAULT 'unknown',
   ai_confidence numeric DEFAULT 0,
   ai_auto_responded boolean DEFAULT false,
   ai_draft_response text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
 );
 
 -- Ensure update trigger

@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { gmail_v1, google } from 'googleapis';
 import { GmailMessage, GmailMessagePart, GmailTokens, ParsedEmail } from '../../types/gmail';
 import { Database } from '../../types/supabase';
+import { processPotentialPromotionalEmail } from '../agent/gmailPromotionAgent';
 import { logger } from '../logger';
 
 // Initialize Supabase client with service role key
@@ -226,7 +227,7 @@ export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[
 
     const response = await gmail.users.messages.list({
       userId: 'me',
-      q: 'is:unread -category:{social promotions}',
+      q: 'is:unread',
       maxResults: 50
     });
 
@@ -322,6 +323,8 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       throw profileError;
     }
 
+    gmailLogger.info('Found user profile', { userId, orgId: profile.org_id });
+
     // Validate required fields
     if (!parsedEmail.subject && !parsedEmail.bodyText) {
       gmailLogger.warn('Email missing subject and body text, using default subject');
@@ -329,6 +332,13 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
     }
 
     const senderName = parsedEmail.from.match(/^([^<]+)/)?.[1]?.trim() || parsedEmail.from;
+
+    gmailLogger.info('Creating ticket in database', {
+      subject: parsedEmail.subject,
+      from: parsedEmail.from,
+      threadId: parsedEmail.threadId,
+      orgId: profile.org_id
+    });
 
     const { data: ticket, error } = await supabase
       .from('tickets')
@@ -356,6 +366,12 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       throw error;
     }
 
+    gmailLogger.info('Successfully created ticket', { 
+      ticketId: ticket.id,
+      subject: ticket.subject,
+      threadId: parsedEmail.threadId
+    });
+
     // Ensure we have a valid date for gmail_date
     let gmailDate: string;
     try {
@@ -380,6 +396,12 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       });
       gmailDate = new Date().toISOString();
     }
+
+    gmailLogger.info('Creating email chat entry', {
+      ticketId: ticket.id,
+      messageId: parsedEmail.id,
+      threadId: parsedEmail.threadId
+    });
 
     const { error: chatError } = await supabase
       .from('ticket_email_chats')
@@ -408,9 +430,18 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       throw chatError;
     }
 
+    gmailLogger.info('Successfully created email chat', {
+      ticketId: ticket.id,
+      messageId: parsedEmail.id,
+      threadId: parsedEmail.threadId
+    });
+
     return ticket;
   } catch (error) {
-    gmailLogger.error('Failed to create ticket from email', { error });
+    gmailLogger.error('Error in createTicketFromEmail', {
+      error,
+      messageId: parsedEmail.id
+    });
     throw error;
   }
 }
@@ -534,7 +565,18 @@ export async function importInitialEmails(userId: string) {
     for (const message of messages) {
       try {
         const parsedEmail = await parseGmailMessage(message, profile.org_id);
-        await createTicketFromEmail(parsedEmail, userId);
+        const ticket = await createTicketFromEmail(parsedEmail, userId);
+        
+        // Process for promotional content
+        await processPotentialPromotionalEmail(
+          ticket.emailChatId,
+          profile.org_id,
+          parsedEmail.bodyText || parsedEmail.bodyHtml || '',
+          message.id,
+          parsedEmail.threadId,
+          parsedEmail.from,
+          parsedEmail.subject || ''
+        );
       } catch (error) {
         gmailLogger.error('Failed to import email', { error, messageId: message.id });
       }

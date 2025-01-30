@@ -1,4 +1,4 @@
-import AgentHeader from '@/components/AgentHeader';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import { AlertCircle, RefreshCw, Send } from 'lucide-react';
 import Head from 'next/head';
@@ -223,48 +223,40 @@ export default function AgentTicketView() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <AgentHeader />
-        <main className="container mx-auto px-4 py-8">
-          <div className="animate-pulse">
-            <div className="h-8 bg-gray-200 rounded w-1/4 mb-4"></div>
-            <div className="h-32 bg-gray-200 rounded w-full mb-4"></div>
-            <div className="h-16 bg-gray-200 rounded w-3/4"></div>
-          </div>
-        </main>
-      </div>
+      <AppLayout>
+        <div className="animate-pulse">
+          <div className="h-8 bg-gray-200 dark:bg-slate-700 rounded w-1/4 mb-4"></div>
+          <div className="h-32 bg-gray-200 dark:bg-slate-700 rounded w-full mb-4"></div>
+          <div className="h-16 bg-gray-200 dark:bg-slate-700 rounded w-3/4"></div>
+        </div>
+      </AppLayout>
     );
   }
 
   if (error || !ticket) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <AgentHeader />
-        <main className="container mx-auto px-4 py-8">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-center">
-              <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
-              <p className="text-red-800">{error || 'Ticket not found'}</p>
-            </div>
+      <AppLayout>
+        <div className="bg-red-50 dark:bg-red-900/50 border border-red-200 dark:border-red-800 rounded-lg p-4">
+          <div className="flex items-center">
+            <AlertCircle className="h-5 w-5 text-red-400 dark:text-red-500 mr-2" />
+            <p className="text-red-800 dark:text-red-200">{error || 'Ticket not found'}</p>
           </div>
-        </main>
-      </div>
+        </div>
+      </AppLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <AppLayout>
       <Head>
         <title>{ticket.subject} - Agent View</title>
       </Head>
 
-      <AgentHeader />
-
-      <main className="container mx-auto px-4 py-8">
+      <div className="space-y-6">
         {/* Ticket Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-6">
           <div className="flex justify-between items-start mb-4">
-            <h1 className="text-2xl font-semibold text-gray-900">{ticket.subject}</h1>
+            <h1 className="text-2xl font-semibold text-slate-900 dark:text-white">{ticket.subject}</h1>
             <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(ticket.status)}`}>
               {ticket.status}
             </span>
@@ -277,29 +269,29 @@ export default function AgentTicketView() {
               className="w-10 h-10 rounded-full"
             />
             <div>
-              <p className="font-medium text-gray-900">{ticket.customer.display_name || 'Unknown Customer'}</p>
-              <p className="text-sm text-gray-500">{ticket.customer.email}</p>
+              <p className="font-medium text-slate-900 dark:text-white">{ticket.customer.display_name || 'Unknown Customer'}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400">{ticket.customer.email}</p>
             </div>
           </div>
 
-          <p className="text-gray-700 whitespace-pre-wrap mb-4">{ticket.description}</p>
+          <p className="text-slate-700 dark:text-slate-300 whitespace-pre-wrap mb-4">{ticket.description}</p>
 
           <div className="flex space-x-2">
             <button
               onClick={() => handleUpdateTicketStatus('open')}
-              className="px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 rounded-md hover:bg-blue-100"
+              className="px-4 py-2 text-sm font-medium text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/50 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/70"
             >
               Open
             </button>
             <button
               onClick={() => handleUpdateTicketStatus('pending')}
-              className="px-4 py-2 text-sm font-medium text-yellow-700 bg-yellow-50 rounded-md hover:bg-yellow-100"
+              className="px-4 py-2 text-sm font-medium text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/50 rounded-md hover:bg-yellow-100 dark:hover:bg-yellow-900/70"
             >
               Pending
             </button>
             <button
               onClick={() => handleUpdateTicketStatus('solved')}
-              className="px-4 py-2 text-sm font-medium text-green-700 bg-green-50 rounded-md hover:bg-green-100"
+              className="px-4 py-2 text-sm font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/50 rounded-md hover:bg-green-100 dark:hover:bg-green-900/70"
             >
               Solved
             </button>
@@ -307,82 +299,92 @@ export default function AgentTicketView() {
         </div>
 
         {/* Comments Section */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Comments</h2>
-
-          <div className="space-y-4 mb-6">
-            {comments.map((comment) => (
-              <div
-                key={comment.id}
-                className="flex space-x-3"
-              >
-                <img
-                  src={comment.author.avatar_url || 'https://placehold.co/400x400/png?text=👤'}
-                  alt={comment.author.display_name || 'User'}
-                  className="w-8 h-8 rounded-full"
-                />
-                <div className="flex-1">
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium text-gray-900">
-                        {comment.author.display_name || 'Unknown User'}
-                      </span>
-                      <span className="text-sm text-gray-500">
-                        {new Date(comment.created_at).toLocaleString()}
-                      </span>
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm">
+          <div className="p-6">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Comments</h2>
+            
+            <div className="space-y-4 max-h-[600px] overflow-y-auto">
+              {comments.map((comment) => (
+                <div key={comment.id} className="flex space-x-3">
+                  <div className="flex-shrink-0">
+                    <img
+                      className="h-10 w-10 rounded-full"
+                      src={comment.author.avatar_url || 'https://placehold.co/400x400/png?text=👤'}
+                      alt={comment.author.display_name || 'User'}
+                    />
+                  </div>
+                  <div className={`flex-1 bg-slate-50 dark:bg-slate-700/50 rounded-lg px-4 py-3 ${
+                    comment.status === 'sending' ? 'opacity-70' : 
+                    comment.status === 'error' ? 'border-red-500 border' : ''
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-slate-900 dark:text-white">
+                        {comment.author.display_name}
+                        <span className="ml-2 text-xs text-slate-500 dark:text-slate-400">
+                          {comment.author.role}
+                        </span>
+                      </h3>
+                      <div className="flex items-center">
+                        {comment.status === 'sending' && (
+                          <span className="text-xs text-slate-500 dark:text-slate-400 mr-2">
+                            Sending...
+                          </span>
+                        )}
+                        {comment.status === 'error' && (
+                          <span className="text-xs text-red-500 mr-2">
+                            Failed to send
+                          </span>
+                        )}
+                        <p className="text-sm text-slate-500 dark:text-slate-400">
+                          {new Date(comment.created_at).toLocaleString()}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-gray-700 whitespace-pre-wrap">{comment.body}</p>
+                    <p className="mt-1 text-slate-700 dark:text-slate-300 whitespace-pre-wrap">{comment.body}</p>
                   </div>
                 </div>
-              </div>
-            ))}
-            <div ref={commentEndRef} />
+              ))}
+              <div ref={commentEndRef} />
+            </div>
           </div>
 
           {/* Comment Form */}
-          <form onSubmit={handleSubmitComment} className="space-y-4">
-            <div>
-              <textarea
-                value={newComment}
-                onChange={(e) => {
-                  setNewComment(e.target.value);
-                  setIsTyping(true);
-                }}
-                onBlur={() => setIsTyping(false)}
-                placeholder="Type your reply..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                rows={4}
-              />
-            </div>
-
+          <form onSubmit={handleSubmitComment} className="border-t border-slate-200 dark:border-slate-700 p-6">
             {commentError && (
-              <div className="text-red-600 text-sm flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1" />
+              <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/50 text-red-800 dark:text-red-200 rounded-md">
                 {commentError}
               </div>
             )}
-
-            <div className="flex justify-between items-center">
-              <div className="flex items-center space-x-2">
-                {isTyping && <RefreshCw className="h-4 w-4 text-gray-400 animate-spin" />}
+            <div className="flex items-start space-x-4">
+              <div className="min-w-0 flex-1">
+                <textarea
+                  rows={3}
+                  name="comment"
+                  id="comment"
+                  value={newComment}
+                  onChange={(e) => setNewComment(e.target.value)}
+                  className="block w-full rounded-md border-0 py-1.5 text-slate-900 dark:text-white shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-700 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6 bg-white dark:bg-slate-800"
+                  placeholder="Add your comment..."
+                />
               </div>
-
               <button
                 type="submit"
                 disabled={submitting || !newComment.trim()}
                 className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {submitting ? (
-                  <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                  <RefreshCw className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Send className="h-4 w-4 mr-2" />
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Send
+                  </>
                 )}
-                Send Reply
               </button>
             </div>
           </form>
         </div>
-      </main>
-    </div>
+      </div>
+    </AppLayout>
   );
 } 

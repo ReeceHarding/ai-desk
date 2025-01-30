@@ -61,8 +61,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
  */
 export function splitIntoChunks(
   text: string,
-  chunkSize: number = 1000,
-  overlap: number = 200
+  chunkSize: number = 1500,
+  overlap: number = 300
 ): string[] {
   const words = text.split(/\s+/);
   const chunks: string[] = [];
@@ -104,7 +104,8 @@ export interface PineconeMatch {
 export async function queryPinecone(
   embedding: number[],
   topK: number = 5,
-  orgId?: string
+  orgId?: string,
+  minScore: number = 0.7
 ): Promise<PineconeMatch[]> {
   if (!isServer) {
     throw new Error('queryPinecone can only be called on the server side');
@@ -119,10 +120,13 @@ export async function queryPinecone(
       vector: embedding,
       topK,
       includeMetadata: true,
-      filter: orgId ? { orgId } : undefined
+      filter: orgId ? { orgId } : undefined,
+      minScore
     });
 
-    return queryResponse.matches || [];
+    // Filter out matches below the threshold
+    const matches = queryResponse.matches || [];
+    return matches.filter((match: PineconeMatch) => (match.score || 0) >= minScore);
   } catch (error) {
     logger.error('Failed to query Pinecone', { error });
     return [];

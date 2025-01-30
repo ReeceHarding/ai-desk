@@ -2,5 +2,8 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
+  "/api/notifications": "pages/api/notifications.js",
+  "/api/emails/unarchive": "pages/api/emails/unarchive.js",
+  "/notifications": "pages/notifications.js",
   "/tickets": "pages/tickets.js"
 }

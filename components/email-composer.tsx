@@ -21,7 +21,7 @@ import {
     Sparkles,
     Underline as UnderlineIcon
 } from 'lucide-react'
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 import { EmojiPicker } from './emoji-picker'
 import { Button } from './ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
@@ -82,6 +82,13 @@ export function EmailComposer({
       },
     },
   })
+
+  // Update editor content when value prop changes
+  useEffect(() => {
+    if (editor && value !== editor.getHTML()) {
+      editor.commands.setContent(value);
+    }
+  }, [editor, value]);
 
   const addEmoji = useCallback((emoji: string) => {
     editor?.commands.insertContent(emoji)

@@ -138,7 +138,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
       // Transform email chats into messages
       const emailMessages: Message[] = (emailData || []).map(email => ({
         id: email.id,
-        body: email.body || '',
+        body: (email.body || '').replace(/\n{3,}/g, '\n\n'), // Ensure body is a string before replacing
         from_name: email.from_name,
         from_address: email.from_address || '',
         created_at: email.created_at,
@@ -153,7 +153,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
       // Transform comments into messages
       const commentMessages: Message[] = (commentData || []).map(comment => ({
         id: comment.id,
-        body: comment.body || '',
+        body: (comment.body || '').replace(/\n{3,}/g, '\n\n'), // Ensure body is a string before replacing
         from_name: comment.author?.display_name || null,
         from_address: comment.author?.email || '',
         created_at: comment.created_at,
@@ -161,9 +161,15 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         author: comment.author
       }));
 
-      // Combine all messages and sort by date
+      // Combine all messages and sort by date, removing duplicates by message_id
       const allMessages = [descriptionMessage, ...emailMessages, ...commentMessages]
-        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .filter((message, index, self) => 
+          // Keep only the first occurrence of each message_id
+          index === self.findIndex((m) => 
+            m.message_id && message.message_id && m.message_id === message.message_id
+          )
+        );
 
       if (pageNum === 0) {
         setMessages(allMessages);
@@ -730,7 +736,8 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                     )}
                   </div>
                   <div
-                    className="prose max-w-none text-sm text-slate-700 whitespace-pre-wrap"
+                    className="prose max-w-none text-sm text-slate-700 break-words"
+                    style={{ whiteSpace: 'pre-line' }}
                     dangerouslySetInnerHTML={{
                       __html: message.body,
                     }}

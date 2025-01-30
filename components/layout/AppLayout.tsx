@@ -78,7 +78,7 @@ export function AppLayout({ children }: AppLayoutProps) {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    router.push('/auth/signin');
+    router.push('/');
   };
 
   // Close mobile menu when route changes

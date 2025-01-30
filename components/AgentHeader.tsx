@@ -11,7 +11,7 @@ export default function AgentHeader() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
-    router.push('/auth/signin');
+    router.push('/');
   };
 
   return (

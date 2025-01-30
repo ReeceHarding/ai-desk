@@ -1,6 +1,7 @@
 import type { Database } from '@/types/supabase';
 import { createClient } from '@supabase/supabase-js';
 import { config } from 'dotenv';
+import { processPotentialPromotionalEmail } from './agent/gmailPromotionAgent';
 import { processInboundEmailWithAI } from './ai-email-processor';
 import { logger } from './logger';
 
@@ -104,13 +105,14 @@ export async function handleInboundEmail(
         cc_address: parsedEmail.cc ? (Array.isArray(parsedEmail.cc) ? parsedEmail.cc : [parsedEmail.cc]) : [],
         bcc_address: parsedEmail.bcc ? (Array.isArray(parsedEmail.bcc) ? parsedEmail.bcc : [parsedEmail.bcc]) : [],
         subject: parsedEmail.subject || null,
-        body: parsedEmail.body.text || parsedEmail.body.html || 'No content available',
+        body: parsedEmail.body.text || parsedEmail.body.html || '',
         gmail_date: gmailDate,
         org_id: orgId,
         ai_classification: 'unknown',
         ai_confidence: 0,
         ai_auto_responded: false,
-        ai_draft_response: null
+        ai_draft_response: null,
+        metadata: {} // Initialize empty metadata
       })
       .select()
       .single();
@@ -122,11 +124,34 @@ export async function handleInboundEmail(
 
     // Process with AI
     try {
-      await processInboundEmailWithAI(
+      // Add a small delay to ensure the record is available
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Check for promotional emails first
+      await processPotentialPromotionalEmail(
         emailChat.id,
+        orgId,
         parsedEmail.body.text || parsedEmail.body.html || '',
-        orgId
+        parsedEmail.messageId,
+        parsedEmail.threadId,
+        parsedEmail.from,
+        parsedEmail.subject || ''
       );
+
+      // Only process with AI if not marked as promotional
+      const { data: updatedChat } = await supabase
+        .from('ticket_email_chats')
+        .select('metadata')
+        .eq('id', emailChat.id)
+        .single();
+
+      if (!updatedChat?.metadata?.promotional) {
+        await processInboundEmailWithAI(
+          emailChat.id,
+          parsedEmail.body.text || parsedEmail.body.html || '',
+          orgId
+        );
+      }
     } catch (aiError) {
       // Log but don't fail the whole process if AI fails
       logger.error('Error processing email with AI:', { error: aiError });
