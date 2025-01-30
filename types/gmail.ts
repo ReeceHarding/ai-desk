@@ -1,3 +1,4 @@
+
 export type EmailDirection = 'inbound' | 'outbound';
 
 export interface EmailLog {
@@ -37,47 +38,52 @@ export interface GmailProfile {
   historyId: string;
 }
 
+export interface GmailMessagePart {
+  partId?: string;
+  mimeType?: string;
+  filename?: string;
+  headers?: Array<{
+    name: string;
+    value: string;
+  }>;
+  body?: {
+    attachmentId?: string;
+    size?: number;
+    data?: string;
+  };
+  parts?: GmailMessagePart[];
+}
+
 export interface GmailMessage {
   id: string;
   threadId: string;
-  snippet?: string;
-  payload?: {
-    headers?: Array<{
-      name: string;
-      value: string;
-    }>;
-    mimeType?: string;
-    body?: {
-      data?: string;
-    };
-    parts?: Array<{
-      mimeType?: string;
-      body?: {
-        data?: string;
-      };
-      parts?: any[];
-    }>;
-  };
-  labelIds?: string[];
+  labelIds: string[];
+  snippet: string;
+  historyId: string;
+  internalDate: string;
+  payload: GmailMessagePart | null;
+  sizeEstimate: number;
 }
 
 export interface ParsedEmail {
-  messageId: string;
+  id: string;
   threadId: string;
+  historyId: string;
   from: string;
-  fromName: string;
-  fromEmail: string;
-  to: string | string[];
+  to: string[];
   cc?: string[];
   bcc?: string[];
   subject: string;
-  snippet: string;
-  body: {
-    text: string;
-    html: string;
-  };
-  date: Date;
-  attachments?: any;
+  date: string;
+  bodyText?: string;
+  bodyHtml?: string;
+  attachments: Array<{
+    filename: string;
+    mimeType: string;
+    size: number;
+    attachmentId: string;
+  }>;
+  raw?: string;
 }
 
 export interface EmailLogParams {

@@ -52,7 +52,7 @@ export async function middleware(request: NextRequest) {
     ) {
       console.log('[MIDDLEWARE] Unauthenticated user accessing protected page');
       redirectCache.set(cacheKey, now);
-      return NextResponse.redirect(new URL('/auth/login', request.url));
+      return NextResponse.redirect(new URL('/auth/signin', request.url));
     }
     return res;
   }
@@ -88,11 +88,17 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/', request.url));
   }
 
+  // Redirect /settings to /profile/settings
+  if (path === '/settings') {
+    return NextResponse.redirect(new URL('/profile/settings', request.url));
+  }
+
   return res;
 }
 
 export const config = {
   matcher: [
     '/((?!_next/static|_next/image|favicon.ico|public|auth).*)',
+    '/settings',
   ],
 }; 

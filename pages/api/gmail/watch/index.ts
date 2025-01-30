@@ -2,8 +2,15 @@ import { Database } from '@/types/supabase';
 import { logger } from '@/utils/logger';
 import { createClient } from '@supabase/supabase-js';
 import { OAuth2Client } from 'google-auth-library';
-import { google } from 'googleapis';
+import { gmail_v1, google } from 'googleapis';
 import { NextApiRequest, NextApiResponse } from 'next';
+
+// Type definition for Gmail watch response that includes all base properties
+interface ExtendedWatchResponse extends gmail_v1.Schema$WatchResponse {
+  historyId?: string;
+  expiration?: string;
+  resourceId?: string;
+}
 
 // Initialize Supabase client with service role
 const supabase = createClient<Database>(
@@ -31,7 +38,40 @@ export default async function handler(
       timestamp: new Date().toISOString()
     });
     
-    // Get all organizations that need watch setup
+    // Support both direct token input and organization-based setup
+    if (req.body.access_token && req.body.refresh_token) {
+      // Direct token setup (single account)
+      oauth2Client.setCredentials({
+        access_token: req.body.access_token,
+        refresh_token: req.body.refresh_token,
+      });
+
+      const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+      const watchResponse = await gmail.users.watch({
+        userId: 'me',
+        requestBody: {
+          labelIds: [], // Empty array means all labels except SPAM and TRASH
+          topicName: process.env.GMAIL_PUBSUB_TOPIC,
+          labelFilterAction: 'include'
+        }
+      });
+
+      const response = watchResponse.data as ExtendedWatchResponse;
+
+      await logger.info('Single account Gmail watch setup successful', {
+        historyId: response.historyId,
+        expiration: new Date(Number(response.expiration)).toISOString(),
+        resourceId: response.resourceId || null
+      });
+
+      return res.status(200).json({
+        historyId: response.historyId,
+        expiration: response.expiration,
+        resourceId: response.resourceId || null
+      });
+    }
+
+    // Organization-based setup (multiple accounts)
     const { data: orgs, error: orgsError } = await supabase
       .from('organizations')
       .select('id, gmail_access_token, gmail_refresh_token')
@@ -65,22 +105,26 @@ export default async function handler(
 
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-        // Set up Gmail watch
+        // Set up Gmail watch with all labels except SPAM and TRASH
         const watchResponse = await gmail.users.watch({
           userId: 'me',
           requestBody: {
-            labelIds: ['INBOX'],
-            topicName: `projects/zendesk-clone-448507/topics/gmail-updates`,
+            labelIds: [], // Empty array means all labels except SPAM and TRASH
+            topicName: process.env.GMAIL_PUBSUB_TOPIC,
+            labelFilterAction: 'include'
           },
         });
 
-        if (watchResponse.data.expiration) {
-          // Update organization with watch expiration
+        const response = watchResponse.data as ExtendedWatchResponse;
+
+        if (response.expiration) {
+          // Update organization with watch expiration and resourceId
           const { error: updateError } = await supabase
             .from('organizations')
             .update({
-              gmail_watch_expiration: new Date(parseInt(watchResponse.data.expiration)).toISOString(),
-              gmail_history_id: watchResponse.data.historyId,
+              gmail_watch_expiration: new Date(parseInt(response.expiration)).toISOString(),
+              gmail_history_id: response.historyId,
+              gmail_resource_id: response.resourceId || null
             })
             .eq('id', org.id);
 
@@ -92,8 +136,9 @@ export default async function handler(
           } else {
             await logger.info('Successfully set up Gmail watch', {
               orgId: org.id,
-              expiration: watchResponse.data.expiration,
-              historyId: watchResponse.data.historyId,
+              expiration: response.expiration,
+              historyId: response.historyId,
+              resourceId: response.resourceId || null
             });
           }
         }
@@ -101,7 +146,7 @@ export default async function handler(
         results.push({
           orgId: org.id,
           success: true,
-          watchResponse: watchResponse.data,
+          watchResponse: response,
         });
       } catch (error) {
         await logger.error('Error setting up Gmail watch for organization', {

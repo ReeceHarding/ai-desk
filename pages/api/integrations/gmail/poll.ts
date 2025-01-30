@@ -1,8 +1,8 @@
-import { NextApiRequest, NextApiResponse } from 'next';
-import { createClient } from '@supabase/supabase-js';
-import { pollGmailInbox, parseGmailMessage } from '@/utils/gmail';
-import { handleInboundEmail } from '@/utils/inbound-email';
 import { Database } from '@/types/supabase';
+import { parseGmailMessage, pollGmailInbox } from '@/utils/gmail';
+import { handleInboundEmail } from '@/utils/inbound-email';
+import { createClient } from '@supabase/supabase-js';
+import { NextApiRequest, NextApiResponse } from 'next';
 
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

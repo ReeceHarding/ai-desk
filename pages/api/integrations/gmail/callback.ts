@@ -63,14 +63,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Initialize Supabase client with service role key
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY) {
       log('Missing Supabase configuration');
       throw new Error('Missing Supabase configuration');
     }
 
     const supabase = createClient<Database>(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_ROLE_KEY,
+      process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
       {
         auth: {
           persistSession: false,
@@ -148,7 +148,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .from('organizations')
             .update({
               gmail_watch_status: 'active',
-              gmail_watch_expiration: watchResult.expiration ? new Date(Number(watchResult.expiration)).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              gmail_watch_expiration: watchResult.expiration 
+                ? new Date(parseInt(watchResult.expiration)).toISOString() 
+                : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
               gmail_watch_resource_id: watchResult.resourceId,
               updated_at: new Date().toISOString()
             })
@@ -262,14 +264,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         // Import initial emails
         try {
-          await importInitialEmails(id, {
+          const results = await importInitialEmails(id, {
             access_token,
             refresh_token,
             token_type: 'Bearer',
             scope: GMAIL_SCOPES.join(' '),
             expiry_date: Date.now() + (expires_in * 1000)
           });
-          log('Successfully imported initial emails');
+          
+          const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+          const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
+          
+          log('Successfully imported initial emails', {
+            total: results.length,
+            successful,
+            failed
+          });
         } catch (importError) {
           log('Error importing initial emails:', importError);
           // Continue with redirect even if import fails

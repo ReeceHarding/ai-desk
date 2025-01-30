@@ -1,6 +1,6 @@
-import cron from 'node-cron';
 import axios from 'axios';
 import { config } from 'dotenv';
+import cron from 'node-cron';
 
 // Load environment variables
 config();
@@ -13,7 +13,7 @@ if (!CRON_SECRET) {
   process.exit(1);
 }
 
-// Run every 5 minutes
+// Run Gmail polling every 5 minutes
 cron.schedule('*/5 * * * *', async () => {
   try {
     console.log('Running Gmail polling job:', new Date().toISOString());
@@ -35,5 +35,30 @@ cron.schedule('*/5 * * * *', async () => {
     }
   } catch (error) {
     console.error('Failed to run Gmail polling:', error);
+  }
+});
+
+// Process unclassified emails every hour
+cron.schedule('0 * * * *', async () => {
+  try {
+    console.log('Running unclassified email processing job:', new Date().toISOString());
+    
+    const response = await axios.post(
+      `${API_BASE_URL}/api/integrations/gmail/process-unclassified`,
+      {},
+      {
+        headers: {
+          Authorization: `Bearer ${CRON_SECRET}`
+        }
+      }
+    );
+
+    if (response.data.status === 'ok') {
+      console.log('Unclassified email processing completed successfully');
+    } else {
+      console.error('Unclassified email processing completed with errors:', response.data.error);
+    }
+  } catch (error) {
+    console.error('Failed to process unclassified emails:', error);
   }
 }); 

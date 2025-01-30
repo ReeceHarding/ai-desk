@@ -275,12 +275,14 @@ export default function SignUp() {
   const [initialLoadDone, setInitialLoadDone] = useState(false);
 
   useEffect(() => {
-    if (!type || !['customer', 'agent', 'admin'].includes(type as string)) {
+    console.log('[SIGNUP] Type changed:', type);
+    if (type && !['customer', 'agent', 'admin'].includes(type as string)) {
       router.push('/');
     }
   }, [type, router]);
 
   useEffect(() => {
+    console.log('[SIGNUP] Component mounted, type:', type);
     if (typeof window !== 'undefined') {
       setOrigin(window.location.origin);
     }
@@ -364,9 +366,17 @@ export default function SignUp() {
   };
 
   const selectOrganization = (org: Organization) => {
+    console.log('[SIGNUP] Selecting organization:', org.name);
     setSelectedOrg(org);
     setOrganizationName(org.name);
     setSearchResults([]);
+    // Add a small delay to ensure the dropdown is closed
+    setTimeout(() => {
+      const input = document.getElementById('organizationName');
+      if (input) {
+        input.blur();
+      }
+    }, 100);
   };
 
   const validateEmail = (email: string) => {
@@ -418,16 +428,32 @@ export default function SignUp() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
+    console.group('[SIGNUP] Sign Up Process');
+    console.time('signup');
 
     try {
-      // Validate organization selection for agents
-      if (type === 'agent' && !selectedOrg?.id) {
+      setError(null);
+      setLoading(true);
+
+      // Validate required fields
+      if (!email || !password || !name) {
+        throw new Error('Please fill in all required fields');
+      }
+
+      // Additional validation for agent type
+      if (type === 'agent' && !selectedOrg) {
         throw new Error('Please select an organization');
       }
 
-      // Create user account
+      // Additional validation for admin type
+      if (type === 'admin' && !organizationName) {
+        throw new Error('Please enter an organization name');
+      }
+
+      // Ensure dropdown is closed before proceeding
+      setSearchResults([]);
+
+      // Create user account with improved error handling
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -439,8 +465,16 @@ export default function SignUp() {
         },
       });
 
-      if (authError) throw authError;
-      if (!authData.user) throw new Error('No user data returned');
+      if (authError) {
+        console.error('[SIGNUP] Auth error:', authError);
+        throw authError;
+      }
+      if (!authData.user) {
+        console.error('[SIGNUP] No user data returned');
+        throw new Error('Failed to create account');
+      }
+
+      console.log('[SIGNUP] User account created successfully');
 
       // Check if profile already exists
       const { data: existingProfile } = await supabase
@@ -448,9 +482,9 @@ export default function SignUp() {
         .select('id, org_id, role')
         .eq('id', authData.user.id)
         .single();
-
+      
       if (existingProfile) {
-        // Profile already exists, update it instead
+        console.log('[SIGNUP] Updating existing profile');
         if (type === 'admin') {
           // Create organization for admin
           const { data: orgData, error: orgError } = await supabase
@@ -538,7 +572,7 @@ export default function SignUp() {
           if (profileError) throw profileError;
         }
       } else {
-        // Create new profile
+        console.log('[SIGNUP] Creating new profile');
         if (type === 'admin') {
           // Create organization for admin
           const { data: orgData, error: orgError } = await supabase
@@ -633,22 +667,23 @@ export default function SignUp() {
         }
       }
 
-      // Redirect based on user type
+      // Redirect based on user type with improved error handling
+      console.log('[SIGNUP] Redirecting user based on type:', type);
       switch (type) {
         case 'admin':
-          router.push('/tickets');
+          await router.push('/tickets');
           break;
         case 'agent':
-          router.push('/tickets');
+          await router.push('/tickets');
           break;
         case 'customer':
-          router.push('/customer');
+          await router.push('/customer');
           break;
         default:
-          router.push('/');
+          await router.push('/');
       }
     } catch (err: any) {
-      console.error('Signup error:', err);
+      console.error('[SIGNUP] Error during signup:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -670,212 +705,220 @@ export default function SignUp() {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(to bottom right, rgb(248, 250, 252), rgb(239, 246, 255))',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '3rem 1rem'
-    }}>
+        <div style={{
+          minHeight: '100vh',
+          background: 'linear-gradient(to bottom right, rgb(248, 250, 252), rgb(239, 246, 255))',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '3rem 1rem'
+        }}>
       <Head>
         <title>{getTitle()} - Zendesk</title>
         <meta name="description" content="Sign up for Zendesk" />
       </Head>
 
-      <motion.div
-        variants={formVariants}
-        initial="initial"
-        animate="animate"
-        style={{
-          maxWidth: '28rem',
-          width: '100%',
-          backgroundColor: 'white',
-          padding: '2rem',
-          borderRadius: '0.75rem',
-          boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
-          border: '1px solid rgb(226, 232, 240)'
-        }}
-      >
-        <div>
-          <h2 className="text-center text-3xl font-extrabold text-slate-900 dark:text-white">
-            {getTitle()}
-          </h2>
-        </div>
-
-        <form className="mt-8 space-y-6" onSubmit={handleSignUp}>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="name" className="sr-only">Name</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <User className="h-5 w-5" />
-                </div>
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
-                  placeholder="Full name"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="email" className="sr-only">Email address</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Mail className="h-5 w-5" />
-                </div>
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
-                  placeholder="Email address"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="password" className="sr-only">Password</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="h-5 w-5" />
-                </div>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="new-password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
-                  placeholder="Password"
-                />
-              </div>
-            </div>
-
-            {type === 'admin' && (
-              <div>
-                <label htmlFor="organizationName" className="sr-only">Organization Name</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <Building className="h-5 w-5" />
-                  </div>
-                  <input
-                    id="organizationName"
-                    name="organizationName"
-                    type="text"
-                    required
-                    value={organizationName}
-                    onChange={(e) => setOrganizationName(e.target.value)}
-                    className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
-                    placeholder="Organization name"
-                  />
-                </div>
-              </div>
-            )}
-
-            {type === 'agent' && (
-              <div>
-                <label htmlFor="organizationName" className="sr-only">Organization Name</label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                    <Building className="h-5 w-5" />
-                  </div>
-                  <input
-                    id="organizationName"
-                    name="organizationName"
-                    type="text"
-                    required
-                    value={organizationName}
-                    onFocus={() => {
-                      if (!initialLoadDone) {
-                        console.log('[SIGNUP] Input focused, loading all organizations');
-                        debouncedSearch('');
-                        setInitialLoadDone(true);
-                      }
-                    }}
-                    onChange={(e) => handleOrgSearch(e.target.value)}
-                    className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
-                    placeholder="Search for your organization"
-                  />
-                  {isSearching && (
-                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-                    </div>
-                  )}
-                  {searchResults.length > 0 && !isSearching && (
-                    <div className="absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 rounded-md shadow-lg border border-slate-200 dark:border-slate-700">
-                      <ul className="py-1 max-h-60 overflow-auto">
-                        {searchResults.map((org) => (
-                          <li
-                            key={org.id}
-                            onClick={() => selectOrganization(org)}
-                            className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-slate-900 dark:text-white text-sm"
-                          >
-                            <div className="flex items-center">
-                              <Building className="h-4 w-4 mr-2 text-slate-400" />
-                              {org.name}
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  {searchResults.length === 0 && !isSearching && organizationName && (
-                    <div className="mt-2 text-sm text-red-600 dark:text-red-400">
-                      No organizations found
-                    </div>
-                  )}
-                  {selectedOrg && (
-                    <div className="mt-2 text-sm text-green-600 dark:text-green-400 flex items-center">
-                      <CheckCircle className="h-4 w-4 mr-1" />
-                      Selected: {selectedOrg.name}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-            {error && (
-            <div className="rounded-md bg-red-50 dark:bg-red-900/50 p-4">
-              <div className="text-sm text-red-700 dark:text-red-200">
-                {error}
-              </div>
-            </div>
-            )}
-
-            <div>
-              <button
-                type="submit"
-                disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-              {loading ? 'Creating account...' : 'Sign up'}
-              </button>
-            </div>
-          </form>
-
-        <div className="text-center">
-              <button
-            onClick={() => router.push('/auth/signin')}
-            className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300"
+          <motion.div
+            variants={formVariants}
+            initial="initial"
+            animate="animate"
+            style={{
+              maxWidth: '28rem',
+              width: '100%',
+              backgroundColor: 'white',
+              padding: '2rem',
+              borderRadius: '0.75rem',
+              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)',
+              border: '1px solid rgb(226, 232, 240)'
+            }}
           >
-            Already have an account? Sign in
-              </button>
-        </div>
-      </motion.div>
+            <div>
+              <h2 className="text-center text-3xl font-extrabold text-slate-900 dark:text-white">
+                {getTitle()}
+              </h2>
+            </div>
+
+            <form className="mt-8 space-y-6" onSubmit={handleSignUp}>
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="name" className="sr-only">Name</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <User className="h-5 w-5" />
+                    </div>
+                    <input
+                      id="name"
+                      name="name"
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                      placeholder="Full name"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="email" className="sr-only">Email address</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Mail className="h-5 w-5" />
+                    </div>
+                    <input
+                      id="email"
+                      name="email"
+                      type="email"
+                      autoComplete="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                      placeholder="Email address"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label htmlFor="password" className="sr-only">Password</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Lock className="h-5 w-5" />
+                    </div>
+                    <input
+                      id="password"
+                      name="password"
+                      type="password"
+                      autoComplete="new-password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                      placeholder="Password"
+                    />
+                  </div>
+                </div>
+
+                {type === 'admin' && (
+                  <div>
+                    <label htmlFor="organizationName" className="sr-only">Organization Name</label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                        <Building className="h-5 w-5" />
+                      </div>
+                      <input
+                        id="organizationName"
+                        name="organizationName"
+                        type="text"
+                        required
+                        value={organizationName}
+                        onChange={(e) => setOrganizationName(e.target.value)}
+                        className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                        placeholder="Organization name"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {type === 'agent' && (
+                  <div>
+                    <label htmlFor="organizationName" className="sr-only">Organization Name</label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                        <Building className="h-5 w-5" />
+                      </div>
+                      <input
+                        id="organizationName"
+                        name="organizationName"
+                        type="text"
+                        required
+                        value={organizationName}
+                        onFocus={() => {
+                          if (!initialLoadDone) {
+                            console.log('[SIGNUP] Input focused, loading all organizations');
+                            debouncedSearch('');
+                            setInitialLoadDone(true);
+                          }
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => {
+                            setSearchResults([]);
+                          }, 200);
+                        }}
+                        onChange={(e) => handleOrgSearch(e.target.value)}
+                        className="appearance-none relative block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 placeholder-slate-500 text-slate-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm dark:bg-slate-700"
+                        placeholder="Search for your organization"
+                      />
+                      {isSearching && (
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                        </div>
+                      )}
+                      {searchResults.length > 0 && !isSearching && (
+                        <div className="absolute z-10 mt-1 w-full bg-white dark:bg-slate-800 rounded-md shadow-lg border border-slate-200 dark:border-slate-700">
+                          <ul className="py-1 max-h-60 overflow-auto space-y-4">
+                            {searchResults.map((org) => (
+                              <li
+                                key={org.id}
+                                onClick={() => {
+                                  selectOrganization(org);
+                                  setSearchResults([]);
+                                }}
+                                className="px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer text-slate-900 dark:text-white text-sm"
+                              >
+                                <div className="flex items-center">
+                                  <Building className="h-4 w-4 mr-2 text-slate-400" />
+                                  {org.name}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {searchResults.length === 0 && !isSearching && organizationName && !selectedOrg && (
+                        <div className="mt-2 text-sm text-red-600 dark:text-red-400">
+                          No organizations found
+                        </div>
+                      )}
+                      {selectedOrg && (
+                        <div className="mt-2 text-sm text-green-600 dark:text-green-400 flex items-center">
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Selected: {selectedOrg.name}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {error && (
+              <div className="rounded-md bg-red-50 dark:bg-red-900/50 p-4">
+                <div className="text-sm text-red-700 dark:text-red-200">
+                  {error}
+                </div>
+              </div>
+              )}
+
+              <div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                {loading ? 'Creating account...' : 'Sign up'}
+                </button>
+              </div>
+            </form>
+
+          <div className="text-center">
+                <button
+              onClick={() => router.push('/auth/signin')}
+              className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300"
+            >
+              Already have an account? Sign in
+                </button>
+          </div>
+        </motion.div>
     </div>
   );
 } 

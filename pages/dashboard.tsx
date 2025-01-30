@@ -2,7 +2,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { User } from '@supabase/supabase-js';
 import { useRouter } from 'next/router';
 import { useEffect, useState } from 'react';
-import AppLayout from '../components/layout/AppLayout';
+import { AppLayout } from '../components/layout/AppLayout';
 
 export default function Dashboard() {
   const router = useRouter();

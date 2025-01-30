@@ -1,7 +1,7 @@
-import AppLayout from '@/components/layout/AppLayout';
+import { ConnectionStatus } from '@/components/gmail/ConnectionStatus';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
 import { toast } from '@/components/ui/use-toast';
 import { useUserRole } from '@/hooks/useUserRole';
 import { useSupabaseClient } from '@supabase/auth-helpers-react';
@@ -55,7 +55,7 @@ export default function OrganizationSettings() {
     if (router.query.success) {
       toast({
         title: "Gmail Connected",
-        description: "Your organization&apos;s Gmail account has been successfully connected.",
+        description: "Your organization's Gmail account has been successfully connected.",
         variant: "default",
       });
       // Remove query param
@@ -63,7 +63,7 @@ export default function OrganizationSettings() {
     } else if (router.query.error) {
       toast({
         title: "Connection Failed",
-        description: "Failed to connect Gmail account. Please try again.",
+        description: router.query.message as string || "Failed to connect Gmail account. Please try again.",
         variant: "destructive",
       });
       // Remove query param
@@ -97,6 +97,43 @@ export default function OrganizationSettings() {
       }
     } catch (error) {
       console.error('Error getting Gmail auth URL:', error);
+      toast({
+        title: "Error",
+        description: "Failed to start Gmail connection process. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDisconnectGmail = async () => {
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .update({
+          gmail_access_token: null,
+          gmail_refresh_token: null,
+          gmail_watch_status: null,
+          gmail_watch_expiration: null,
+          gmail_watch_resource_id: null
+        })
+        .eq('id', organization?.id);
+
+      if (error) throw error;
+
+      await fetchOrganization();
+      
+      toast({
+        title: "Gmail Disconnected",
+        description: "Your organization's Gmail account has been successfully disconnected.",
+        variant: "default",
+      });
+    } catch (error) {
+      console.error('Error disconnecting Gmail:', error);
+      toast({
+        title: "Disconnection Failed",
+        description: "Failed to disconnect Gmail account. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -117,28 +154,33 @@ export default function OrganizationSettings() {
           <CardHeader>
             <CardTitle>Gmail Integration</CardTitle>
             <CardDescription>
-              Connect your organization&apos;s Gmail account to handle email communications
+              Connect your organization's Gmail account to handle email communications
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label>Gmail Connection Status</Label>
-                  <p className="text-sm text-gray-500">
-                    {organization.gmail_refresh_token 
-                      ? 'Connected to Gmail'
-                      : 'Not connected to Gmail'}
-                  </p>
-                </div>
-                <Button
-                  onClick={handleConnectGmail}
-                  variant={organization.gmail_refresh_token ? "outline" : "default"}
-                >
-                  {organization.gmail_refresh_token 
-                    ? 'Reconnect Gmail'
-                    : 'Connect Gmail'}
-                </Button>
+              <ConnectionStatus orgId={organization.id} />
+              <div className="flex items-center justify-end space-x-2">
+                {organization.gmail_refresh_token ? (
+                  <>
+                    <Button
+                      onClick={handleConnectGmail}
+                      variant="outline"
+                    >
+                      Reconnect Gmail
+                    </Button>
+                    <Button
+                      onClick={handleDisconnectGmail}
+                      variant="destructive"
+                    >
+                      Disconnect Gmail
+                    </Button>
+                  </>
+                ) : (
+                  <Button onClick={handleConnectGmail}>
+                    Connect Gmail
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>

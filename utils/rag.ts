@@ -1,126 +1,159 @@
 import { Pinecone } from '@pinecone-database/pinecone';
-import { createClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { logger } from './logger';
 
-// Initialize OpenAI client
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Check if we're on the server side
+const isServer = typeof window === 'undefined';
 
-// Initialize Pinecone client
-const pinecone = new Pinecone({
-  apiKey: process.env.PINECONE_API_KEY!,
-});
+if (!isServer) {
+  logger.warn('RAG utilities should only be used on the server side');
+}
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Only initialize OpenAI client on the server side
+let openai: OpenAI | null = null;
+let pc: Pinecone | null = null;
+let pineconeIndex: any = null;
 
-// Initialize Pinecone index
-async function getPineconeIndex() {
+if (isServer) {
+  if (!process.env.OPENAI_API_KEY) {
+    logger.error('OPENAI_API_KEY is not set in environment variables');
+    throw new Error('OPENAI_API_KEY environment variable is required');
+  }
+
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+    baseURL: process.env.OPENAI_API_BASE_URL,
+  });
+
+  // Initialize Pinecone client
+  pc = new Pinecone();
+  pineconeIndex = pc.index(process.env.PINECONE_INDEX || 'ai-desk-rag-embeddings');
+  logger.info('Pinecone client initialized');
+}
+
+/**
+ * Generate an embedding for a text using OpenAI's API
+ */
+export async function generateEmbedding(text: string): Promise<number[]> {
+  if (!isServer) {
+    throw new Error('generateEmbedding can only be called on the server side');
+  }
+  
+  if (!openai) {
+    throw new Error('OpenAI client not initialized');
+  }
+
   try {
-    return pinecone.index(process.env.PINECONE_INDEX_NAME!);
-  } catch (error: any) {
-    logger.error('Failed to get Pinecone index:', { error: error.message });
-    throw new Error(`Pinecone index initialization failed: ${error.message}`);
+    const response = await openai.embeddings.create({
+      model: 'text-embedding-ada-002',
+      input: text,
+    });
+
+    return response.data[0].embedding;
+  } catch (error) {
+    logger.error('Failed to generate embedding', { error });
+    throw error;
   }
 }
 
 /**
- * Split text into chunks of approximately equal size
+ * Split text into chunks with optional overlap
  */
 export function splitIntoChunks(
   text: string,
-  chunkSize: number = 1000,
-  overlap: number = 200
+  chunkSize: number = 1500,
+  overlap: number = 300
 ): string[] {
+  const words = text.split(/\s+/);
   const chunks: string[] = [];
-  let startIndex = 0;
+  let currentChunk: string[] = [];
+  let currentLength = 0;
 
-  while (startIndex < text.length) {
-    // Calculate end index with overlap
-    let endIndex = startIndex + chunkSize;
-    
-    // If this isn't the last chunk, try to break at a sentence or paragraph
-    if (endIndex < text.length) {
-      // Look for common sentence endings within the last 100 characters of the chunk
-      const searchArea = text.slice(Math.max(endIndex - 100, startIndex), endIndex);
-      const lastPeriod = searchArea.lastIndexOf('.');
-      const lastNewline = searchArea.lastIndexOf('\n');
-      
-      // If we found a good break point, adjust endIndex
-      if (lastPeriod !== -1 || lastNewline !== -1) {
-        endIndex = endIndex - (100 - Math.max(lastPeriod, lastNewline));
-      }
+  for (const word of words) {
+    if (currentLength + word.length > chunkSize && currentChunk.length > 0) {
+      chunks.push(currentChunk.join(' '));
+      // Keep last N words for overlap
+      const overlapWords = currentChunk.slice(-Math.floor(overlap / 10));
+      currentChunk = [...overlapWords];
+      currentLength = overlapWords.join(' ').length;
     }
+    currentChunk.push(word);
+    currentLength += word.length + 1; // +1 for space
+  }
 
-    chunks.push(text.slice(startIndex, endIndex));
-    // Move start index forward by chunk size minus overlap
-    startIndex = endIndex - overlap;
+  if (currentChunk.length > 0) {
+    chunks.push(currentChunk.join(' '));
   }
 
   return chunks;
 }
 
-/**
- * Generate embeddings for a text chunk using OpenAI's API
- */
-export async function generateEmbedding(text: string): Promise<number[]> {
-  try {
-    const response = await openai.embeddings.create({
-      model: "text-embedding-ada-002",
-      input: text,
-    });
-
-    return response.data[0].embedding;
-  } catch (error: any) {
-    logger.error('Failed to generate embedding:', { error: error.message });
-    throw new Error(`Embedding generation failed: ${error.message}`);
-  }
-}
-
-interface PineconeRecord {
+export interface PineconeMatch {
   id: string;
-  values: number[];
-  metadata?: Record<string, any>;
-}
-
-/**
- * Upsert vectors to Pinecone
- */
-export async function upsertToPinecone(records: PineconeRecord[]) {
-  try {
-    const index = await getPineconeIndex();
-    await index.upsert(records);
-    logger.info(`Successfully upserted ${records.length} vectors to Pinecone`);
-  } catch (error: any) {
-    logger.error('Failed to upsert to Pinecone:', { error: error.message });
-    throw new Error(`Pinecone upsert failed: ${error.message}`);
-  }
+  score?: number;
+  metadata?: {
+    orgId?: string;
+    text?: string;
+    [key: string]: any;
+  };
 }
 
 /**
  * Query Pinecone for similar vectors
  */
 export async function queryPinecone(
-  queryEmbedding: number[],
-  topK: number = 5
-) {
+  embedding: number[],
+  topK: number = 5,
+  orgId?: string,
+  minScore: number = 0.7
+): Promise<PineconeMatch[]> {
+  if (!isServer) {
+    throw new Error('queryPinecone can only be called on the server side');
+  }
+
+  if (!pineconeIndex) {
+    throw new Error('Pinecone client not initialized');
+  }
+
   try {
-    const index = await getPineconeIndex();
-    const queryResponse = await index.query({
-      vector: queryEmbedding,
+    const queryResponse = await pineconeIndex.query({
+      vector: embedding,
       topK,
-      includeMetadata: true
+      includeMetadata: true,
+      filter: orgId ? { orgId } : undefined
     });
 
-    return queryResponse.matches || [];
-  } catch (error: any) {
-    logger.error('Failed to query Pinecone:', { error: error.message });
-    throw new Error(`Pinecone query failed: ${error.message}`);
+    // Filter out matches below the threshold after getting results
+    const matches = queryResponse.matches || [];
+    return matches.filter((match: PineconeMatch) => (match.score || 0) >= minScore);
+  } catch (error) {
+    logger.error('Failed to query Pinecone', { error });
+    return [];
+  }
+}
+
+/**
+ * Upsert vectors to Pinecone
+ */
+export async function upsertToPinecone(vectors: {
+  id: string;
+  values: number[];
+  metadata?: Record<string, any>;
+}[]): Promise<void> {
+  if (!isServer) {
+    throw new Error('upsertToPinecone can only be called on the server side');
+  }
+
+  if (!pineconeIndex) {
+    throw new Error('Pinecone client not initialized');
+  }
+
+  try {
+    await pineconeIndex.upsert(vectors);
+    logger.info('Successfully upserted vectors to Pinecone', { count: vectors.length });
+  } catch (error) {
+    logger.error('Failed to upsert to Pinecone', { error });
+    throw error;
   }
 }
 

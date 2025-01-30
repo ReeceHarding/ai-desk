@@ -1,5 +1,5 @@
 import { EmailThreadPanel } from '@/components/email-thread-panel';
-import AppLayout from '@/components/layout/AppLayout';
+import { AppLayout } from '@/components/layout/AppLayout';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,14 +12,14 @@ import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { formatDistanceToNow } from 'date-fns';
 import debounce from 'lodash/debounce';
 import {
-    AlertCircle,
-    CheckCircle,
-    Clock,
-    EyeOff,
-    Inbox,
-    Lock,
-    Menu,
-    Plus
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  EyeOff,
+  Inbox,
+  Lock,
+  Menu,
+  Plus
 } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
@@ -487,13 +487,10 @@ export default function TicketList() {
                     
                     if (isEmailMoreRecent) {
                       messageContent = latestEmail?.body;
-                      // For email messages, use the organization name
-                      senderInfo = ticket.organization?.name || 'Unknown Organization';
-                      console.log('Using organization info:', {
-                        ticketId: ticket.id,
-                        orgName: ticket.organization?.name,
-                        senderInfo
-                      });
+                      // For email messages, use the sender's name or email
+                      senderInfo = latestEmail?.from_name?.trim() || 
+                        latestEmail?.from_address?.split('@')[0] || 
+                        'Unknown Sender';
                       messageDate = emailDate;
                       avatarUrl = undefined;
                     } else if (isCommentMoreRecent) {
@@ -504,8 +501,10 @@ export default function TicketList() {
                       avatarUrl = latestComment?.author?.avatar_url;
                     } else {
                       messageContent = ticket.description;
-                      // For ticket descriptions, use the organization name
-                      senderInfo = ticket.organization?.name || 'Unknown Organization';
+                      // For ticket descriptions, use the CUSTOMER name instead of organization
+                      senderInfo = ticket.customer?.display_name 
+                        || ticket.customer?.email 
+                        || 'Unknown Customer';
                       messageDate = ticketDate;
                       avatarUrl = ticket.customer?.avatar_url;
                     }
@@ -588,7 +587,7 @@ export default function TicketList() {
           </div>
           <h1 className="text-2xl font-semibold">Please log in to view tickets</h1>
           <Button
-            onClick={() => router.push('/auth/login')}
+            onClick={() => router.push('/auth/signin')}
             className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-sm shadow-blue-500/10 hover:shadow-md hover:shadow-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200"
           >
             Log In
@@ -755,13 +754,10 @@ export default function TicketList() {
                   
                   if (isEmailMoreRecent) {
                     messageContent = latestEmail?.body;
-                    // For email messages, use the organization name
-                    senderInfo = ticket.organization?.name || 'Unknown Organization';
-                    console.log('Using organization info:', {
-                      ticketId: ticket.id,
-                      orgName: ticket.organization?.name,
-                      senderInfo
-                    });
+                    // For email messages, use the sender's name or email
+                    senderInfo = latestEmail?.from_name?.trim() || 
+                      latestEmail?.from_address?.split('@')[0] || 
+                      'Unknown Sender';
                     messageDate = emailDate;
                     avatarUrl = undefined;
                   } else if (isCommentMoreRecent) {
@@ -772,8 +768,10 @@ export default function TicketList() {
                     avatarUrl = latestComment?.author?.avatar_url;
                   } else {
                     messageContent = ticket.description;
-                    // For ticket descriptions, use the organization name
-                    senderInfo = ticket.organization?.name || 'Unknown Organization';
+                    // For ticket descriptions, use the CUSTOMER name instead of organization
+                    senderInfo = ticket.customer?.display_name 
+                      || ticket.customer?.email 
+                      || 'Unknown Customer';
                     messageDate = ticketDate;
                     avatarUrl = ticket.customer?.avatar_url;
                   }

@@ -2,7 +2,7 @@ import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
 import React, { useEffect, useRef, useState } from 'react';
-import AppLayout from '../../components/layout/AppLayout';
+import { AppLayout } from '../../components/layout/AppLayout';
 import { Button } from '../../components/ui/button';
 import { useThreadPanel } from '../../contexts/ThreadPanelContext';
 

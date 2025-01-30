@@ -1,0 +1,5 @@
+# Run PubSub status check every hour
+0 * * * * cd /app && /usr/local/bin/node scripts/check-pubsub.ts >> /var/log/pubsub-check.log 2>&1
+
+# Clean up old log files (keep last 7 days)
+0 0 * * * find /var/log -name "pubsub-check.log*" -mtime +7 -exec rm {} \; 
