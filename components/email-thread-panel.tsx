@@ -40,6 +40,8 @@ export interface EmailThreadPanelProps {
     thread_id?: string | null;
     message_id?: string | null;
     subject?: string | null;
+    support_email?: string;
+    customer_email?: string;
   } | null;
 }
 
@@ -286,31 +288,61 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
       setSending(true);
       
       // Get the latest message for threading info
-      const latestMessage = messages[0];
+      let latestMessage = messages[0];
       
+      // If we don't have a thread_id from the latest message, fetch the latest email chat
+      if (!latestMessage?.thread_id) {
+        const { data: latestEmailChat } = await supabase
+          .from('ticket_email_chats')
+          .select('thread_id, message_id')
+          .eq('ticket_id', ticket.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (!latestEmailChat?.thread_id) {
+          throw new Error('No existing email thread found for this ticket. Cannot reply.');
+        }
+
+        latestMessage = {
+          ...latestMessage,
+          thread_id: latestEmailChat.thread_id,
+          message_id: latestEmailChat.message_id
+        };
+      }
+
+      // Ensure we have a valid subject
+      const subject = latestMessage?.subject 
+        ? `Re: ${latestMessage.subject.replace(/^Re:\s*/i, '')}`
+        : `Re: Support Ticket #${ticket.id}`;
+
       const emailPayload = {
         ticketId: ticket.id,
-        threadId: ticket.thread_id || latestMessage?.thread_id,
-        messageId: latestMessage?.message_id,
-        inReplyTo: latestMessage?.message_id,
-        references: latestMessage?.message_id,
-        fromAddress: Array.isArray(latestMessage?.to_address) ? latestMessage.to_address[0] : "support@yourdomain.com",
-        toAddresses: [latestMessage?.from_address || "recipient@example.com"],
-        subject: latestMessage ? `Re: ${latestMessage.subject?.replace(/^Re:\s*/i, '')}` : "Re: Support Ticket",
+        threadId: latestMessage.thread_id,
+        messageId: latestMessage.message_id,
+        inReplyTo: latestMessage.message_id,
+        references: latestMessage.message_id,
+        fromAddress: Array.isArray(latestMessage?.to_address) 
+          ? latestMessage.to_address[0] 
+          : ticket.support_email || "support@yourdomain.com",
+        toAddresses: [latestMessage?.from_address || ticket.customer_email],
+        subject,
         htmlBody: replyText,
         attachments: [],
         orgId: ticket.org_id
-      };
+      } as const;
+
+      // Validate required fields
+      const requiredFields = ['ticketId', 'threadId', 'fromAddress', 'toAddresses', 'subject', 'htmlBody', 'orgId'] as const;
+      const missingFields = requiredFields.filter(field => !emailPayload[field as keyof typeof emailPayload]);
+      
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+      }
 
       console.log('Sending email with payload:', {
-        ticketId: emailPayload.ticketId,
-        threadId: emailPayload.threadId,
-        fromAddress: emailPayload.fromAddress,
-        toAddresses: emailPayload.toAddresses,
-        subject: emailPayload.subject,
+        ...emailPayload,
         hasBody: !!emailPayload.htmlBody,
-        orgId: emailPayload.orgId,
-        ticket_org_id: ticket.org_id
       });
       
       // Send email via API
@@ -458,11 +490,11 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                     <div className="flex items-center gap-2">
                       <Avatar className="h-8 w-8">
                         <AvatarImage
-                          src={message.author?.avatar_url || `https://www.gravatar.com/avatar/${md5(message.from_address.toLowerCase())}?d=mp`}
-                          alt={message.from_name || message.from_address}
+                          src={message.author?.avatar_url || (message.from_address ? `https://www.gravatar.com/avatar/${md5(message.from_address.toLowerCase())}?d=mp` : 'https://www.gravatar.com/avatar/default?d=mp')}
+                          alt={message.from_name || message.from_address || 'Unknown Sender'}
                         />
                         <AvatarFallback>
-                          {(message.from_name || message.from_address).charAt(0).toUpperCase()}
+                          {(message.from_name || message.from_address || 'U').charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div>

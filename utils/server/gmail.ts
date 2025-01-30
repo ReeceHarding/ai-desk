@@ -88,12 +88,13 @@ export const gmailLogger = {
 /**
  * Get a configured Gmail client using organization tokens
  */
-export async function getGmailClient() {
+export async function getGmailClient(orgId: string) {
   try {
     // Get organization's Gmail tokens
     const { data: org, error: orgError } = await supabase
       .from('organizations')
       .select('gmail_access_token, gmail_refresh_token')
+      .eq('id', orgId)
       .single();
 
     if (orgError || !org) {
@@ -137,9 +138,10 @@ export async function sendGmailReply(params: {
   to: string[];
   subject: string;
   htmlBody: string;
+  orgId: string;
 }) {
   try {
-    const gmail = await getGmailClient();
+    const gmail = await getGmailClient(params.orgId);
 
     // Create the email message
     const message = [
@@ -247,9 +249,9 @@ export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[
 /**
  * Parse a Gmail message into a more usable format
  */
-export async function parseGmailMessage(message: GmailMessage): Promise<ParsedEmail> {
+export async function parseGmailMessage(message: GmailMessage, orgId: string): Promise<ParsedEmail> {
   try {
-    const gmail = await getGmailClient();
+    const gmail = await getGmailClient(orgId);
     const response = await gmail.users.messages.get({
       userId: 'me',
       id: message.id,
@@ -506,13 +508,32 @@ export async function refreshGmailTokens(refreshToken: string): Promise<GmailTok
 /**
  * Import initial emails from Gmail
  */
-export async function importInitialEmails(tokens: GmailTokens, userId: string) {
+export async function importInitialEmails(userId: string) {
   try {
+    // Get user profile to get org_id and tokens
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('org_id, gmail_access_token, gmail_refresh_token')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error('Failed to get user profile');
+    }
+
+    const tokens: GmailTokens = {
+      access_token: profile.gmail_access_token!,
+      refresh_token: profile.gmail_refresh_token!,
+      scope: 'https://www.googleapis.com/auth/gmail.modify',
+      token_type: 'Bearer',
+      expiry_date: Date.now() + 3600000 // 1 hour from now
+    };
+
     const messages = await pollGmailInbox(tokens);
     
     for (const message of messages) {
       try {
-        const parsedEmail = await parseGmailMessage(message);
+        const parsedEmail = await parseGmailMessage(message, profile.org_id);
         await createTicketFromEmail(parsedEmail, userId);
       } catch (error) {
         gmailLogger.error('Failed to import email', { error, messageId: message.id });
@@ -520,6 +541,58 @@ export async function importInitialEmails(tokens: GmailTokens, userId: string) {
     }
   } catch (error) {
     gmailLogger.error('Failed to import initial emails', { error });
+    throw error;
+  }
+}
+
+export async function pollAndCreateTickets(userId: string): Promise<any[]> {
+  await gmailLogger.info(`Starting email polling for user { userId: '${userId}' }`);
+
+  try {
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('gmail_access_token, gmail_refresh_token, org_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error('Failed to get user profile');
+    }
+
+    const tokens: GmailTokens = {
+      access_token: profile.gmail_access_token!,
+      refresh_token: profile.gmail_refresh_token!,
+      scope: 'https://www.googleapis.com/auth/gmail.modify',
+      token_type: 'Bearer',
+      expiry_date: Date.now() + 3600000 // 1 hour from now
+    };
+
+    try {
+      const messages = await pollGmailInbox(tokens);
+      const results = [];
+
+      for (const message of messages) {
+        try {
+          const parsedEmail = await parseGmailMessage(message, profile.org_id);
+          const ticket = await createTicketFromEmail(parsedEmail, userId);
+          results.push({ success: true, ticket });
+        } catch (error) {
+          await gmailLogger.error('Error creating ticket from email', error);
+          results.push({ success: false, error });
+        }
+      }
+
+      return results;
+    } catch (error: any) {
+      if (error.message.includes('401')) {
+        await gmailLogger.info('Access token expired, refreshing...');
+        const newTokens = await refreshGmailTokens(tokens.refresh_token);
+        return pollAndCreateTickets(userId);
+      }
+      throw error;
+    }
+  } catch (error: any) {
+    await gmailLogger.error('Error in pollAndCreateTickets', error);
     throw error;
   }
 } 
