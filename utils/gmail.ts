@@ -78,7 +78,7 @@ const gmailLogger = {
   info: async (message: string, data?: LogData): Promise<void> => {
     const timestamp = new Date().toISOString();
     const logMessage = `[${timestamp}] [Gmail Service] ${message}`;
-    logger.info(logMessage, data);
+    // logger.info(logMessage, data);
     try {
       await supabase.from('audit_logs').insert({
         action: 'gmail_service_info',
@@ -115,7 +115,7 @@ const gmailLogger = {
   warn: async (message: string, data?: LogData): Promise<void> => {
     const timestamp = new Date().toISOString();
     const logMessage = `[${timestamp}] [Gmail Service] WARN: ${message}`;
-    logger.warn(logMessage, data);
+    // logger.warn(logMessage, data);
     try {
       await supabase.from('audit_logs').insert({
         action: 'gmail_service_warn',
@@ -150,11 +150,11 @@ export async function getGmailProfile(tokens: GmailTokens): Promise<GmailProfile
     const cached = profileCache[cacheKey];
 
     if (cached && now - cached.timestamp < CACHE_DURATION) {
-      console.log('Returning cached Gmail profile');
+      // console.log('Returning cached Gmail profile');
       return cached.profile;
     }
 
-    console.log('Fetching Gmail profile...');
+    // console.log('Fetching Gmail profile...');
     const response = await fetch(`${API_BASE_URL}/api/gmail/profile`, {
       method: 'POST',
       headers: {
@@ -168,7 +168,7 @@ export async function getGmailProfile(tokens: GmailTokens): Promise<GmailProfile
     
     if (!response.ok) {
       if (response.status === 401) {
-        console.log('Access token expired, attempting to refresh...');
+        // console.log('Access token expired, attempting to refresh...');
         const newTokens = await refreshGmailTokens(tokens.refresh_token);
         return getGmailProfile(newTokens);
       }
@@ -176,7 +176,7 @@ export async function getGmailProfile(tokens: GmailTokens): Promise<GmailProfile
     }
     
     const profile = await response.json();
-    console.log('Successfully fetched Gmail profile');
+    // console.log('Successfully fetched Gmail profile');
 
     // Cache the profile
     profileCache[cacheKey] = {
@@ -245,12 +245,12 @@ const formatDate = (date: Date): string => date.toISOString();
 export async function parseGmailMessage(message: gmail_v1.Schema$Message): Promise<ParsedEmail | null> {
   try {
     if (!message.payload || !message.id || !message.threadId || !message.historyId) {
-      logger.warn('Missing required fields in Gmail message', {
-        messageId: message.id,
-        hasPayload: !!message.payload,
-        hasThreadId: !!message.threadId,
-        hasHistoryId: !!message.historyId
-      });
+      // logger.warn('Missing required fields in Gmail message', {
+      //   messageId: message.id,
+      //   hasPayload: !!message.payload,
+      //   hasThreadId: !!message.threadId,
+      //   hasHistoryId: !!message.historyId
+      // });
       return null;
     }
 
@@ -263,11 +263,11 @@ export async function parseGmailMessage(message: gmail_v1.Schema$Message): Promi
     const bccHeader = headers.find(h => h.name?.toLowerCase() === 'bcc')?.value || '';
 
     if (!fromHeader || !toHeader) {
-      logger.warn('Missing required header fields in Gmail message', {
-        messageId: message.id,
-        hasFrom: !!fromHeader,
-        hasTo: !!toHeader
-      });
+      // logger.warn('Missing required header fields in Gmail message', {
+      //   messageId: message.id,
+      //   hasFrom: !!fromHeader,
+      //   hasTo: !!toHeader
+      // });
       return null;
     }
 
@@ -327,9 +327,9 @@ export async function parseGmailMessage(message: gmail_v1.Schema$Message): Promi
 
     // Validate the result before returning
     if (!isValidParsedEmail(result)) {
-      logger.warn('Failed to create valid ParsedEmail object', {
-        messageId: message.id
-      });
+      // logger.warn('Failed to create valid ParsedEmail object', {
+      //   messageId: message.id
+      // });
       return null;
     }
 
@@ -345,7 +345,7 @@ export async function parseGmailMessage(message: gmail_v1.Schema$Message): Promi
 
 export async function refreshGmailTokens(refreshToken: string): Promise<GmailTokens> {
   try {
-    console.log('Refreshing Gmail tokens...');
+    // console.log('Refreshing Gmail tokens...');
     const response = await fetch('/api/gmail/refresh', {
       method: 'POST',
       headers: {
@@ -361,7 +361,7 @@ export async function refreshGmailTokens(refreshToken: string): Promise<GmailTok
     }
 
     const data = await response.json();
-    console.log('Successfully refreshed Gmail tokens');
+    // console.log('Successfully refreshed Gmail tokens');
 
     // Update tokens in database
     const { data: orgs } = await supabase
@@ -393,7 +393,7 @@ export async function refreshGmailTokens(refreshToken: string): Promise<GmailTok
 
 export async function addGmailLabel(messageId: string, labelName: string, tokens: GmailTokens) {
   try {
-    console.log(`Adding label "${labelName}" to message ${messageId}...`);
+    // console.log(`Adding label "${labelName}" to message ${messageId}...`);
     const response = await fetch('/api/gmail/label', {
       method: 'POST',
       headers: {
@@ -409,14 +409,14 @@ export async function addGmailLabel(messageId: string, labelName: string, tokens
 
     if (!response.ok) {
       if (response.status === 401) {
-        console.log('Access token expired, attempting to refresh...');
+        // console.log('Access token expired, attempting to refresh...');
         const newTokens = await refreshGmailTokens(tokens.refresh_token);
         return addGmailLabel(messageId, labelName, newTokens);
       }
       throw new Error(`Failed to add Gmail label: ${response.statusText}`);
     }
 
-    console.log(`Successfully added label "${labelName}" to message ${messageId}`);
+    // console.log(`Successfully added label "${labelName}" to message ${messageId}`);
   } catch (error) {
     console.error('Error adding Gmail label:', error);
     throw error;
@@ -646,10 +646,7 @@ export async function processGmailMessages(messages: GmailMessage[], userId: str
     try {
       const parsedEmail = await parseGmailMessage(message);
       if (!parsedEmail) {
-        logger.warn('Failed to parse email message', {
-          messageId: message.id,
-          userId
-        });
+        logger.warn(`Failed to parse email ${message.id}`);
         results.push({
           success: false,
           messageId: message.id,
@@ -884,7 +881,7 @@ export async function setupGmailWatch(
     gmailLogger.info('Setting up Gmail watch', { type, id });
 
     // Get Gmail client using organization ID
-    const gmail = await getGmailClient(id);
+    const gmail = await getGmailClient(id, type);
 
     // Get current history ID
     const profile = await gmail.users.getProfile({ userId: 'me' });
@@ -1023,8 +1020,10 @@ export async function sendGmailReply({
       htmlBody
     ].join('\r\n');
 
-    // Base64 encode the email
-    const encodedEmail = Buffer.from(email).toString('base64')
+    // Base64 encode the email with proper line breaks for MIME
+    const encodedEmail = Buffer.from(email)
+      .toString('base64')
+      .replace(/(.{76})/g, '$1\n')  // Add line breaks every 76 chars for MIME
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/, '');
@@ -1049,74 +1048,130 @@ export async function sendGmailReply({
   }
 }
 
-/**
- * Get a configured Gmail client using organization tokens
- * This assumes you're using organization-level Gmail integration
- */
-export async function getGmailClient(orgId: string) {
+export async function getGmailClient(id: string, type: 'organization' | 'profile' = 'organization'): Promise<gmail_v1.Gmail> {
   try {
-    // Get organization's Gmail tokens
-    const { data: org, error: orgError } = await supabase
-      .from('organizations')
-      .select('gmail_access_token, gmail_refresh_token, gmail_token_expiry')
-      .eq('id', orgId)
-      .single();
+    let orgId = id;
+    let tokens;
 
-    if (orgError || !org) {
-      gmailLogger.error('Failed to get organization tokens', { error: orgError });
-      throw new Error('Failed to get organization tokens');
-    }
+    if (type === 'profile') {
+      // Get profile's org_id and tokens
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('org_id, gmail_access_token, gmail_refresh_token')
+        .eq('id', id)
+        .single();
 
-    const { gmail_access_token, gmail_refresh_token, gmail_token_expiry } = org;
-
-    if (!gmail_access_token || !gmail_refresh_token) {
-      gmailLogger.error('Gmail tokens not found', { 
-        orgId,
-        hasAccessToken: !!gmail_access_token,
-        hasRefreshToken: !!gmail_refresh_token
-      });
-      throw new Error('Gmail tokens not configured');
-    }
-
-    // Set up Gmail OAuth2 client
-    const oauth2Client = new google.auth.OAuth2(
-      process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
-      process.env.GMAIL_CLIENT_SECRET,
-      process.env.NEXT_PUBLIC_GMAIL_REDIRECT_URI
-    );
-
-    // Set credentials and force token refresh if expired
-    oauth2Client.setCredentials({
-      access_token: gmail_access_token,
-      refresh_token: gmail_refresh_token,
-      expiry_date: gmail_token_expiry ? new Date(gmail_token_expiry).getTime() : undefined
-    });
-
-    // Add token refresh handler
-    oauth2Client.on('tokens', async (tokens) => {
-      const updates: any = {
-        gmail_access_token: tokens.access_token,
-        gmail_token_expiry: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null
-      };
-      
-      if (tokens.refresh_token) {
-        updates.gmail_refresh_token = tokens.refresh_token;
+      if (profileError || !profile) {
+        throw new Error(`Failed to get profile Gmail tokens: ${profileError?.message}`);
       }
 
-      await supabase
+      if (!profile.gmail_access_token || !profile.gmail_refresh_token) {
+        throw new Error('Profile Gmail tokens not found');
+      }
+
+      tokens = {
+        gmail_access_token: profile.gmail_access_token,
+        gmail_refresh_token: profile.gmail_refresh_token
+      };
+      orgId = profile.org_id;
+    } else {
+      // Get organization's tokens
+      const { data: org, error: orgError } = await supabase
         .from('organizations')
-        .update(updates)
-        .eq('id', orgId);
+        .select('gmail_access_token, gmail_refresh_token')
+        .eq('id', orgId)
+        .single();
+
+      if (orgError || !org) {
+        throw new Error(`Failed to get organization Gmail tokens: ${orgError?.message}`);
+      }
+
+      if (!org.gmail_access_token || !org.gmail_refresh_token) {
+        throw new Error('Organization Gmail tokens not found');
+      }
+
+      tokens = org;
+    }
+
+    // Create OAuth2 client
+    const oauth2Client = new google.auth.OAuth2(
+      process.env.GOOGLE_CLIENT_ID,
+      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+
+    // Set credentials
+    oauth2Client.setCredentials({
+      access_token: tokens.gmail_access_token,
+      refresh_token: tokens.gmail_refresh_token,
     });
 
-    // Create Gmail client
+    // Create and return Gmail client
     return google.gmail({ version: 'v1', auth: oauth2Client });
-  } catch (error: any) {
-    gmailLogger.error('Failed to initialize Gmail client', { 
-      error: error.message,
-      orgId,
-      stack: error.stack
+  } catch (error) {
+    logger.error('Failed to initialize Gmail client:', {
+      error: error instanceof Error ? error.message : String(error)
     });
     throw error;
+  }
+}
+
+// Update the logging in processEmailsInBackground
+async function updateImportProgress(
+  supabase: ReturnType<typeof createClient<Database>>,
+  importId: string,
+  progress: number,
+  processedCount: number,
+  failedCount: number
+) {
+  const { error } = await supabase
+    .from('gmail_imports')
+    .update({
+      progress,
+      processed_messages: processedCount,
+      failed_messages: failedCount,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', importId);
+
+  if (error) {
+    logger.error(`Progress update failed for ${importId}`);
+  }
+}
+
+// Update the logging in updateImportStatus
+async function updateImportStatus(
+  supabase: ReturnType<typeof createClient<Database>>,
+  importId: string,
+  status: 'pending' | 'in_progress' | 'completed' | 'failed',
+  error?: string | null,
+  processedCount?: number,
+  failedCount?: number
+) {
+  const update: any = {
+    status,
+    error,
+    updated_at: new Date().toISOString()
+  };
+
+  if (status === 'completed' || status === 'failed') {
+    update.completed_at = new Date().toISOString();
+  }
+
+  if (typeof processedCount === 'number') {
+    update.processed_messages = processedCount;
+  }
+
+  if (typeof failedCount === 'number') {
+    update.failed_messages = failedCount;
+  }
+
+  const { error: updateError } = await supabase
+    .from('gmail_imports')
+    .update(update)
+    .eq('id', importId);
+
+  if (updateError) {
+    logger.error(`Status update failed for ${importId}`);
   }
 } 
