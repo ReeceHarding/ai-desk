@@ -2,11 +2,12 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useToast } from "@/components/ui/use-toast"
 import { Database } from "@/types/supabase"
-import { useSupabaseClient } from "@supabase/auth-helpers-react"
+import { useSupabaseClient, useUser } from "@supabase/auth-helpers-react"
 import { formatDistanceToNow } from "date-fns"
 import { OAuth2Client } from "google-auth-library"
-import { Loader2, Mail, Paperclip, Send, Smile, X } from "lucide-react"
+import { Loader2, Mail, Paperclip, Send, Smile, Sparkles, X } from "lucide-react"
 import md5 from "md5"
 import { useEffect, useRef, useState } from "react"
 import { useInView } from "react-intersection-observer"
@@ -29,6 +30,14 @@ interface Message {
   to_address?: string[];
   subject?: string | null;
   attachments?: any;
+  ragResponse?: {
+    chunks: {
+      documentTitle: string;
+      similarityScore: number;
+      textPreview: string;
+    }[];
+    processingTimeMs: number;
+  };
 }
 
 export interface EmailThreadPanelProps {
@@ -52,11 +61,14 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
   const [page, setPage] = useState(0)
   const { ref, inView } = useInView()
   const supabase = useSupabaseClient<Database>()
+  const user = useUser()
   const oauthClientRef = useRef<OAuth2Client | null>(null)
   const limit = 20
   const [replyText, setReplyText] = useState('')
   const [sending, setSending] = useState(false)
   const [currentDraft, setCurrentDraft] = useState<Database['public']['Tables']['ticket_email_chats']['Row'] | null>(null)
+  const [generatingRag, setGeneratingRag] = useState(false)
+  const { toast } = useToast()
 
   const fetchMessages = async (pageNum: number) => {
     if (!ticket?.id || isLoading) {
@@ -388,6 +400,117 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
     }
   };
 
+  const handleGenerateRagResponse = async () => {
+    if (!ticket?.org_id || generatingRag) return;
+
+    try {
+      setGeneratingRag(true);
+      
+      // Get the latest message for context
+      const latestMessage = messages[0];
+      if (!latestMessage) {
+        toast({
+          title: "No message found",
+          description: "Cannot generate response without a message to respond to.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Get previous messages for context (excluding the latest one)
+      const previousMessages = messages
+        .slice(1, 6) // Get up to 5 previous messages for context
+        .map(msg => ({
+          body: msg.body,
+          from: msg.from_name || msg.from_address,
+          type: msg.message_type,
+          created_at: msg.created_at
+        }));
+
+      console.log('Generating RAG response with context:', {
+        latestMessagePreview: latestMessage.body.substring(0, 200) + '...',
+        previousMessagesCount: previousMessages.length,
+        ticketId: ticket.id,
+        orgId: ticket.org_id
+      });
+
+      // Get current user's display name
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('display_name')
+        .eq('id', user?.id)
+        .single();
+
+      // Call our RAG API endpoint
+      const response = await fetch('/api/rag/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          emailText: latestMessage.body,
+          orgId: ticket.org_id,
+          messageHistory: previousMessages,
+          senderInfo: {
+            fromName: latestMessage.from_name || latestMessage.from_address?.split('@')[0],
+            agentName: profileData?.display_name || user?.email?.split('@')[0]
+          }
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate RAG response');
+      }
+
+      const data = await response.json();
+      
+      console.log('Received RAG response:', {
+        confidenceScore: data.confidence,
+        responsePreview: data.response.substring(0, 200) + '...',
+        referencesCount: data.references.length,
+        debug: data.debug
+      });
+      
+      // Update the reply text with the generated response
+      setReplyText(data.response);
+
+      // Show debug information in a dialog
+      if (data.debug) {
+        const debugContent = (
+          <div className="space-y-2">
+            <div>
+              <strong>Knowledge Base Chunks Used:</strong>
+              {data.debug.chunks?.map((chunk: any, idx: number) => (
+                <div key={idx} className="mt-2 space-y-1">
+                  <div><strong>Document:</strong> {chunk.docTitle || chunk.docId}</div>
+                  <div><strong>Similarity Score:</strong> {(chunk.similarity * 100).toFixed(1)}%</div>
+                  <div><strong>Text Preview:</strong> {chunk.text.substring(0, 100)}...</div>
+                </div>
+              ))}
+            </div>
+            <div>
+              <strong>Processing Time:</strong> {data.debug.processingTimeMs}ms
+            </div>
+          </div>
+        );
+
+        toast({
+          title: "RAG Response Details",
+          description: debugContent,
+        });
+      }
+    } catch (error) {
+      console.error('Error generating RAG response:', error);
+      toast({
+        title: "Generation Failed",
+        description: "Failed to generate response. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingRag(false);
+    }
+  };
+
   function extractSenderName(subject: string | null, body: string | null): string | null {
     console.log('Extracting sender name from:', {
       subject,
@@ -441,6 +564,33 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
 
   const handleDraftDiscarded = () => {
     setCurrentDraft(null);
+  };
+
+  const handleRagResponse = async (message: Message) => {
+    if (!message.ragResponse) return;
+
+    const debugContent = (
+      <div className="space-y-2">
+        <div>
+          <strong>Knowledge Base Chunks Used:</strong>
+          {message.ragResponse.chunks.map((chunk, i) => (
+            <div key={i} className="mt-2 space-y-1">
+              <div><strong>Document:</strong> {chunk.documentTitle}</div>
+              <div><strong>Similarity Score:</strong> {chunk.similarityScore}</div>
+              <div><strong>Text Preview:</strong> {chunk.textPreview}</div>
+            </div>
+          ))}
+        </div>
+        <div>
+          <strong>Processing Time:</strong> {message.ragResponse.processingTimeMs}ms
+        </div>
+      </div>
+    );
+
+    toast({
+      title: "RAG Response Details",
+      description: debugContent,
+    });
   };
 
   return (
@@ -503,9 +653,22 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                           {message.message_type === 'description' && ' (Initial Message)'}
                         </p>
                         <p className="text-sm text-slate-500">
-                          {formatDistanceToNow(new Date(message.created_at), {
-                            addSuffix: true,
-                          })}
+                          {(() => {
+                            try {
+                              const date = new Date(message.created_at);
+                              // Check if date is valid
+                              if (isNaN(date.getTime())) {
+                                console.warn('Invalid date value:', message.created_at);
+                                return 'Date unavailable';
+                              }
+                              return formatDistanceToNow(date, {
+                                addSuffix: true,
+                              });
+                            } catch (error) {
+                              console.error('Error formatting date:', error);
+                              return 'Date unavailable';
+                            }
+                          })()}
                         </p>
                       </div>
                     </div>
@@ -547,16 +710,29 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
                   <Smile className="h-4 w-4" />
                 </Button>
                 <Button
+                  onClick={handleGenerateRagResponse}
+                  disabled={generatingRag || !messages.length}
+                  variant="outline"
+                  className="gap-2"
+                >
+                  {generatingRag ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  <span>Generate</span>
+                </Button>
+                <Button
                   onClick={handleSendMessage}
                   disabled={!replyText.trim() || sending}
-                  className="bg-blue-500 hover:bg-blue-600 text-white"
+                  className="bg-blue-500 hover:bg-blue-600 text-white gap-2"
                 >
                   {sending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Send className="h-4 w-4" />
                   )}
-                  <span className="ml-2">Send</span>
+                  <span>Send</span>
                 </Button>
               </div>
             </div>
