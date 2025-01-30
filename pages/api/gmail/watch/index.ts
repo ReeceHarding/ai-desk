@@ -31,7 +31,37 @@ export default async function handler(
       timestamp: new Date().toISOString()
     });
     
-    // Get all organizations that need watch setup
+    // Support both direct token input and organization-based setup
+    if (req.body.access_token && req.body.refresh_token) {
+      // Direct token setup (single account)
+      oauth2Client.setCredentials({
+        access_token: req.body.access_token,
+        refresh_token: req.body.refresh_token,
+      });
+
+      const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+      const watchResponse = await gmail.users.watch({
+        userId: 'me',
+        requestBody: {
+          labelIds: [], // Empty array means all labels except SPAM and TRASH
+          topicName: process.env.GMAIL_PUBSUB_TOPIC,
+          labelFilterAction: 'include'
+        }
+      });
+
+      await logger.info('Single account Gmail watch setup successful', {
+        historyId: watchResponse.data.historyId,
+        expiration: new Date(Number(watchResponse.data.expiration)).toISOString()
+      });
+
+      return res.status(200).json({
+        historyId: watchResponse.data.historyId,
+        expiration: watchResponse.data.expiration,
+        resourceId: watchResponse.data.resourceId || ''
+      });
+    }
+
+    // Organization-based setup (multiple accounts)
     const { data: orgs, error: orgsError } = await supabase
       .from('organizations')
       .select('id, gmail_access_token, gmail_refresh_token')
@@ -65,22 +95,24 @@ export default async function handler(
 
         const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
 
-        // Set up Gmail watch
+        // Set up Gmail watch with all labels except SPAM and TRASH
         const watchResponse = await gmail.users.watch({
           userId: 'me',
           requestBody: {
-            labelIds: ['INBOX'],
-            topicName: `projects/zendesk-clone-448507/topics/gmail-updates`,
+            labelIds: [], // Empty array means all labels except SPAM and TRASH
+            topicName: process.env.GMAIL_PUBSUB_TOPIC,
+            labelFilterAction: 'include'
           },
         });
 
         if (watchResponse.data.expiration) {
-          // Update organization with watch expiration
+          // Update organization with watch expiration and resourceId
           const { error: updateError } = await supabase
             .from('organizations')
             .update({
               gmail_watch_expiration: new Date(parseInt(watchResponse.data.expiration)).toISOString(),
               gmail_history_id: watchResponse.data.historyId,
+              gmail_resource_id: watchResponse.data.resourceId || null
             })
             .eq('id', org.id);
 
@@ -94,6 +126,7 @@ export default async function handler(
               orgId: org.id,
               expiration: watchResponse.data.expiration,
               historyId: watchResponse.data.historyId,
+              resourceId: watchResponse.data.resourceId
             });
           }
         }

@@ -129,7 +129,11 @@ export async function generateRagResponse(
   emailText: string,
   orgId: string,
   topK: number = 5,
-  debug: boolean = false
+  debug: boolean = false,
+  senderInfo?: { 
+    fromName?: string;
+    agentName?: string;
+  }
 ): Promise<RagResponse> {
   if (!isServer) {
     throw new Error('generateRagResponse can only be called on the server side');
@@ -162,7 +166,7 @@ export async function generateRagResponse(
       logger.info('No relevant chunks found for query', { emailText, orgId });
       return { 
         response: 'Not enough info.', 
-        confidence: 0, // Set to 0 when no matches found
+        confidence: 0,
         references: [],
         debugInfo: debug ? {
           ...debugInfo,
@@ -179,21 +183,42 @@ export async function generateRagResponse(
       references.push(match.id || '');
     });
 
+    // Extract customer name from email if available
+    const customerName = senderInfo?.fromName?.split(' ')[0] || 'there';
+    const agentFirstName = senderInfo?.agentName?.split(' ')[0] || 'Support Agent';
+
     // Construct GPT system prompt
     const systemPrompt = `
-You are a helpful support assistant with knowledge from the following context: 
+You are a knowledgeable support agent crafting email responses. Use the following context to answer the customer's question:
 ${contextString}
 
-User's question: "${emailText}"
+Guidelines for response:
+1. Be concise and direct - aim for 3-4 sentences maximum
+2. Start with a warm but brief greeting using "${customerName}"
+3. Focus on answering the specific question or addressing the main concern
+4. End with a simple "Best regards," followed by "${agentFirstName}"
+5. Maintain a professional yet friendly tone
+6. Only include information from the provided context
 
-You can only use the context provided. If not enough info, say "Not enough info."
-Return a JSON object: { "answer": "...", "confidence": 0-100 } 
-  - "answer": your best answer based ONLY on the provided context
-  - "confidence": integer from 0 to 100, where:
-    * 0-30: not enough relevant info in context
-    * 31-70: partial match or uncertain
-    * 71-100: high confidence answer from context
-`;
+User's email: "${emailText}"
+
+Return a JSON object: { 
+  "answer": "...", 
+  "confidence": 0-100 
+} where:
+- "answer": your complete email response
+- "confidence": integer from 0 to 100, where:
+  * 0-30: not enough relevant info
+  * 31-70: partial match or uncertain
+  * 71-100: high confidence answer
+
+Example format:
+{
+  "answer": "Hi [Name],\\n\\nThank you for your question. [Clear, direct answer]\\n\\nBest regards,\\n[Agent Name]",
+  "confidence": 85
+}
+
+If you cannot answer based on the context, respond with "Not enough info." and low confidence.`;
 
     if (debug) {
       debugInfo.prompt = {
@@ -257,7 +282,7 @@ Return a JSON object: { "answer": "...", "confidence": 0-100 }
     logger.error('RAG generation error', { error });
     return { 
       response: 'Not enough info.', 
-      confidence: 0, // Set to 0 for errors
+      confidence: 0,
       references: [],
       debugInfo: debug ? {
         ...debugInfo,

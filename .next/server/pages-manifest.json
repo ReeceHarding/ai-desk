@@ -2,8 +2,7 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
+  "/auth/signup": "pages/auth/signup.js",
   "/tickets": "pages/tickets.js",
-  "/api/gmail/profile": "pages/api/gmail/profile.js",
-  "/profile/settings": "pages/profile/settings.js",
-  "/notifications": "pages/notifications.js"
+  "/profile/settings": "pages/profile/settings.js"
 }

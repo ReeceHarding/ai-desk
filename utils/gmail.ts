@@ -221,7 +221,11 @@ export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[
 const formatDate = (date: Date): string => date.toISOString();
 
 export async function parseGmailMessage(message: GmailMessage): Promise<ParsedEmail> {
-  const headers = message.payload.headers;
+  if (!message.payload) {
+    throw new Error('Message payload is missing');
+  }
+  
+  const headers = message.payload.headers || [];
   const getHeader = (name: string) => headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
 
   const attachments: Array<{
@@ -231,8 +235,8 @@ export async function parseGmailMessage(message: GmailMessage): Promise<ParsedEm
     attachmentId: string;
   }> = [];
 
-  const plainTextBody = extractBody(message.payload);
-  const htmlBody = extractHtmlBody(message.payload);
+  const plainTextBody = message.payload ? extractBody(message.payload) : '';
+  const htmlBody = message.payload ? extractHtmlBody(message.payload) : '';
 
   const fromHeader = getHeader('from');
   // Updated regex to better handle email formats
@@ -275,8 +279,7 @@ export async function parseGmailMessage(message: GmailMessage): Promise<ParsedEm
     date: message.internalDate,
     bodyText: plainTextBody || '',
     bodyHtml: htmlBody || '',
-    attachments,
-    raw: message.raw
+    attachments
   };
 }
 
@@ -444,6 +447,19 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       throw error;
     }
 
+    // Convert Gmail's internal date (Unix timestamp in milliseconds) to ISO string
+    let gmailDate: string;
+    try {
+      const timestamp = typeof parsedEmail.date === 'string' ? parseInt(parsedEmail.date, 10) : parsedEmail.date;
+      gmailDate = new Date(timestamp).toISOString();
+    } catch (error) {
+      gmailLogger.warn('Invalid date format, using current time', { 
+        date: parsedEmail.date,
+        error 
+      });
+      gmailDate = new Date().toISOString();
+    }
+
     const { error: chatError } = await supabase
       .from('ticket_email_chats')
       .insert({
@@ -458,7 +474,7 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
         subject: parsedEmail.subject,
         body: parsedEmail.bodyText || parsedEmail.bodyHtml || '',
         attachments: {},
-        gmail_date: new Date(parsedEmail.date).toISOString(),
+        gmail_date: gmailDate,
         org_id: profile.org_id,
         ai_classification: 'unknown',
         ai_confidence: 0,
@@ -467,15 +483,9 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       });
 
     if (chatError) {
-      gmailLogger.error('Failed to create ticket_email_chats record', { error: chatError });
-      // Don't throw here, as we still want to return the ticket
+      gmailLogger.error('Failed to create email chat', { error: chatError });
+      throw chatError;
     }
-
-    gmailLogger.info('Successfully created ticket from email', {
-      ticketId: ticket.id,
-      emailId: parsedEmail.id,
-      subject: parsedEmail.subject
-    });
 
     return ticket;
   } catch (error) {
@@ -635,7 +645,7 @@ export async function importInitialEmails(userId: string, tokens: GmailTokens) {
 interface WatchResponse {
   historyId: string;
   expiration: string;
-  resourceId: string;
+  resourceId?: string;  // Optional because it's not in the TypeScript types but is returned by the API
 }
 
 type Credentials = {
@@ -653,7 +663,7 @@ export async function setupGmailWatch(
   tokens: Credentials,
   type: 'organization' | 'profile',
   id: string
-): Promise<{ historyId: string; expiration: string; resourceId: string }> {
+): Promise<WatchResponse> {
   try {
     gmailLogger.info('Setting up Gmail watch', { type, id });
 
@@ -699,10 +709,13 @@ export async function setupGmailWatch(
       currentHistoryId
     });
 
+    // Cast the response data to include resourceId
+    const watchResponse = response.data as unknown as WatchResponse;
+
     return {
-      historyId: response.data.historyId,
-      expiration: response.data.expiration,
-      resourceId: response.data.resourceId || ''
+      historyId: watchResponse.historyId,
+      expiration: watchResponse.expiration,
+      resourceId: watchResponse.resourceId
     };
   } catch (error) {
     gmailLogger.error('Failed to set up Gmail watch', { error, type, id });
@@ -713,7 +726,12 @@ export async function setupGmailWatch(
 /**
  * Stops watching a Gmail mailbox
  */
-export async function stopWatch(tokens: GmailTokens, resourceId: string): Promise<void> {
+export async function stopWatch(tokens: GmailTokens, resourceId?: string): Promise<void> {
+  if (!resourceId) {
+    gmailLogger.warn('No resourceId provided to stopWatch, skipping');
+    return;
+  }
+
   try {
     const response = await fetch(`${API_BASE_URL}/api/gmail/watch/stop`, {
       method: 'POST',
@@ -761,14 +779,13 @@ export async function checkAndRefreshWatches(): Promise<void> {
   }
 }
 
-export const setupGmailWatch = setupGmailWatch;
-
 interface SendGmailReplyParams {
   threadId: string;
   inReplyTo: string;
   to: string[];
   subject: string;
   htmlBody: string;
+  orgId: string;
 }
 
 /**
@@ -780,17 +797,11 @@ export async function sendGmailReply({
   to,
   subject,
   htmlBody,
+  orgId,
 }: SendGmailReplyParams): Promise<void> {
   try {
-    // Get organization's Gmail tokens
-    const { data: org } = await supabase
-      .from('organizations')
-      .select('gmail_access_token, gmail_refresh_token')
-      .single();
-
-    if (!org?.gmail_access_token) {
-      throw new Error('No Gmail access token found');
-    }
+    // Get Gmail client with organization tokens
+    const gmail = await getGmailClient(orgId);
 
     // Construct email in RFC 2822 format
     const email = [
@@ -811,34 +822,16 @@ export async function sendGmailReply({
       .replace(/=+$/, '');
 
     // Send via Gmail API
-    const response = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/send`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${org.gmail_access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          raw: encodedEmail,
-          threadId,
-        }),
-      }
-    );
+    const response = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: {
+        raw: encodedEmail,
+        threadId,
+      },
+    });
 
-    if (!response.ok) {
-      if (response.status === 401) {
-        // Token expired, refresh and retry
-        const newTokens = await refreshGmailTokens(org.gmail_refresh_token);
-        return sendGmailReply({
-          threadId,
-          inReplyTo,
-          to,
-          subject,
-          htmlBody,
-        });
-      }
-      throw new Error(`Failed to send email: ${response.statusText}`);
+    if (!response.data) {
+      throw new Error('Failed to send email');
     }
 
     gmailLogger.info('Sent Gmail reply', { threadId, to });
@@ -852,12 +845,13 @@ export async function sendGmailReply({
  * Get a configured Gmail client using organization tokens
  * This assumes you're using organization-level Gmail integration
  */
-export async function getGmailClient() {
+export async function getGmailClient(orgId: string) {
   try {
     // Get organization's Gmail tokens
     const { data: org, error: orgError } = await supabase
       .from('organizations')
       .select('gmail_access_token, gmail_refresh_token')
+      .eq('id', orgId)
       .single();
 
     if (orgError || !org) {

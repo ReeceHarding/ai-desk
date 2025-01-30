@@ -103,40 +103,61 @@ export default async function handler(
   }
 
   try {
-    const { threadId, inReplyTo, to, subject, htmlBody } = req.body;
+    const {
+      threadId,
+      fromAddress,
+      toAddresses,
+      subject,
+      htmlBody,
+      inReplyTo,
+      references,
+      ticketId,
+      orgId
+    } = req.body;
 
-    if (!threadId || !inReplyTo || !to || !subject || !htmlBody) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    // Validate required fields
+    const requiredFields = {
+      threadId,
+      fromAddress,
+      toAddresses,
+      subject,
+      htmlBody,
+      ticketId,
+      orgId
+    };
+
+    const missingFields = Object.entries(requiredFields)
+      .filter(([_, value]) => !value)
+      .map(([key]) => key);
+
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        details: `Missing: ${missingFields.join(', ')}`
+      });
     }
 
     // Get the Gmail client
-    const gmail = await getGmailClient();
+    const gmail = await getGmailClient(orgId);
 
-    // Create the email message
-    const message = [
-      'Content-Type: text/html; charset=utf-8',
-      'MIME-Version: 1.0',
-      `To: ${to.join(', ')}`,
-      `Subject: ${subject}`,
-      `In-Reply-To: ${inReplyTo}`,
-      `References: ${inReplyTo}`,
-      `Thread-Id: ${threadId}`,
-      '',
-      htmlBody
-    ].join('\r\n');
-
-    // Encode the message
-    const encodedMessage = Buffer.from(message)
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
+    // Construct email with attachments
+    const raw = await constructEmailWithAttachments(
+      {
+        fromAddress,
+        toAddresses,
+        subject,
+        htmlBody,
+        inReplyTo,
+        references
+      },
+      req.body.attachments || []
+    );
 
     // Send the email
     const response = await gmail.users.messages.send({
       userId: 'me',
       requestBody: {
-        raw: encodedMessage,
+        raw,
         threadId,
       },
     });
@@ -145,18 +166,40 @@ export default async function handler(
       throw new Error('Failed to send email: No message ID returned');
     }
 
-    logger.info('Sent Gmail reply', {
+    // Log success
+    await logger.info('Sent Gmail reply', {
       messageId: response.data.id,
       threadId,
-      inReplyTo,
+      ticketId,
+      orgId
     });
+
+    // Store the sent email in ticket_email_chats
+    const { error: dbError } = await supabaseAdmin
+      .from('ticket_email_chats')
+      .insert({
+        ticket_id: ticketId,
+        message_id: response.data.id,
+        thread_id: threadId,
+        from_address: fromAddress,
+        to_address: toAddresses,
+        subject,
+        body: htmlBody,
+        org_id: orgId,
+        gmail_date: new Date().toISOString()
+      });
+
+    if (dbError) {
+      await logger.error('Failed to store sent email', { error: dbError });
+    }
 
     return res.status(200).json({
       success: true,
       messageId: response.data.id,
+      threadId: response.data.threadId
     });
   } catch (error: any) {
-    logger.error('Failed to send Gmail reply', { error: error.message });
+    await logger.error('Failed to send Gmail reply', { error: error.message });
     return res.status(500).json({
       error: 'Failed to send email',
       details: error.message,

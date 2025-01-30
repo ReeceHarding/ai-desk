@@ -12,6 +12,15 @@
 **/.stack-work/
 **/.ccache/
 
+*/test/
+*/tests/
+
+*/test/*
+
+*test*
+
+traces
+
 # IDE and Editor caches
 **/.idea/
 **/.vscode/
@@ -35,3 +44,5 @@ google-cloud-sdk/
 *selenium*
 
 *python*
+
+*/To Do/

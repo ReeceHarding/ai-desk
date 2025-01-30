@@ -4,7 +4,6 @@ import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
-import { sendDraftResponse } from '@/utils/ai-email-processor';
 import { logger } from '@/utils/logger';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { formatDistanceToNow } from 'date-fns';
@@ -20,6 +19,7 @@ interface EmailChat {
   ai_draft_response: string;
   created_at: string;
   from_address: string;
+  from_name?: string;
   thread_id?: string;
   message_id?: string;
   ai_confidence?: number;
@@ -27,71 +27,27 @@ interface EmailChat {
 
 type TabType = 'drafts' | 'auto-sent';
 
-interface DraftChat {
-  id: string;
-  ticket_id: string;
-  subject: string | null;
-  ai_draft_response: string;
-  created_at: string;
-}
-
 export default function NotificationsPage() {
   const [activeTab, setActiveTab] = useState<TabType>('drafts');
   const [draftChats, setDraftChats] = useState<EmailChat[]>([]);
   const [autoSentChats, setAutoSentChats] = useState<EmailChat[]>([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState<Record<string, boolean>>({});
-  const [draftChatsState, setDraftChatsState] = useState<DraftChat[]>([]);
 
-  const fetchDrafts = async () => {
+  const fetchNotifications = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      logger.info('Fetching draft emails', { userId: user?.id });
-      const { data, error } = await supabase
-        .from('ticket_email_chats')
-        .select('id, ticket_id, subject, ai_draft_response, created_at, from_address, thread_id, message_id, ai_confidence')
-        .eq('ai_auto_responded', false)
-        .not('ai_draft_response', 'is', null)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        logger.error('Error fetching drafts', { error, userId: user?.id });
-        throw error;
+      const response = await fetch('/api/notifications');
+      if (!response.ok) {
+        throw new Error(`Failed to fetch notifications: ${response.statusText}`);
       }
-      setDraftChats(data || []);
+      const data = await response.json();
+      setDraftChats(data.drafts);
+      setAutoSentChats(data.autoSent);
     } catch (error) {
-      logger.error('Error in fetchDrafts', { error });
-      console.error('Error fetching drafts:', error);
+      logger.error('Error fetching notifications', { error });
       toast({
-        title: 'Error loading drafts',
-        description: 'Failed to load AI draft responses. Please try again.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const fetchAutoSent = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      logger.info('Fetching auto-sent emails', { userId: user?.id });
-      const { data, error } = await supabase
-        .from('ticket_email_chats')
-        .select('id, ticket_id, subject, ai_draft_response, created_at, from_address, thread_id, message_id, ai_confidence')
-        .eq('ai_auto_responded', true)
-        .not('ai_draft_response', 'is', null)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        logger.error('Error fetching auto-sent emails', { error, userId: user?.id });
-        throw error;
-      }
-      setAutoSentChats(data || []);
-    } catch (error) {
-      logger.error('Error in fetchAutoSent', { error });
-      console.error('Error fetching auto-sent emails:', error);
-      toast({
-        title: 'Error loading auto-sent emails',
-        description: 'Failed to load auto-sent AI responses. Please try again.',
+        title: 'Error loading notifications',
+        description: 'Failed to load notifications. Please try again.',
         variant: 'destructive',
       });
     }
@@ -100,7 +56,7 @@ export default function NotificationsPage() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      await Promise.all([fetchDrafts(), fetchAutoSent()]);
+      await fetchNotifications();
       setLoading(false);
     };
 
@@ -117,9 +73,8 @@ export default function NotificationsPage() {
           table: 'ticket_email_chats',
         },
         () => {
-          // Refresh both lists when any changes occur
-          fetchDrafts();
-          fetchAutoSent();
+          // Refresh notifications when any changes occur
+          fetchNotifications();
         }
       )
       .subscribe();
@@ -128,34 +83,6 @@ export default function NotificationsPage() {
       supabase.removeChannel(channel);
     };
   }, []);
-
-  const sendReply = async (params: {
-    threadId: string;
-    inReplyTo: string;
-    to: string[];
-    subject: string;
-    htmlBody: string;
-  }) => {
-    try {
-      const response = await fetch('/api/gmail/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(params),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to send email: ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      return result;
-    } catch (error) {
-      logger.error('Failed to send reply', { error });
-      throw error;
-    }
-  };
 
   const handleSendDraft = async (chat: EmailChat) => {
     if (!chat.thread_id || !chat.message_id) {
@@ -171,13 +98,23 @@ export default function NotificationsPage() {
     setSending(prev => ({ ...prev, [chat.id]: true }));
     try {
       logger.info('Sending draft email', { chatId: chat.id });
-      await sendReply({
-        threadId: chat.thread_id,
-        inReplyTo: chat.message_id,
-        to: [chat.from_address],
-        subject: `Re: ${chat.subject || 'Support Request'}`,
-        htmlBody: chat.ai_draft_response,
+      const response = await fetch('/api/gmail/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          threadId: chat.thread_id,
+          inReplyTo: chat.message_id,
+          to: [chat.from_address],
+          subject: `Re: ${chat.subject || 'Support Request'}`,
+          htmlBody: chat.ai_draft_response,
+        }),
       });
+
+      if (!response.ok) {
+        throw new Error(`Failed to send email: ${response.statusText}`);
+      }
 
       const { error } = await supabase
         .from('ticket_email_chats')
@@ -189,8 +126,7 @@ export default function NotificationsPage() {
         throw error;
       }
 
-      setDraftChats(prev => prev.filter(c => c.id !== chat.id));
-      await fetchAutoSent();
+      await fetchNotifications();
 
       logger.info('Draft sent successfully', { chatId: chat.id });
       toast({
@@ -199,7 +135,6 @@ export default function NotificationsPage() {
       });
     } catch (error) {
       logger.error('Error sending draft', { error, chatId: chat.id });
-      console.error('Error sending draft:', error);
       toast({
         title: 'Error sending draft',
         description: 'Failed to send the AI response. Please try again.',
@@ -219,7 +154,7 @@ export default function NotificationsPage() {
 
       if (error) throw error;
 
-      setDraftChats(prev => prev.filter(c => c.id !== chat.id));
+      await fetchNotifications();
 
       toast({
         title: 'Draft discarded',
@@ -248,176 +183,87 @@ export default function NotificationsPage() {
           <h3 className="font-semibold text-lg mb-1">
             {chat.subject || '(No Subject)'}
           </h3>
-          <p className="text-sm text-gray-600">
-            From: {chat.from_address}
+          <p className="text-sm text-gray-500">
+            From: {chat.from_name || chat.from_address}
           </p>
           <p className="text-sm text-gray-500">
             {formatDistanceToNow(new Date(chat.created_at), { addSuffix: true })}
           </p>
-          {chat.ai_confidence && (
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-sm text-gray-500">Confidence:</span>
-              <span 
-                className={`text-sm font-medium ${getConfidenceColor(chat.ai_confidence)}`}
-                title={`${chat.ai_confidence >= 85 ? 'High confidence - auto-sent' : 'Lower confidence - requires review'}`}
-              >
-                {chat.ai_confidence.toFixed(2)}%
-              </span>
-            </div>
+          {chat.ai_confidence !== undefined && (
+            <p className={`text-sm ${getConfidenceColor(chat.ai_confidence)}`}>
+              AI Confidence: {chat.ai_confidence}%
+            </p>
           )}
         </div>
-        <div className="flex gap-2">
-          {isDraft && (
-            <>
-              <Button
-                variant="default"
-                onClick={() => handleSendDraft(chat)}
-                disabled={sending[chat.id]}
-              >
-                {sending[chat.id] ? 'Sending...' : 'Send Response'}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => handleDiscard(chat)}
-                disabled={sending[chat.id]}
-              >
-                Discard
-              </Button>
-            </>
-          )}
-          <Link
-            href={`/tickets/${chat.ticket_id}`}
-            className="inline-flex"
-          >
-            <Button variant="ghost">View Ticket</Button>
-          </Link>
-        </div>
+        {isDraft && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => handleDiscard(chat)}
+              disabled={sending[chat.id]}
+            >
+              Discard
+            </Button>
+            <Button
+              onClick={() => handleSendDraft(chat)}
+              disabled={sending[chat.id]}
+            >
+              {sending[chat.id] ? 'Sending...' : 'Send'}
+            </Button>
+          </div>
+        )}
       </div>
-      
-      <div className="bg-gray-50 p-4 rounded-lg mb-4">
-        <div className="flex justify-between items-center mb-2">
-          <h4 className="font-medium">AI {isDraft ? 'Draft ' : ''}Response:</h4>
-          {!isDraft && (
-            <span className="text-sm text-green-600 font-medium">
-              Auto-sent
-            </span>
-          )}
-        </div>
-        <p className="whitespace-pre-wrap text-gray-700">
-          {chat.ai_draft_response}
-        </p>
+      <div className="prose max-w-none">
+        <div dangerouslySetInnerHTML={{ __html: chat.ai_draft_response }} />
+      </div>
+      <div className="mt-4">
+        <Link
+          href={`/organizations/${chat.ticket_id}`}
+          className="text-sm text-blue-600 hover:text-blue-800"
+        >
+          View Ticket
+        </Link>
       </div>
     </Card>
   );
 
-  const loadDrafts = async () => {
-    try {
-      setLoading(true);
-      // Find all ticket_email_chats with ai_draft_response, not auto_responded
-      const { data, error } = await supabase
-        .from('ticket_email_chats')
-        .select('id, ticket_id, subject, ai_draft_response, created_at')
-        .eq('ai_auto_responded', false)
-        .not('ai_draft_response', 'is', null)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setDraftChatsState(data || []);
-    } catch (error) {
-      console.error('Error loading drafts:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load AI drafts. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSendDraftState = async (chatId: string) => {
-    try {
-      await sendDraftResponse(chatId);
-      toast({
-        title: 'Success',
-        description: 'AI draft has been sent successfully.',
-      });
-      // Refresh the list
-      loadDrafts();
-    } catch (error) {
-      console.error('Error sending draft:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to send AI draft. Please try again.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  useEffect(() => {
-    loadDrafts();
-  }, []);
-
   if (loading) {
     return (
-      <div className="p-8">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/4 mb-8"></div>
-          <div className="space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-32 bg-gray-100 rounded-lg"></div>
-            ))}
-          </div>
+      <AppLayout>
+        <div className="p-6">
+          <h2 className="text-2xl font-bold mb-4">Loading notifications...</h2>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   return (
     <AppLayout>
-      <div className="container mx-auto px-4 py-8">
+      <div className="p-6">
+        <h2 className="text-2xl font-bold mb-4">Notifications</h2>
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TabType)}>
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold">AI Email Responses</h1>
-            <TabsList>
-              <TabsTrigger value="drafts">
-                Drafts {draftChats.length > 0 && `(${draftChats.length})`}
-              </TabsTrigger>
-              <TabsTrigger value="auto-sent">
-                Auto-sent {autoSentChats.length > 0 && `(${autoSentChats.length})`}
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          {loading ? (
-            <div className="text-center py-8">Loading notifications...</div>
-          ) : (
-            <>
-              <TabsContent value="drafts">
-                {draftChats.length === 0 ? (
-                  <div className="text-center py-8 text-gray-600">
-                    No AI-drafted emails awaiting approval.
-                  </div>
-                ) : (
-                  <div className="grid gap-6">
-                    {draftChats.map(chat => renderEmailCard(chat, true))}
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="auto-sent">
-                {autoSentChats.length === 0 ? (
-                  <div className="text-center py-8 text-gray-600">
-                    No auto-sent AI responses yet.
-                  </div>
-                ) : (
-                  <div className="grid gap-6">
-                    {autoSentChats.map(chat => renderEmailCard(chat, false))}
-                  </div>
-                )}
-              </TabsContent>
-            </>
-          )}
+          <TabsList>
+            <TabsTrigger value="drafts">
+              Drafts ({draftChats.length})
+            </TabsTrigger>
+            <TabsTrigger value="auto-sent">
+              Auto-sent ({autoSentChats.length})
+            </TabsTrigger>
+          </TabsList>
+          <TabsContent value="drafts" className="space-y-4">
+            {draftChats.length === 0 ? (
+              <p>No draft responses available.</p>
+            ) : (
+              draftChats.map((chat) => renderEmailCard(chat, true))
+            )}
+          </TabsContent>
+          <TabsContent value="auto-sent" className="space-y-4">
+            {autoSentChats.length === 0 ? (
+              <p>No auto-sent responses available.</p>
+            ) : (
+              autoSentChats.map((chat) => renderEmailCard(chat, false))
+            )}
+          </TabsContent>
         </Tabs>
       </div>
     </AppLayout>

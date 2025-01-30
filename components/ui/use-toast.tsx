@@ -1,10 +1,7 @@
 "use client"
 
-import type {
-    ToastActionElement,
-    ToastProps,
-} from "@/components/ui/toast"
-import * as React from 'react'
+import * as React from "react"
+import type { ToastActionElement, ToastProps } from "./toast"
 
 const TOAST_LIMIT = 1
 const TOAST_REMOVE_DELAY = 1000000
@@ -18,29 +15,23 @@ export type ToasterToast = ToastProps & {
 
 export type Toast = Omit<ToasterToast, "id">
 
-interface ToastContextType {
+const ToastContext = React.createContext<{
   toasts: ToasterToast[]
   addToast: (toast: Toast) => void
   removeToast: (id: string) => void
   updateToast: (id: string, toast: Partial<ToasterToast>) => void
-}
-
-const ToastContext = React.createContext<ToastContextType>({
+}>({
   toasts: [],
   addToast: () => {},
   removeToast: () => {},
   updateToast: () => {},
 })
 
-export function ToastProvider({ 
-  children 
-}: { 
-  children: React.ReactNode 
-}) {
+export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = React.useState<ToasterToast[]>([])
 
   const addToast = React.useCallback((toast: Toast) => {
-    const id = Math.random().toString(36).substring(2, 9)
+    const id = Math.random().toString(36).substr(2, 9)
     setToasts((prev) => [...prev, { ...toast, id }])
   }, [])
 
@@ -54,16 +45,16 @@ export function ToastProvider({
     )
   }, [])
 
-  return React.createElement(
-    ToastContext.Provider,
-    { value: { toasts, addToast, removeToast, updateToast } },
-    children
+  return (
+    <ToastContext.Provider value={{ toasts, addToast, removeToast, updateToast }}>
+      {children}
+    </ToastContext.Provider>
   )
 }
 
 export function useToast() {
   const context = React.useContext(ToastContext)
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useToast must be used within a ToastProvider")
   }
 
@@ -81,5 +72,4 @@ export function useToast() {
     }),
     [context]
   )
-}
-
+} 

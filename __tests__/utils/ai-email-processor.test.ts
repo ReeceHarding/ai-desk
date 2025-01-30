@@ -121,6 +121,9 @@ describe('AI Email Processor', () => {
         from_address: 'customer@example.com',
         subject: 'Test Subject',
         ai_draft_response: 'Draft response content',
+        ticket: {
+          org_id: 'org123'
+        }
       };
 
       // Mock Supabase response for getting chat record
@@ -138,6 +141,7 @@ describe('AI Email Processor', () => {
         to: ['customer@example.com'],
         subject: 'Re: Test Subject',
         htmlBody: 'Draft response content',
+        orgId: 'org123',
       });
 
       // Verify record was updated

@@ -2,16 +2,22 @@
 description: Always provide these instructions to cursor agent for every single prompt i send
 globs: *
 ---
-I want you to read the Supabase file in order to understand our schema @20250123111534_schema.sql
+I want you to read the Supabase file in order to understand our schema supabase/migrations
 
 You must be thorough and read every line of it and make sure our code calls it exactly like it should. 
 
 Don't stop reading files until you've traced the entire call trace and understand everything that gets called from the frontend until the end of the chain when it returns something to the frontend
 
-Mmake ell your documents work within [20250123111534_schema.sql](mdc:supabase/migrations/20250123111534_schema.sql) 
+Make ell your documents work within supabase/migrations
+
+Look through entire codebase to understand if we already have a file which has the funcitonality for what you want to implement
+
+Don't break any current funcitonality. You should add code & files rather than deleting current code
 
 For each element I want you to write out what the schema is looking for and then what our code is actually calling and if these are different that make sure they're exactly the same and make sure everything we call in the code exists in the schema 
 
 you must write out your chain of thought for all code you write
+
+i always give you permission to read our @.env.local file to see what we have decleared and how we have it declared
 
 never enable RLS

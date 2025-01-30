@@ -33,6 +33,7 @@ describe('AIDraftResponse', () => {
     draftResponse: 'This is a test response',
     onSent: jest.fn(),
     onDiscarded: jest.fn(),
+    orgId: 'org123',
   };
 
   const mockSupabaseClient = {
@@ -71,6 +72,7 @@ describe('AIDraftResponse', () => {
         to: ['customer@example.com'],
         subject: 'Re: Test Subject',
         htmlBody: 'This is a test response',
+        orgId: 'org123',
       });
     });
 

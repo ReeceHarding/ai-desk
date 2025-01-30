@@ -12,14 +12,14 @@ import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { formatDistanceToNow } from 'date-fns';
 import debounce from 'lodash/debounce';
 import {
-    AlertCircle,
-    CheckCircle,
-    Clock,
-    EyeOff,
-    Inbox,
-    Lock,
-    Menu,
-    Plus
+  AlertCircle,
+  CheckCircle,
+  Clock,
+  EyeOff,
+  Inbox,
+  Lock,
+  Menu,
+  Plus
 } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
@@ -487,13 +487,10 @@ export default function TicketList() {
                     
                     if (isEmailMoreRecent) {
                       messageContent = latestEmail?.body;
-                      // For email messages, use the organization name
-                      senderInfo = ticket.organization?.name || 'Unknown Organization';
-                      console.log('Using organization info:', {
-                        ticketId: ticket.id,
-                        orgName: ticket.organization?.name,
-                        senderInfo
-                      });
+                      // For email messages, use the sender's name or email
+                      senderInfo = latestEmail?.from_name?.trim() || 
+                        latestEmail?.from_address?.split('@')[0] || 
+                        'Unknown Sender';
                       messageDate = emailDate;
                       avatarUrl = undefined;
                     } else if (isCommentMoreRecent) {
@@ -504,8 +501,10 @@ export default function TicketList() {
                       avatarUrl = latestComment?.author?.avatar_url;
                     } else {
                       messageContent = ticket.description;
-                      // For ticket descriptions, use the organization name
-                      senderInfo = ticket.organization?.name || 'Unknown Organization';
+                      // For ticket descriptions, use the CUSTOMER name instead of organization
+                      senderInfo = ticket.customer?.display_name 
+                        || ticket.customer?.email 
+                        || 'Unknown Customer';
                       messageDate = ticketDate;
                       avatarUrl = ticket.customer?.avatar_url;
                     }
@@ -755,13 +754,10 @@ export default function TicketList() {
                   
                   if (isEmailMoreRecent) {
                     messageContent = latestEmail?.body;
-                    // For email messages, use the organization name
-                    senderInfo = ticket.organization?.name || 'Unknown Organization';
-                    console.log('Using organization info:', {
-                      ticketId: ticket.id,
-                      orgName: ticket.organization?.name,
-                      senderInfo
-                    });
+                    // For email messages, use the sender's name or email
+                    senderInfo = latestEmail?.from_name?.trim() || 
+                      latestEmail?.from_address?.split('@')[0] || 
+                      'Unknown Sender';
                     messageDate = emailDate;
                     avatarUrl = undefined;
                   } else if (isCommentMoreRecent) {
@@ -772,8 +768,10 @@ export default function TicketList() {
                     avatarUrl = latestComment?.author?.avatar_url;
                   } else {
                     messageContent = ticket.description;
-                    // For ticket descriptions, use the organization name
-                    senderInfo = ticket.organization?.name || 'Unknown Organization';
+                    // For ticket descriptions, use the CUSTOMER name instead of organization
+                    senderInfo = ticket.customer?.display_name 
+                      || ticket.customer?.email 
+                      || 'Unknown Customer';
                     messageDate = ticketDate;
                     avatarUrl = ticket.customer?.avatar_url;
                   }

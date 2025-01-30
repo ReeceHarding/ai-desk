@@ -991,6 +991,7 @@ async function processMessage(message: gmail_v1.Schema$Message, orgId: string, g
             to: [fromAddress],
             subject: `Re: ${subject || 'Support Request'}`,
             htmlBody: ragResponse,
+            orgId,
           });
 
           // Update chat record

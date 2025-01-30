@@ -49,6 +49,9 @@ interface DraftChat {
   subject: string;
   ai_draft_response: string;
   created_at: string;
+  ticket: {
+    org_id: string;
+  };
 }
 
 interface SupabaseResponse<T> {
@@ -65,6 +68,9 @@ const mockDraft: DraftChat = {
   subject: 'Test Subject',
   ai_draft_response: 'Test draft response',
   created_at: '2024-01-01T00:00:00Z',
+  ticket: {
+    org_id: 'org123'
+  }
 };
 
 const mockSupabaseChain = {
@@ -220,6 +226,14 @@ describe('NotificationsPage', () => {
     fireEvent.click(screen.getAllByText('Send Response')[0]);
 
     await waitFor(() => {
+      expect(sendGmailReply).toHaveBeenCalledWith({
+        threadId: 'thread123',
+        inReplyTo: 'msg123',
+        to: ['customer@example.com'],
+        subject: 'Re: Test Subject',
+        htmlBody: 'Test draft response',
+        orgId: 'org123'
+      });
       expect(toast).toHaveBeenCalledWith({
         title: 'Draft sent successfully',
         description: 'The AI response has been sent to the customer.',

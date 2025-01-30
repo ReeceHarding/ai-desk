@@ -2,7 +2,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { toast } from '@/components/ui/use-toast';
+import { useToast } from '@/components/ui/use-toast';
 import { AlertCircle, CheckCircle2, File, Upload } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
@@ -17,6 +17,7 @@ interface UploadState {
 
 export default function KnowledgeBaseUpload() {
   const router = useRouter();
+  const { toast } = useToast();
   const orgId = router.query.id as string;
   const [uploadState, setUploadState] = useState<UploadState>({
     file: null,
@@ -33,7 +34,7 @@ export default function KnowledgeBaseUpload() {
       });
       router.push('/profile/settings');
     }
-  }, [orgId, router.isReady]);
+  }, [orgId, router.isReady, toast]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];

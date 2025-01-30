@@ -92,6 +92,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 to: [fromAddress],
                 subject: `Re: ${message.subject || 'Support Request'}`,
                 htmlBody: ragResponse,
+                orgId,
               });
 
               // Update database to reflect auto-send

@@ -40,7 +40,10 @@ export default async function handler(
     // Get the chat record
     const { data: chatRecord, error: chatError } = await supabase
       .from('ticket_email_chats')
-      .select('*')
+      .select(`
+        *,
+        ticket:tickets(org_id)
+      `)
       .eq('id', chatId)
       .single();
 
@@ -63,6 +66,7 @@ export default async function handler(
         : [chatRecord.from_address],
       subject: `Re: ${chatRecord.subject || 'Support Request'}`,
       htmlBody: chatRecord.ai_draft_response,
+      orgId: chatRecord.ticket.org_id,
     });
 
     // Update the record
