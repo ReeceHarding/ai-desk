@@ -7,11 +7,12 @@ import { Database } from "@/types/supabase"
 import { useSupabaseClient, useUser } from "@supabase/auth-helpers-react"
 import { formatDistanceToNow } from "date-fns"
 import { OAuth2Client } from "google-auth-library"
-import { Loader2, Mail, Paperclip, Send, Smile, Sparkles, X } from "lucide-react"
+import { Mail, Paperclip, X } from "lucide-react"
 import md5 from "md5"
 import { useEffect, useRef, useState } from "react"
 import { useInView } from "react-intersection-observer"
 import { AIDraftPanel } from './ai-draft-panel'
+import { EmailComposer } from './email-composer'
 
 interface Message {
   id: string;
@@ -298,6 +299,8 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
     
     try {
       setSending(true);
+      const currentText = replyText; // Store current text
+      setReplyText(''); // Clear immediately for better UX
       
       // Get the latest message for threading info
       let latestMessage = messages[0];
@@ -352,6 +355,23 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
       }
 
+      // Create optimistic message
+      const optimisticMessage: Message = {
+        id: `temp-${Date.now()}`,
+        body: replyText,
+        from_name: user?.email?.split('@')[0] || 'Support Agent',
+        from_address: emailPayload.fromAddress,
+        created_at: new Date().toISOString(),
+        message_type: 'email',
+        thread_id: emailPayload.threadId,
+        message_id: `temp-${Date.now()}`,
+        to_address: [...emailPayload.toAddresses],
+        subject: emailPayload.subject,
+      };
+
+      // Add optimistic message to the list
+      setMessages(prev => [optimisticMessage, ...prev]);
+
       console.log('Sending email with payload:', {
         ...emailPayload,
         hasBody: !!emailPayload.htmlBody,
@@ -367,6 +387,11 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
       });
 
       if (!response.ok) {
+        // Restore the text if sending failed
+        setReplyText(currentText);
+        // Remove optimistic message on error
+        setMessages(prev => prev.filter(msg => msg.id !== optimisticMessage.id));
+        
         const errorData = await response.json();
         console.error('Failed to send email:', {
           status: response.status,
@@ -383,18 +408,35 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         threadId: data.thread_id
       });
 
-      // Add new message to the list
-      setMessages((prev) => [data, ...prev]);
+      // Replace optimistic message with real message
+      setMessages(prev => prev.map(msg => 
+        msg.id === optimisticMessage.id 
+          ? {
+              ...msg,
+              id: data.messageId,
+              message_id: data.messageId,
+              thread_id: data.threadId,
+            }
+          : msg
+      ));
       
-      // Clear the reply text
-      setReplyText('');
+      // Show success toast
+      toast({
+        title: "Email Sent",
+        description: "Your reply has been sent successfully.",
+      });
     } catch (error: any) {
       console.error('Error sending reply:', {
         error: error.message,
         stack: error.stack,
         name: error.name
       });
-      // TODO: Add user-facing error notification here
+      
+      toast({
+        title: "Failed to Send Email",
+        description: error.message || "An error occurred while sending your reply.",
+        variant: "destructive",
+      });
     } finally {
       setSending(false);
     }
@@ -471,8 +513,12 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         debug: data.debug
       });
       
-      // Update the reply text with the generated response
-      setReplyText(data.response);
+      // Clear existing text first
+      setReplyText('');
+      // Use setTimeout to ensure the clear happens first
+      setTimeout(() => {
+        setReplyText(data.response);
+      }, 0);
 
       // Show debug information in a dialog
       if (data.debug) {
@@ -593,6 +639,10 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
     });
   };
 
+  const handleSend = () => {
+    handleSendMessage(new MouseEvent('click') as any);
+  };
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full sm:max-w-xl overflow-y-auto bg-white text-slate-900 border-l border-slate-200">
@@ -624,17 +674,17 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
             {isLoading && messages.length === 0 ? (
               // Loading skeleton
               Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="space-y-2">
+                <div key={`skeleton-${i}`} className="space-y-2">
                   <Skeleton className="h-4 w-32" />
                   <Skeleton className="h-20 w-full" />
                 </div>
               ))
             ) : messages.length > 0 ? (
-              messages.map((message, index) => (
+              messages.map((message) => (
                 <div
-                  key={message.id}
+                  key={`message-${message.id}`}
                   className="p-4 rounded-lg bg-slate-50 space-y-2"
-                  ref={index === messages.length - 1 ? ref : undefined}
+                  ref={message === messages[messages.length - 1] ? ref : undefined}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-2">
@@ -694,48 +744,16 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
 
           {/* Reply box */}
           <div className="pt-4 border-t border-slate-200">
-            <div className="relative">
-              <textarea
-                value={replyText}
-                onChange={(e) => setReplyText(e.target.value)}
-                placeholder="Type your reply..."
-                className="w-full h-32 px-4 py-2 bg-slate-50 text-slate-900 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 border border-slate-200"
-              />
-              <div className="absolute bottom-2 right-2 flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-slate-400 hover:text-slate-600"
-                >
-                  <Smile className="h-4 w-4" />
-                </Button>
-                <Button
-                  onClick={handleGenerateRagResponse}
-                  disabled={generatingRag || !messages.length}
-                  variant="outline"
-                  className="gap-2"
-                >
-                  {generatingRag ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                  <span>Generate</span>
-                </Button>
-                <Button
-                  onClick={handleSendMessage}
-                  disabled={!replyText.trim() || sending}
-                  className="bg-blue-500 hover:bg-blue-600 text-white gap-2"
-                >
-                  {sending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                  <span>Send</span>
-                </Button>
-              </div>
-            </div>
+            <EmailComposer
+              value={replyText}
+              onChange={setReplyText}
+              onSend={handleSend}
+              onGenerateAIResponse={handleGenerateRagResponse}
+              isSending={sending}
+              isGeneratingAI={generatingRag}
+              placeholder="Type your reply..."
+              className="border-none bg-slate-50"
+            />
           </div>
         </div>
       </SheetContent>

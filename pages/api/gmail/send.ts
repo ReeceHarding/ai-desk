@@ -30,7 +30,9 @@ async function constructEmailWithAttachments(
   const boundary = '====boundary====';
   let raw = '';
 
-  // Email headers
+  // Email headers with proper content type
+  raw += `MIME-Version: 1.0\r\n`;
+  raw += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n`;
   raw += `From: ${fromAddress}\r\n`;
   raw += `To: ${toAddresses.join(', ')}\r\n`;
   if (ccAddresses?.length) {
@@ -43,34 +45,64 @@ async function constructEmailWithAttachments(
   
   // Add threading headers
   if (inReplyTo && typeof inReplyTo === 'string' && inReplyTo.length > 0) {
-    // Gmail Message-IDs are always wrapped in < >
     raw += `In-Reply-To: <${inReplyTo.replace(/[<>]/g, '')}>\r\n`;
   }
   
   if (references) {
-    // If references is a string, use it directly
     if (typeof references === 'string') {
-      // Gmail Message-IDs are always wrapped in < >
       raw += `References: <${references.replace(/[<>]/g, '')}>\r\n`;
-    } 
-    // If references is an array, join with spaces
-    else if (Array.isArray(references)) {
+    } else if (Array.isArray(references)) {
       raw += `References: ${references.map(ref => `<${ref.replace(/[<>]/g, '')}>`).join(' ')}\r\n`;
     }
-  } 
-  // If we have inReplyTo but no references, use inReplyTo as references
-  else if (inReplyTo && typeof inReplyTo === 'string' && inReplyTo.length > 0) {
+  } else if (inReplyTo && typeof inReplyTo === 'string' && inReplyTo.length > 0) {
     raw += `References: <${inReplyTo.replace(/[<>]/g, '')}>\r\n`;
   }
 
-  raw += `MIME-Version: 1.0\r\n`;
-  raw += `Content-Type: multipart/mixed; boundary="${boundary}"\r\n\r\n`;
+  raw += '\r\n';  // End of headers
 
-  // HTML Part
+  // HTML Part with proper content type and encoding
   raw += `--${boundary}\r\n`;
   raw += `Content-Type: text/html; charset="UTF-8"\r\n`;
-  raw += `Content-Transfer-Encoding: 7bit\r\n\r\n`;
-  raw += `${htmlBody}\r\n\r\n`;
+  raw += `Content-Transfer-Encoding: quoted-printable\r\n\r\n`;
+  
+  // Wrap the HTML body in proper tags and add default styling
+  const styledHtmlBody = `
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    margin: 0;
+    padding: 20px;
+  }
+  p {
+    margin: 0 0 1em 0;
+  }
+  br {
+    display: block;
+    margin: 0.5em 0;
+    content: " ";
+  }
+  ul, ol {
+    margin: 0 0 1em 0;
+    padding-left: 20px;
+  }
+  li {
+    margin-bottom: 0.5em;
+  }
+</style>
+</head>
+<body>
+${htmlBody}
+</body>
+</html>
+`.trim();
+
+  raw += styledHtmlBody + '\r\n\r\n';
 
   // Attachments
   for (const attachment of attachments) {

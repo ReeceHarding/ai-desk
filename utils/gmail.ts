@@ -190,9 +190,14 @@ export async function getGmailProfile(tokens: GmailTokens): Promise<GmailProfile
   }
 }
 
+interface GmailListMessage {
+  id: string;
+  threadId?: string;
+}
+
 export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[]> {
   try {
-    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages', {
+    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&format=full', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${tokens.access_token}`,
@@ -210,7 +215,23 @@ export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[
     }
 
     const data = await response.json();
-    return data.messages || [];
+    const messages = (data.messages || []) as GmailListMessage[];
+    
+    // Fetch full message details for each message
+    const fullMessages = await Promise.all(messages.map(async (msg: GmailListMessage) => {
+      const msgResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`, {
+        headers: {
+          'Authorization': `Bearer ${tokens.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!msgResponse.ok) {
+        throw new Error(`Failed to fetch message ${msg.id}: ${msgResponse.statusText}`);
+      }
+      return msgResponse.json();
+    }));
+
+    return fullMessages;
   } catch (error) {
     gmailLogger.error('Error polling Gmail inbox', error);
     throw error;
@@ -551,50 +572,42 @@ export async function pollAndCreateTickets(userId: string): Promise<any[]> {
 
 export async function fetchLastTenEmails(tokens: GmailTokens): Promise<GmailMessage[]> {
   try {
-    gmailLogger.info('Fetching last 10 emails');
-    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10', {
+    await gmailLogger.info('Fetching last 10 emails');
+    
+    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&format=full', {
       headers: {
-        Authorization: `Bearer ${tokens.access_token}`,
+        'Authorization': `Bearer ${tokens.access_token}`,
+        'Content-Type': 'application/json',
       },
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch messages: ${response.statusText}`);
+      if (response.status === 401) {
+        const newTokens = await refreshGmailTokens(tokens.refresh_token);
+        return fetchLastTenEmails(newTokens);
+      }
+      throw new Error(`Failed to fetch emails: ${response.statusText}`);
     }
 
     const data = await response.json();
-    const messages: GmailMessage[] = [];
+    const messages = (data.messages || []) as GmailListMessage[];
 
-    for (const message of data.messages || []) {
-      const messageResponse = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`,
-        {
-          headers: {
-            Authorization: `Bearer ${tokens.access_token}`,
-          },
-        }
-      );
-
-      if (messageResponse.ok) {
-        const messageData = await messageResponse.json();
-        const headers = messageData.payload.headers;
-        const from = headers.find((h: any) => h.name.toLowerCase() === 'from')?.value;
-        const to = headers.find((h: any) => h.name.toLowerCase() === 'to')?.value;
-        const subject = headers.find((h: any) => h.name.toLowerCase() === 'subject')?.value;
-        const date = headers.find((h: any) => h.name.toLowerCase() === 'date')?.value;
-        
-        messages.push({
-          ...messageData,
-          from,
-          to,
-          subject,
-          date: new Date(date).toISOString()
-        });
+    // Fetch full message details for each message
+    const fullMessages = await Promise.all(messages.map(async (msg: GmailListMessage) => {
+      const msgResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`, {
+        headers: {
+          'Authorization': `Bearer ${tokens.access_token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (!msgResponse.ok) {
+        throw new Error(`Failed to fetch message ${msg.id}: ${msgResponse.statusText}`);
       }
-    }
+      return msgResponse.json();
+    }));
 
-    gmailLogger.info(`Successfully fetched ${messages.length} emails`);
-    return messages;
+    await gmailLogger.info('Successfully fetched 10 emails');
+    return fullMessages;
   } catch (error) {
     gmailLogger.error('Error fetching last 10 emails', error);
     throw error;
