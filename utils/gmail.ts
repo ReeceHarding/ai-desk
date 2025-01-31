@@ -198,7 +198,7 @@ interface GmailListMessage {
 
 export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[]> {
   try {
-    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&format=full', {
+    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&format=full&labelIds=INBOX&orderBy=internalDate desc&includeSpamTrash=false', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${tokens.access_token}`,
@@ -726,7 +726,7 @@ export async function fetchLastTenEmails(tokens: GmailTokens): Promise<GmailMess
   try {
     await gmailLogger.info('Fetching last 10 emails');
     
-    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&format=full', {
+    const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&format=full&labelIds=INBOX&orderBy=internalDate desc&includeSpamTrash=false', {
       headers: {
         'Authorization': `Bearer ${tokens.access_token}`,
         'Content-Type': 'application/json',
@@ -1174,4 +1174,68 @@ async function updateImportStatus(
   if (updateError) {
     logger.error(`Status update failed for ${importId}`);
   }
-} 
+}
+
+const CLASSIFICATION_SYSTEM_PROMPT = `You are an expert email classifier for a helpdesk system. Your task is to determine if an incoming email is promotional/marketing/automated or requires a human response. You must analyze each email with sophisticated criteria while maintaining strict output format compliance.
+
+DETAILED CLASSIFICATION RULES:
+
+1. Mark as PROMOTIONAL (isPromotional: true) if the email:
+   - Contains any marketing language or promotional offers
+   - Is from a no-reply email address or system notification address
+   - Contains words like "newsletter", "update", "announcement", "offer", "discount"
+   - Is an automated system notification (e.g., password changes, login alerts, security alerts)
+   - Contains tracking numbers or order confirmations
+   - Is a social media notification or alert
+   - Is a mass-sent newsletter or company update
+   - Contains promotional imagery or multiple marketing links
+   - Is an automated calendar invite or reminder
+   - Contains phrases like "Don't miss out", "Limited time", "Special offer"
+   - Is an automated receipt or transaction confirmation
+   - Contains unsubscribe links or marketing footers
+   - Is from known marketing domains or bulk email services
+   - Uses HTML-heavy formatting typical of marketing emails
+   - Is a security alert or incident notification (e.g., GitGuardian, GitHub)
+   - Is an automated order confirmation or shipping notification
+   - Contains verification codes or automated security messages
+   - Is from system addresses like noreply@, notifications@, support@, etc.
+
+2. Mark as NEEDS_RESPONSE (isPromotional: false) ONLY if the email:
+   - Contains direct questions requiring human judgment
+   - Includes specific technical issues or bug reports that need investigation
+   - Contains personal or unique inquiries that can't be automated
+   - References previous conversations or tickets needing follow-up
+   - Includes screenshots or specific problem descriptions
+   - Contains urgent support requests or time-sensitive issues
+   - Includes phrases like "Please help", "I need assistance", "Can someone explain"
+   - Contains detailed customer feedback requiring analysis
+   - Includes business proposals or partnership inquiries
+   - Contains specific account or service questions needing expertise
+   - Includes personal contact information for follow-up
+   - References specific transactions or interactions needing resolution
+   - Contains unique situations not covered by FAQs
+   - Shows clear signs of human authorship (typos, conversational tone)
+   - Requires a personalized or custom response
+
+ANALYSIS STEPS:
+1. Check sender address and format - is it from a system/automated address?
+2. Scan for automated/marketing indicators - any signs of automated generation?
+3. Look for personal/human elements - does this need human judgment?
+4. Evaluate content complexity - can this be handled by automation?
+5. Check for direct questions or requests - do they need human expertise?
+6. Analyze tone and urgency - is personal attention required?
+7. Look for unique/specific details - is this a standard notification?
+
+When in doubt about classification:
+- If the email is automated or system-generated in any way, classify as PROMOTIONAL
+- Only classify as NEEDS_RESPONSE if it clearly requires human judgment or expertise
+- Automated security alerts, password changes, and system notifications should be PROMOTIONAL
+- Order confirmations and shipping notifications should be PROMOTIONAL
+- If uncertain, default to PROMOTIONAL to avoid missing important human inquiries
+
+OUTPUT FORMAT:
+You must respond in this exact JSON format with only these two fields:
+{
+    "isPromotional": boolean,
+    "reason": "Brief explanation of classification decision"
+}`; 
