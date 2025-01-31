@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { gmail_v1, google } from 'googleapis';
-import { GmailMessage, GmailMessagePart, GmailTokens, ParsedEmail } from '../../types/gmail';
+import { GmailMessage, GmailMessagePart, GmailTokens } from '../../types/gmail';
 import { Database } from '../../types/supabase';
 import { processPotentialPromotionalEmail } from '../agent/gmailPromotionAgent';
 import { logger } from '../logger';
@@ -201,24 +201,75 @@ export async function sendGmailReply(params: {
   }
 }
 
-function convertMessagePart(part: gmail_v1.Schema$MessagePart | null | undefined): GmailMessagePart | null {
-  if (!part) return null;
+// Helper function to get header value
+function getHeader(message: gmail_v1.Schema$Message, name: string): string {
+  return message.payload?.headers?.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
+}
+
+// Helper function to extract text body
+function extractBody(part: gmail_v1.Schema$MessagePart): string {
+  if (!part) return '';
+  
+  if (part.mimeType === 'text/plain' && part.body?.data) {
+    return Buffer.from(part.body.data, 'base64').toString();
+  }
+
+  if (part.parts) {
+    for (const subPart of part.parts) {
+      if (subPart) {
+        const body = extractBody(subPart);
+        if (body) return body;
+      }
+    }
+  }
+
+  return '';
+}
+
+// Helper function to extract HTML body
+function extractHtmlBody(part: gmail_v1.Schema$MessagePart): string {
+  if (!part) return '';
+  
+  if (part.mimeType === 'text/html' && part.body?.data) {
+    return Buffer.from(part.body.data, 'base64').toString();
+  }
+
+  if (part.parts) {
+    for (const subPart of part.parts) {
+      if (subPart) {
+        const body = extractHtmlBody(subPart);
+        if (body) return body;
+      }
+    }
+  }
+
+  return '';
+}
+
+function convertMessagePart(part: gmail_v1.Schema$MessagePart): GmailMessagePart {
+  const defaultPart: GmailMessagePart = {
+    mimeType: 'text/plain',
+    headers: [],
+    body: {},
+    parts: []
+  };
+
+  if (!part) return defaultPart;
 
   return {
-    partId: part.partId || undefined,
-    mimeType: part.mimeType || undefined,
-    filename: part.filename || undefined,
-    headers: part.headers?.map((h: { name?: string | null; value?: string | null }) => ({
+    mimeType: part.mimeType || defaultPart.mimeType,
+    headers: part.headers?.map(h => ({
       name: h.name || '',
-      value: h.value || '',
-    })),
-    body: part.body ? {
-      attachmentId: part.body.attachmentId || undefined,
-      size: part.body.size || undefined,
-      data: part.body.data || undefined,
-    } : undefined,
-    parts: part.parts?.map(p => convertMessagePart(p))
-      .filter((p): p is GmailMessagePart => p !== null) || undefined,
+      value: h.value || ''
+    })) || defaultPart.headers,
+    body: {
+      attachmentId: part.body?.attachmentId || undefined,
+      size: typeof part.body?.size === 'number' ? part.body.size : undefined,
+      data: part.body?.data || undefined
+    },
+    parts: part.parts
+      ?.filter((p): p is gmail_v1.Schema$MessagePart => !!p)
+      .map(p => convertMessagePart(p)) || defaultPart.parts
   };
 }
 
@@ -249,7 +300,12 @@ export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[
       snippet: msg.snippet || '',
       historyId: msg.historyId || '',
       internalDate: msg.internalDate || '',
-      payload: convertMessagePart(msg.payload),
+      payload: msg.payload ? convertMessagePart(msg.payload) : {
+        mimeType: 'text/plain',
+        headers: [],
+        body: {},
+        parts: []
+      },
       sizeEstimate: msg.sizeEstimate || 0,
     }));
   } catch (error) {
@@ -258,58 +314,94 @@ export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[
   }
 }
 
+interface ParsedEmail {
+  id: string;
+  threadId: string;
+  labelIds: string[];
+  snippet: string;
+  historyId: string;
+  internalDate: string;
+  payload: GmailMessagePart;
+  sizeEstimate: number;
+  raw: string;
+  subject: string;
+  from: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  date: string;
+  textBody: string;
+  htmlBody: string;
+}
+
 /**
  * Parse a Gmail message into a more usable format
  */
-export async function parseGmailMessage(message: GmailMessage, orgId: string): Promise<ParsedEmail> {
-  try {
-    const gmail = await getGmailClient(orgId);
-    const response = await gmail.users.messages.get({
-      userId: 'me',
-      id: message.id,
-      format: 'full'
-    });
+export function parseGmailMessage(message: gmail_v1.Schema$Message): ParsedEmail {
+  const headers = message.payload?.headers || [];
+  const getHeader = (name: string) => headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
 
-    // Extract headers
-    const headers = response.data.payload?.headers || [];
-    const subject = headers.find(h => h.name?.toLowerCase() === 'subject')?.value || '';
-    const from = headers.find(h => h.name?.toLowerCase() === 'from')?.value || '';
-    const to = headers.find(h => h.name?.toLowerCase() === 'to')?.value?.split(',').map(e => e.trim()) || [];
-    const cc = headers.find(h => h.name?.toLowerCase() === 'cc')?.value?.split(',').map(e => e.trim()) || [];
-    
-    // Use internalDate for consistent timestamp handling
-    const date = message.internalDate || response.data.internalDate || Date.now().toString();
+  const subject = getHeader('subject');
+  const from = getHeader('from');
+  const to = getHeader('to').split(',').map(addr => addr.trim()).filter(Boolean);
+  const cc = getHeader('cc').split(',').map(addr => addr.trim()).filter(Boolean);
+  const bcc = getHeader('bcc').split(',').map(addr => addr.trim()).filter(Boolean);
+  const date = getHeader('date');
 
-    // Extract body
-    let bodyText = '';
-    let bodyHtml = '';
-    const parts = response.data.payload?.parts || [];
-    
-    for (const part of parts) {
-      if (part.mimeType === 'text/plain' && part.body?.data) {
-        bodyText = Buffer.from(part.body.data, 'base64').toString();
-      } else if (part.mimeType === 'text/html' && part.body?.data) {
-        bodyHtml = Buffer.from(part.body.data, 'base64').toString();
-      }
-    }
+  let textBody = '';
+  let htmlBody = '';
 
+  const defaultPayload: GmailMessagePart = {
+    mimeType: 'text/plain',
+    headers: [],
+    body: {},
+    parts: []
+  };
+
+  if (message.payload) {
+    const payload = message.payload as gmail_v1.Schema$MessagePart;
+    textBody = extractBody(payload);
+    htmlBody = extractHtmlBody(payload);
     return {
-      id: message.id,
+      id: message.id || '',
       threadId: message.threadId || '',
-      historyId: response.data.historyId || '',
+      labelIds: message.labelIds || [],
+      snippet: message.snippet || '',
+      historyId: message.historyId || '',
+      internalDate: message.internalDate || '',
+      payload: convertMessagePart(payload),
+      sizeEstimate: message.sizeEstimate || 0,
+      raw: message.raw || '',
+      subject,
       from,
       to,
       cc,
-      subject,
+      bcc,
       date,
-      bodyText,
-      bodyHtml,
-      attachments: []
+      textBody,
+      htmlBody
     };
-  } catch (error) {
-    gmailLogger.error('Error parsing Gmail message', { error, messageId: message.id });
-    throw error;
   }
+
+  return {
+    id: message.id || '',
+    threadId: message.threadId || '',
+    labelIds: message.labelIds || [],
+    snippet: message.snippet || '',
+    historyId: message.historyId || '',
+    internalDate: message.internalDate || '',
+    payload: defaultPayload,
+    sizeEstimate: message.sizeEstimate || 0,
+    raw: message.raw || '',
+    subject,
+    from,
+    to,
+    cc,
+    bcc,
+    date,
+    textBody,
+    htmlBody
+  };
 }
 
 /**
@@ -337,7 +429,7 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
     gmailLogger.info('Found user profile', { userId, orgId: profile.org_id });
 
     // Validate required fields
-    if (!parsedEmail.subject && !parsedEmail.bodyText) {
+    if (!parsedEmail.subject && !parsedEmail.textBody) {
       gmailLogger.warn('Email missing subject and body text, using default subject');
       parsedEmail.subject = '(No Subject)';
     }
@@ -355,7 +447,7 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
       .from('tickets')
       .insert({
         subject: parsedEmail.subject || '(No Subject)',
-        description: parsedEmail.bodyText || parsedEmail.bodyHtml || '',
+        description: parsedEmail.textBody || parsedEmail.htmlBody || '',
         status: 'open',
         priority: 'medium',
         customer_id: userId,
@@ -426,7 +518,7 @@ export async function createTicketFromEmail(parsedEmail: ParsedEmail, userId: st
         cc_address: parsedEmail.cc || [],
         bcc_address: parsedEmail.bcc || [],
         subject: parsedEmail.subject,
-        body: parsedEmail.bodyText || parsedEmail.bodyHtml || '',
+        body: parsedEmail.textBody || parsedEmail.htmlBody || '',
         attachments: {},
         gmail_date: gmailDate,
         org_id: profile.org_id,
@@ -575,14 +667,14 @@ export async function importInitialEmails(userId: string) {
     
     for (const message of messages) {
       try {
-        const parsedEmail = await parseGmailMessage(message, profile.org_id);
+        const parsedEmail = await parseGmailMessage(message);
         const ticket = await createTicketFromEmail(parsedEmail, userId);
         
         // Process for promotional content
         await processPotentialPromotionalEmail(
           ticket.emailChatId,
           profile.org_id,
-          parsedEmail.bodyText || parsedEmail.bodyHtml || '',
+          parsedEmail.textBody || parsedEmail.htmlBody || '',
           message.id,
           parsedEmail.threadId,
           parsedEmail.from,
@@ -626,7 +718,7 @@ export async function pollAndCreateTickets(userId: string): Promise<any[]> {
 
       for (const message of messages) {
         try {
-          const parsedEmail = await parseGmailMessage(message, profile.org_id);
+          const parsedEmail = await parseGmailMessage(message);
           const ticket = await createTicketFromEmail(parsedEmail, userId);
           results.push({ success: true, ticket });
         } catch (error) {
@@ -648,4 +740,20 @@ export async function pollAndCreateTickets(userId: string): Promise<any[]> {
     await gmailLogger.error('Error in pollAndCreateTickets', error);
     throw error;
   }
+}
+
+export async function processGmailMessages(messages: GmailMessage[], userId: string) {
+  const results: Array<{ success: boolean; messageId: string; error?: unknown }> = [];
+
+  for (const message of messages) {
+    try {
+      const parsedEmail = await parseGmailMessage(message);
+      const ticket = await createTicketFromEmail(parsedEmail, userId);
+      results.push({ success: true, messageId: message.id });
+    } catch (error) {
+      results.push({ success: false, messageId: message.id, error });
+    }
+  }
+
+  return results;
 } 

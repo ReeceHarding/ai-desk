@@ -1,5 +1,3 @@
-import { gmail_v1 } from 'googleapis';
-
 export type EmailDirection = 'inbound' | 'outbound';
 
 export interface EmailLog {
@@ -58,15 +56,28 @@ export interface GmailMessagePart {
   parts?: GmailMessagePart[];
 }
 
-export interface GmailMessage extends Omit<gmail_v1.Schema$Message, 'payload'> {
+export interface GmailMessage {
   id: string;
   threadId: string;
-  historyId: string;
-  labelIds: string[];
-  snippet: string;
-  internalDate: string;
-  payload: GmailMessagePart;
-  sizeEstimate: number;
+  labelIds?: string[];
+  snippet?: string;
+  historyId?: string;
+  internalDate?: string;
+  payload?: {
+    headers: Array<{
+      name: string;
+      value: string;
+    }>;
+    mimeType?: string;
+    body?: {
+      data?: string;
+      size?: number;
+      attachmentId?: string;
+    };
+    parts?: GmailMessagePart[];
+  };
+  sizeEstimate?: number;
+  raw?: string;
 }
 
 export interface ParsedEmail {
@@ -148,4 +159,39 @@ export interface SendGmailReplyParams {
     content: Buffer;
     contentType: string;
   }>;
+}
+
+export interface ParsedGmailMessage {
+  subject: string;
+  body: string;
+  from: string;
+  to: string;
+  threadId: string;
+}
+
+export interface GmailAPI {
+  users: {
+    messages: {
+      list: (params: any) => Promise<any>;
+      get: (params: any) => Promise<any>;
+      send: (params: any) => Promise<any>;
+    };
+    watch: (params: any) => Promise<any>;
+    stop: (params: any) => Promise<any>;
+  };
+}
+
+export interface GmailAuthTokens {
+  access_token: string;
+  refresh_token: string;
+  scope: string;
+  token_type: string;
+  expiry_date: number;
+}
+
+export interface SendGmailParams {
+  to: string;
+  subject: string;
+  body: string;
+  threadId?: string;
 } 
