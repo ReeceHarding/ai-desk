@@ -16,15 +16,15 @@ const openai = new OpenAI({
 async function classifyEmailAsPromotional(
   emailText: string,
   fromAddress: string = '',
-  subject: string = ''
+  subject: string = '',
+  messageId: string = ''
 ): Promise<{isPromotional: boolean; reason: string} | null> {
   try {
-    logger.info('\n=== Starting Email Classification ===', {
-      timestamp: new Date().toISOString(),
-      emailPreview: emailText.substring(0, 200),
-      fromAddress,
+    // Log classification start with minimal info
+    logger.info('Classifying email', {
+      from: fromAddress,
       subject,
-      textLength: emailText.length
+      preview: emailText.substring(0, 100)
     });
 
     const systemPrompt = `You are an expert email classifier for a helpdesk system. Your task is to determine if an incoming email is promotional/marketing/automated or requires a human response. You must analyze each email with sophisticated criteria while maintaining strict output format compliance.
@@ -124,37 +124,19 @@ Content: ${emailText}`;
 
     const response = completion.choices[0]?.message?.content;
     if (!response) {
-      logger.error('\n=== GPT Response Error ===', {
-        timestamp: new Date().toISOString(),
-        error: 'No response from GPT',
-        completion: completion
+      logger.error('GPT classification failed', {
+        error: 'No response from GPT'
       });
       throw new Error('No response from GPT');
     }
 
-    // Log the raw GPT response
-    logger.info('\n=== GPT Raw Response ===', {
-      timestamp: new Date().toISOString(),
-      response,
-      fromAddress,
-      subject
-    });
-
     const classification = JSON.parse(response);
     
-    // Log the final classification with detailed context
-    logger.info('\n=== Classification Decision ===', {
-      timestamp: new Date().toISOString(),
-      fromAddress,
-      subject,
-      emailPreview: emailText.substring(0, 200),
-      classification: {
-        isPromotional: classification.isPromotional,
-        reason: classification.reason
-      },
-      modelUsed: 'gpt-3.5-turbo',
-      confidence: 'high', // Based on temperature 0.1
-      processingTime: Date.now() - new Date().getTime()
+    // Log the final classification concisely
+    logger.info('Classification result', {
+      id: messageId || 'unknown',
+      isPromotional: classification.isPromotional,
+      reason: classification.reason
     });
 
     return {
@@ -162,12 +144,9 @@ Content: ${emailText}`;
       reason: classification.reason
     };
   } catch (error) {
-    logger.error('\n=== Classification Error ===', {
-      timestamp: new Date().toISOString(),
-      error,
-      fromAddress,
-      subject,
-      emailPreview: emailText.substring(0, 200)
+    logger.error('Classification error', {
+      error: error instanceof Error ? error.message : String(error),
+      id: messageId || 'unknown'
     });
     return null;
   }
@@ -228,7 +207,7 @@ export async function processPotentialPromotionalEmail(
 ): Promise<void> {
   try {
     if (!ticketEmailChatId) {
-      logger.error('Missing ticket email chat ID', { messageId, threadId });
+      logger.error('Missing chat ID', { messageId });
       return;
     }
 
@@ -240,93 +219,92 @@ export async function processPotentialPromotionalEmail(
       .single();
 
     if (chatError || !chatRecord) {
-      logger.error('Could not find ticket email chat record', { 
-        ticketEmailChatId,
-        messageId,
-        threadId,
-        error: chatError
-      });
-      return;
-    }
-
-    // Get thread context for better classification
-    const threadContext = await getThreadMessages(threadId, orgId);
-    const threadMessageCount = threadContext.messages.length;
-    
-    // Classify the email
-    const classification = await classifyEmailAsPromotional(emailBody, fromAddress, subject);
-    if (!classification) {
-      logger.error('Failed to classify email', { messageId, threadId });
-      return;
-    }
-
-    logger.info('PROMOTION AGENT: Classification Result', {
-      separator: '==================================================',
-      messageId,
-      threadId,
-      fromAddress,
-      subject,
-      classification: {
-        type: classification.isPromotional ? 'PROMOTIONAL' : 'NEEDS RESPONSE',
-        reason: classification.reason,
-        action: classification.isPromotional ? 'Will Archive' : 'Needs Response',
-        threadContext: `Thread has ${threadMessageCount} messages, ${classification.isPromotional ? 'all promotional' : 'requires response'}`
-      },
-      timestamp: new Date().toISOString()
-    });
-
-    // Update metadata
-    const newMetadata = {
-      ...chatRecord.metadata,
-      promotional: classification.isPromotional,
-      promotional_reason: classification.reason,
-      archivedByAgent: classification.isPromotional,
-      classification_timestamp: new Date().toISOString()
-    };
-
-    const { error: updateError } = await supabase
-      .from('ticket_email_chats')
-      .update({ metadata: newMetadata })
-      .eq('id', ticketEmailChatId);
-
-    if (updateError) {
-      logger.error('Failed to update email metadata', {
-        ticketEmailChatId,
-        messageId,
-        error: updateError
-      });
-      return;
-    }
-
-    logger.info('\n=== [PROMOTION AGENT] Successfully Updated Metadata ===', {
-      messageId,
-      ticketEmailChatId,
-      newMetadata
-    });
-
-    // Archive promotional emails
-    if (classification.isPromotional) {
-      logger.info('\n=== [PROMOTION AGENT] Archiving Email in Gmail ===', {
-        messageId,
-        orgId
-      });
-      await archiveEmail(messageId, orgId);
-      logger.info('[PROMOTION AGENT] Removed INBOX label', {
-        orgId,
+      logger.error('Chat record not found', { 
+        chatId: ticketEmailChatId,
         messageId
       });
-    } else {
-      logger.info('\n=== [PROMOTION AGENT] Email Requires Response ===', {
-        messageId,
-        reason: 'Thread contains messages requiring response'
-      });
+      return;
     }
-  } catch (error) {
-    logger.error('Error in promotion agent', {
-      ticketEmailChatId,
+
+    // Get thread context
+    const { messages: threadMessages } = await getThreadMessages(threadId, orgId);
+    
+    // Classify the email
+    const classification = await classifyEmailAsPromotional(emailBody, fromAddress, subject, messageId);
+    if (!classification) {
+      logger.error('Classification failed', { messageId });
+      return;
+    }
+
+    const isPromotional = classification.isPromotional;
+
+    // Log classification result concisely
+    logger.info('PROMOTION AGENT:', {
       messageId,
       threadId,
-      error: error instanceof Error ? error.message : String(error)
+      from: fromAddress,
+      subject,
+      classification: {
+        type: isPromotional ? 'PROMOTIONAL' : 'NEEDS RESPONSE',
+        reason: classification.reason,
+        action: isPromotional ? 'Will Archive' : 'Needs Response',
+        threadContext: `Thread has ${threadMessages.length} messages, ${isPromotional ? 'all promotional' : 'requires response'}`
+      }
+    });
+
+    if (isPromotional) {
+      // Update metadata
+      const { error: updateError } = await supabase
+        .from('ticket_email_chats')
+        .update({
+          metadata: {
+            promotional: isPromotional,
+            promotional_reason: classification.reason,
+            archivedByAgent: isPromotional,
+            classification_timestamp: new Date().toISOString()
+          }
+        })
+        .eq('id', ticketEmailChatId);
+
+      if (updateError) {
+        logger.error('Metadata update failed', { chatId: ticketEmailChatId });
+        return;
+      }
+
+      // Archive if promotional
+      try {
+        await archiveEmail(messageId, orgId);
+        logger.info('Email archived', { messageId });
+      } catch (error) {
+        logger.error('Archive failed', {
+          messageId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    } else {
+      // Generate AI draft for genuine emails
+      const aiDraft = await generateAIDraft(emailBody);
+      
+      const { error: updateError } = await supabase
+        .from('processed_messages')
+        .update({ 
+          ai_draft: aiDraft,
+          metadata: {
+            ...chatRecord.metadata,
+            requires_human_response: true
+          }
+        })
+        .eq('id', ticketEmailChatId);
+
+      if (updateError) {
+        logger.error('Failed to store AI draft');
+      }
+    }
+  } catch (error) {
+    logger.error('Promotion agent error', {
+      error: error instanceof Error ? error.message : String(error),
+      messageId,
+      chatId: ticketEmailChatId
     });
   }
 }
@@ -478,4 +456,29 @@ export async function processUnclassifiedEmails(orgId: string): Promise<void> {
   } catch (error) {
     logger.error('[PROMOTION AGENT] Error in batch processing', { error });
   }
-} 
+}
+
+async function generateAIDraft(emailBody: string): Promise<string> {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: [
+        { role: 'user', content: `Generate a draft response for this email: ${emailBody}` }
+      ],
+      temperature: 0.1,
+      max_tokens: 150,
+      response_format: { type: 'text' }
+    });
+
+    const response = completion.choices[0]?.message?.content;
+    if (!response) {
+      logger.error('Failed to generate AI draft');
+      throw new Error('Failed to generate AI draft');
+    }
+
+    return response;
+  } catch (error) {
+    logger.error('Error generating AI draft', { error });
+    throw error;
+  }
+}

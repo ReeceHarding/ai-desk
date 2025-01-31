@@ -2,6 +2,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 import { Database } from '@/types/supabase';
 import { motion } from 'framer-motion';
 import {
@@ -97,15 +98,55 @@ export function TicketDetailsPanel({
     <motion.div
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
-      className="bg-slate-800/50 backdrop-blur-sm rounded-lg p-6 space-y-6"
+      className={cn("bg-slate-800/50 backdrop-blur-sm rounded-lg p-6 space-y-6")}
     >
+      {/* Status Controls */}
+      <div className="space-y-4">
+        <h3 className="text-sm font-medium text-slate-400">Quick Status Update</h3>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            onClick={() => handleStatusSelect('open')}
+            className={cn("justify-start hover:bg-slate-700/50 transition-colors", ticket.status === 'open' ? statusColors.open : '')}
+          >
+            <Inbox className="h-4 w-4 mr-2" />
+            Open
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => handleStatusSelect('pending')}
+            className={cn("justify-start hover:bg-slate-700/50 transition-colors", ticket.status === 'pending' ? statusColors.pending : '')}
+          >
+            <Clock className="h-4 w-4 mr-2" />
+            Pending
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => handleStatusSelect('solved')}
+            className={cn("justify-start hover:bg-slate-700/50 transition-colors", ticket.status === 'solved' ? statusColors.solved : '')}
+          >
+            <CheckCircle className="h-4 w-4 mr-2" />
+            Solved
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => handleStatusSelect('closed')}
+            className={cn("justify-start hover:bg-slate-700/50 transition-colors", ticket.status === 'closed' ? statusColors.closed : '')}
+          >
+            <Lock className="h-4 w-4 mr-2" />
+            Closed
+          </Button>
+        </div>
+      </div>
+
+      {/* Current Status Dropdown */}
       <div>
-        <h3 className="text-sm font-medium text-slate-400 mb-2">Status</h3>
+        <h3 className="text-sm font-medium text-slate-400 mb-2">Current Status</h3>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="outline"
-              className={`w-full justify-start hover:bg-slate-700/50 transition-colors ${statusColors[ticket.status]}`}
+              className={cn("w-full justify-start hover:bg-slate-700/50 transition-colors", statusColors[ticket.status])}
             >
               <StatusIcon status={ticket.status} />
               <span className="ml-2 capitalize">{ticket.status}</span>
@@ -116,7 +157,7 @@ export function TicketDetailsPanel({
               <DropdownMenuItem
                 key={status}
                 onClick={() => handleStatusSelect(status as Ticket['status'])}
-                className={`${statusColors[status]} hover:bg-slate-700/50`}
+                className={cn(statusColors[status], "hover:bg-slate-700/50")}
               >
                 <StatusIcon status={status} />
                 <div className="ml-2">

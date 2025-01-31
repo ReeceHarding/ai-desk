@@ -6,7 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
-import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useUser } from '@supabase/auth-helpers-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -21,7 +22,7 @@ interface Profile {
 }
 
 export default function ProfileSettings() {
-  const supabase = useSupabaseClient();
+  const supabase = createClientComponentClient<Database>();
   const user = useUser();
   const router = useRouter();
   const { toast } = useToast();

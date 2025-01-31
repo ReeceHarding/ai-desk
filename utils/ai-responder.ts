@@ -7,7 +7,7 @@ import { generateEmbedding, queryPinecone } from './rag';
 const isServer = typeof window === 'undefined';
 
 if (!isServer) {
-  logger.warn('AI responder utilities should only be used on the server side');
+  // logger.warn('AI responder utilities should only be used on the server side');
 }
 
 // Only initialize OpenAI client on the server side
@@ -41,57 +41,97 @@ export async function classifyInboundEmail(emailText: string): Promise<{
     throw new Error('OpenAI client not initialized');
   }
 
-  const systemPrompt = `
-You are an email classifier. 
-Decide if this inbound email is a real support question that needs a response 
-or not. 
-Return a JSON with "classification": one of ("should_respond","no_response","unknown"), 
-and "confidence": an integer from 0 to 100. 
-Respond ONLY with valid JSON. 
-If uncertain, put classification = "unknown". 
-If it's obviously spam or marketing, classification = "no_response". 
-Otherwise classification = "should_respond". 
-`;
-
-  const userPrompt = `Email Text:\n${emailText}\n\nReturn JSON only: { "classification": "...", "confidence": 0-100 }`;
-
   try {
+    const systemPrompt = `You are an expert email classifier for a helpdesk system. Your task is to determine if an incoming email is promotional/marketing/automated or requires a human response.
+
+DETAILED CLASSIFICATION RULES:
+
+1. Mark as PROMOTIONAL (isPromotional: true) if the email:
+   - Contains any marketing language or promotional offers
+   - Is from a no-reply email address
+   - Contains words like "newsletter", "update", "announcement", "offer", "discount"
+   - Is an automated system notification (e.g., password changes, login alerts, CI/CD notifications)
+   - Contains tracking numbers or order confirmations
+   - Is a social media notification or alert
+   - Is a mass-sent newsletter or company update
+   - Contains promotional imagery or multiple marketing links
+   - Is an automated calendar invite or reminder
+   - Contains phrases like "Don't miss out", "Limited time", "Special offer"
+   - Is an automated receipt or transaction confirmation
+   - Contains unsubscribe links or marketing footers
+   - Is from known marketing domains or bulk email services
+   - Uses HTML-heavy formatting typical of marketing emails
+   - Is a GitHub Actions or CI/CD workflow notification
+   - Is an automated build/test/deployment notification
+
+2. Mark as NEEDS_RESPONSE (isPromotional: false) if the email:
+   - Contains direct questions requiring human judgment
+   - Includes specific technical issues or bug reports that need investigation
+   - Contains personal or unique inquiries
+   - References previous conversations or tickets
+   - Includes screenshots or specific problem descriptions
+   - Contains urgent support requests or time-sensitive issues
+   - Includes phrases like "Please help", "I need assistance", "Can someone explain"
+   - Contains detailed customer feedback requiring analysis
+   - Includes business proposals or partnership inquiries
+   - Contains specific account or service questions
+   - Includes personal contact information for follow-up
+   - References specific transactions or interactions
+   - Contains unique situations not covered by FAQs
+   - Shows signs of human authorship (typos, conversational tone)
+
+ANALYSIS STEPS:
+1. Check sender address and format
+2. Scan for automated/marketing indicators
+3. Look for personal/human elements
+4. Evaluate content complexity
+5. Check for direct questions or requests
+6. Analyze tone and urgency
+7. Look for unique/specific details
+
+OUTPUT FORMAT:
+You must respond in this exact JSON format with only these two fields:
+{
+    "isPromotional": boolean,
+    "reason": "Brief explanation of classification decision"
+}`;
+
     const completion = await openai.chat.completions.create({
       model: 'gpt-3.5-turbo',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
+        { role: 'user', content: `Please classify this email:\n${emailText}` },
       ],
-      temperature: 0.0,
-      max_tokens: 200,
+      temperature: 0.1,
+      max_tokens: 150,
     });
 
-    let content = completion.choices[0]?.message?.content?.trim() || '';
-    let classification: 'should_respond' | 'no_response' | 'unknown' = 'unknown';
-    let confidence = 50;
+    const rawContent = completion.choices[0]?.message?.content?.trim() || '';
+    let isPromotional = false;
+    let reason = '';
 
     try {
-      const jsonStart = content.indexOf('{');
-      const jsonEnd = content.lastIndexOf('}');
+      const jsonStart = rawContent.indexOf('{');
+      const jsonEnd = rawContent.lastIndexOf('}');
       if (jsonStart !== -1 && jsonEnd !== -1) {
-        const jsonString = content.slice(jsonStart, jsonEnd + 1);
+        const jsonString = rawContent.slice(jsonStart, jsonEnd + 1);
         const parsed = JSON.parse(jsonString);
-        if (parsed.classification === 'should_respond' || parsed.classification === 'no_response' || parsed.classification === 'unknown') {
-          classification = parsed.classification;
-        }
-        if (typeof parsed.confidence === 'number') {
-          confidence = Math.max(0, Math.min(100, parsed.confidence));
-        }
+        isPromotional = parsed.isPromotional;
+        reason = parsed.reason;
       }
     } catch (err) {
-      logger.warn('Failed to parse classification JSON from GPT', { content, error: err });
+      logger.warn('Failed to parse classification JSON', { content: rawContent, error: err });
+      return { classification: 'unknown', confidence: 0 };
     }
 
-    logger.info('Inbound email classified', { classification, confidence });
-    return { classification, confidence };
+    // Return the classification with high confidence since we're using a strict rule set
+    return {
+      classification: isPromotional ? 'no_response' : 'should_respond',
+      confidence: 90
+    };
   } catch (error) {
     logger.error('Classification error', { error });
-    return { classification: 'unknown', confidence: 50 };
+    return { classification: 'unknown', confidence: 0 };
   }
 }
 
@@ -173,7 +213,7 @@ export async function generateRagResponse(
 
     // If no matches found, return early with "Not enough info"
     if (matches.length === 0) {
-      logger.info('No relevant chunks found for query', { emailText, orgId });
+      // logger.info('No relevant chunks found for query', { emailText, orgId });
       return { 
         response: 'Not enough info.', 
         confidence: 0,
@@ -330,7 +370,7 @@ If you cannot answer based on the context, respond with "Not enough info." and l
       }
 
     } catch (err) {
-      logger.warn('Failed to parse or fact-check response', { content: rawContent, error: err });
+      // logger.warn('Failed to parse or fact-check response', { content: rawContent, error: err });
       finalAnswer = 'Not enough info.';
       confidence = 0;
     }
@@ -339,12 +379,12 @@ If you cannot answer based on the context, respond with "Not enough info." and l
       debugInfo.processingTimeMs = Date.now() - startTime;
     }
 
-    logger.info('Generated RAG response', { 
-      finalAnswer, 
-      confidence, 
-      references,
-      factChecked: true
-    });
+    // logger.info('Generated RAG response', { 
+    //   finalAnswer, 
+    //   confidence, 
+    //   references,
+    //   factChecked: true
+    // });
     
     return { 
       response: finalAnswer, 
@@ -368,10 +408,11 @@ If you cannot answer based on the context, respond with "Not enough info." and l
 
 /**
  * Decide if we auto-send or just store a draft, given a confidence threshold.
+ * Returns { autoSent: boolean, finalResponse: string }.
  */
 export function decideAutoSend(
   confidence: number,
-  threshold: number = 85
+  threshold: number = 75  // Lowered from 85 to be less aggressive
 ): { autoSend: boolean } {
   return { autoSend: confidence >= threshold };
 } 

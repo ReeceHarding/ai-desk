@@ -1,0 +1,220 @@
+import { TicketInterface } from '@/components/ticket-interface';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mock the Next.js Image component
+vi.mock('next/image', () => ({
+  default: ({ src, alt }: { src: string; alt: string }) => {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt={alt} />
+  }
+}))
+
+// Mock data for tests
+const mockTicket = {
+  id: '123',
+  subject: 'Test Ticket',
+  description: 'Test Description',
+  status: 'open' as const,
+  priority: 'medium' as const,
+  customer_id: 'cust123',
+  assigned_agent_id: 'agent123',
+  escalation_level: 1,
+  due_at: new Date().toISOString(),
+  custom_fields: {},
+  metadata: {},
+  extra_text_1: null,
+  extra_json_1: {},
+  org_id: 'org123',
+  deleted_at: null,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+  next_followup_at: null,
+  feedback_score: null,
+  customer: {
+    display_name: 'John Doe',
+    email: 'john@example.com',
+    avatar_url: null,
+  },
+  organization: {
+    name: 'Test Org',
+  },
+};
+
+// Create a query builder that supports method chaining
+const createQueryBuilder = () => {
+  const builder = {
+    data: mockTicket,
+    error: null,
+    count: null,
+    select: vi.fn().mockReturnThis(),
+    insert: vi.fn().mockReturnThis(),
+    update: vi.fn().mockReturnThis(),
+    delete: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    neq: vi.fn().mockReturnThis(),
+    gt: vi.fn().mockReturnThis(),
+    lt: vi.fn().mockReturnThis(),
+    gte: vi.fn().mockReturnThis(),
+    lte: vi.fn().mockReturnThis(),
+    like: vi.fn().mockReturnThis(),
+    ilike: vi.fn().mockReturnThis(),
+    is: vi.fn().mockReturnThis(),
+    in: vi.fn().mockReturnThis(),
+    contains: vi.fn().mockReturnThis(),
+    containedBy: vi.fn().mockReturnThis(),
+    range: vi.fn().mockReturnThis(),
+    overlap: vi.fn().mockReturnThis(),
+    textSearch: vi.fn().mockReturnThis(),
+    match: vi.fn().mockReturnThis(),
+    not: vi.fn().mockReturnThis(),
+    or: vi.fn().mockReturnThis(),
+    filter: vi.fn().mockReturnThis(),
+    order: vi.fn().mockReturnThis(),
+    limit: vi.fn().mockImplementation(() => Promise.resolve({ data: [builder.data], error: null })),
+    single: vi.fn().mockImplementation(() => Promise.resolve({ data: builder.data, error: null })),
+    maybeSingle: vi.fn().mockImplementation(() => Promise.resolve({ data: builder.data, error: null }))
+  };
+  return builder;
+};
+
+// Create a channel builder that supports method chaining
+const createChannelBuilder = () => {
+  const builder = {
+    on: vi.fn().mockReturnThis(),
+    subscribe: vi.fn().mockResolvedValue({
+      unsubscribe: vi.fn().mockResolvedValue(undefined)
+    })
+  };
+  return builder;
+};
+
+// Mock the Supabase client
+const mockSupabaseClient = {
+  from: vi.fn().mockImplementation(() => createQueryBuilder()),
+  channel: vi.fn().mockImplementation((name) => createChannelBuilder()),
+  removeChannel: vi.fn(),
+  removeAllChannels: vi.fn(),
+  getChannels: vi.fn().mockReturnValue([]),
+  auth: {
+    getUser: vi.fn().mockResolvedValue({ 
+      data: { 
+        user: {
+          id: 'test-user-id',
+          email: 'test@example.com',
+          user_metadata: { name: 'Test User' }
+        }
+      }, 
+      error: null 
+    }),
+    signOut: vi.fn().mockResolvedValue({ error: null })
+  }
+};
+
+// Mock the hooks
+vi.mock('@supabase/auth-helpers-react', () => ({
+  useSupabaseClient: vi.fn(() => mockSupabaseClient),
+  useUser: vi.fn(() => ({
+    id: 'test-user-id',
+    email: 'test@example.com',
+    user_metadata: { name: 'Test User' }
+  }))
+}));
+
+// Mock the next/router module
+const mockRouter = {
+  push: vi.fn(),
+  replace: vi.fn(),
+  prefetch: vi.fn(),
+  back: vi.fn(),
+  forward: vi.fn(),
+  refresh: vi.fn(),
+  pathname: '/tickets/[id]',
+  query: { id: '123' }
+};
+
+vi.mock('next/router', () => ({
+  useRouter: () => mockRouter
+}));
+
+// Mock the toast hook
+vi.mock('../../components/ui/use-toast', () => ({
+  useToast: () => ({
+    toast: vi.fn(),
+  }),
+}));
+
+// Mock fetch for AI response generation
+const mockFetchResponse = {
+  ok: true,
+  json: async () => ({ response: 'AI generated response' }),
+};
+
+const mockFetch = vi.fn(() => Promise.resolve(mockFetchResponse));
+vi.stubGlobal('fetch', mockFetch);
+
+// Create a test wrapper component
+const TestWrapper = ({ children }: { children: React.ReactNode }) => {
+  return <div>{children}</div>;
+};
+
+// Custom render function that includes the wrapper
+const customRender = (ui: React.ReactElement) => {
+  return render(ui, { wrapper: TestWrapper });
+};
+
+describe('TicketInterface', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockRouter.push = vi.fn();
+    mockRouter.replace = vi.fn();
+    mockRouter.prefetch = vi.fn();
+    mockRouter.back = vi.fn();
+    mockRouter.forward = vi.fn();
+    mockRouter.refresh = vi.fn();
+    mockRouter.pathname = '/tickets/[id]';
+    mockRouter.query = { id: '123' };
+    (useSupabaseClient as ReturnType<typeof vi.fn>).mockReturnValue(mockSupabaseClient);
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  describe('Basic Rendering', () => {
+    it('renders ticket information correctly', () => {
+      customRender(
+        <TicketInterface
+          ticket={mockTicket}
+          onStatusChange={() => {}}
+          onPriorityChange={() => {}}
+        />
+      );
+
+      // Check if basic ticket information is rendered
+      expect(screen.getByText(`Ticket #${mockTicket.id}`)).toBeInTheDocument();
+      expect(screen.getByText(mockTicket.subject)).toBeInTheDocument();
+      expect(screen.getByText(mockTicket.description)).toBeInTheDocument();
+      expect(screen.getByText(mockTicket.status, { exact: false })).toBeInTheDocument();
+      expect(screen.getByText(mockTicket.priority.toUpperCase())).toBeInTheDocument();
+    });
+
+    it('renders all action buttons', () => {
+      customRender(
+        <TicketInterface
+          ticket={mockTicket}
+          onStatusChange={() => {}}
+          onPriorityChange={() => {}}
+        />
+      );
+
+      // Check if all action buttons are rendered
+      expect(screen.getByText('Quick Reply')).toBeInTheDocument();
+      expect(screen.getByText('Search KB')).toBeInTheDocument();
+      expect(screen.getByText('AI Assist')).toBeInTheDocument();
+      expect(screen.getByText('Internal Note')).toBeInTheDocument();
+      expect(screen.getByText('Merge Ticket')).toBeInTheDocument();
+    });
+  });
+}); 

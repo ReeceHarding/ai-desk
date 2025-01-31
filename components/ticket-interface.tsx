@@ -799,7 +799,7 @@ export function TicketInterface({
             </DialogHeader>
             <div className="space-y-4">
               <EmailComposer
-                value={quickReplyText}
+                  value={quickReplyText}
                 onChange={setQuickReplyText}
                 onSend={handleQuickReply}
                 onGenerateAIResponse={handleGenerateAiResponse}
@@ -807,7 +807,7 @@ export function TicketInterface({
                 isGeneratingAI={isGeneratingAiResponse}
                 placeholder="Type your reply..."
                 className="bg-slate-800 border-slate-700"
-              />
+                />
               {isKbSearchOpen && (
                 <div className="space-y-4">
                   <Command className="rounded-lg border border-slate-700 bg-slate-800">
@@ -818,7 +818,7 @@ export function TicketInterface({
                         setKbSearchQuery(value);
                         handleKbSearch(value);
                       }}
-                    />
+                />
                     <CommandList>
                       <CommandEmpty>No results found.</CommandEmpty>
                       <CommandGroup>
@@ -831,8 +831,8 @@ export function TicketInterface({
                               <div className="font-medium">{result.knowledge_docs.title}</div>
                               <div className="text-sm text-slate-400">
                                 {result.chunk_content.substring(0, 100)}...
-                              </div>
-                            </div>
+              </div>
+            </div>
                           </CommandItem>
                         ))}
                       </CommandGroup>
@@ -865,14 +865,14 @@ export function TicketInterface({
             </DialogHeader>
             <div className="space-y-4">
               <EmailComposer
-                value={internalNoteText}
+                  value={internalNoteText}
                 onChange={setInternalNoteText}
                 onSend={handleAddInternalNote}
                 isSending={isAddingNote}
                 placeholder="Type your internal note..."
                 className="bg-slate-800 border-slate-700"
-              />
-            </div>
+                />
+              </div>
           </DialogContent>
         </Dialog>
 

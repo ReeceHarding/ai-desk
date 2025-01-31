@@ -7,7 +7,6 @@ import {
     Bell,
     BookOpen,
     Bot,
-    Building,
     Inbox,
     LayoutDashboard,
     LogOut,
@@ -203,9 +202,6 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             
             {isAdmin && (
               <>
-                <NavLink href={`/organizations/${orgId}/settings`} icon={Building}>
-                  Organization Settings
-                </NavLink>
                 <NavLink href={`/organizations/${orgId}/kb`} icon={BookOpen}>
                   Knowledge Base
                 </NavLink>

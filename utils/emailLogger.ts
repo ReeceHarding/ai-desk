@@ -1,153 +1,81 @@
-import { EmailLog, EmailLogParams, EmailSearchParams } from '@/types/gmail';
+import { EmailLogParams, EmailSearchParams } from '@/types/gmail';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 const supabase = createClientComponentClient();
 
-interface EmailLogParams {
-  ticketId: string;
-  messageId: string;
-  threadId: string;
-  fromAddress: string;
-  fromName?: string | null;
-  toAddress: string | string[];
-  subject?: string | null;
-  rawContent?: string;
-  orgId: string;
-}
+export async function logEmail(params: EmailLogParams) {
+  const { error } = await supabase
+    .from('email_logs')
+    .insert({
+      message_id: params.messageId,
+      thread_id: params.threadId,
+      org_id: params.orgId,
+      type: params.type,
+      status: params.status,
+      error: params.error,
+      metadata: params.metadata
+    });
 
-class EmailLogger {
-  /**
-   * Log an email message to the database
-   */
-  public static async logEmail(params: EmailLogParams): Promise<EmailLog> {
-    try {
-      const { data, error } = await supabase
-        .from('ticket_email_chats')
-        .insert({
-          ticket_id: params.ticketId,
-          message_id: params.messageId,
-          thread_id: params.threadId,
-          from_name: params.fromName || null,
-          from_address: params.fromAddress,
-          to_address: Array.isArray(params.toAddress) ? params.toAddress : [params.toAddress],
-          cc_address: [],
-          bcc_address: [],
-          subject: params.subject || null,
-          body: params.rawContent || '',
-          attachments: {},
-          gmail_date: new Date().toISOString(),
-          org_id: params.orgId,
-          ai_classification: 'unknown',
-          ai_confidence: 0,
-          ai_auto_responded: false
-        })
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error logging email:', error);
-        throw error;
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Error in logEmail:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get email history for a specific ticket
-   */
-  public static async getEmailHistory(ticketId: string): Promise<EmailLog[]> {
-    try {
-      const { data, error } = await supabase
-        .from('email_logs')
-        .select('*')
-        .eq('ticket_id', ticketId)
-        .order('timestamp', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching email history:', error);
-        throw error;
-      }
-
-      return data || [];
-    } catch (error) {
-      console.error('Error in getEmailHistory:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Search emails based on various parameters
-   */
-  public static async searchEmails(params: EmailSearchParams): Promise<EmailLog[]> {
-    try {
-      let query = supabase
-        .from('email_logs')
-        .select('*');
-
-      if (params.ticketId) {
-        query = query.eq('ticket_id', params.ticketId);
-      }
-      if (params.threadId) {
-        query = query.eq('thread_id', params.threadId);
-      }
-      if (params.messageId) {
-        query = query.eq('message_id', params.messageId);
-      }
-      if (params.orgId) {
-        query = query.eq('org_id', params.orgId);
-      }
-      if (params.direction) {
-        query = query.eq('direction', params.direction);
-      }
-      if (params.fromDate) {
-        query = query.gte('timestamp', params.fromDate.toISOString());
-      }
-      if (params.toDate) {
-        query = query.lte('timestamp', params.toDate.toISOString());
-      }
-
-      const { data, error } = await query.order('timestamp', { ascending: false });
-
-      if (error) {
-        console.error('Error searching emails:', error);
-        throw error;
-      }
-
-      return data || [];
-    } catch (error) {
-      console.error('Error in searchEmails:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get the latest email in a thread
-   */
-  public static async getLatestThreadEmail(threadId: string): Promise<EmailLog | null> {
-    try {
-      const { data, error } = await supabase
-        .from('email_logs')
-        .select('*')
-        .eq('thread_id', threadId)
-        .order('timestamp', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
-        console.error('Error fetching latest thread email:', error);
-        throw error;
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Error in getLatestThreadEmail:', error);
-      throw error;
-    }
+  if (error) {
+    console.error('Error logging email:', error);
+    throw error;
   }
 }
 
-export { EmailLogger };
+export async function searchEmailLogs(params: EmailSearchParams) {
+  let query = supabase.from('email_logs').select('*');
+
+  if (params.orgId) {
+    query = query.eq('org_id', params.orgId);
+  }
+
+  if (params.threadId) {
+    query = query.eq('thread_id', params.threadId);
+  }
+
+  if (params.messageId) {
+    query = query.eq('message_id', params.messageId);
+  }
+
+  if (params.type) {
+    query = query.eq('type', params.type);
+  }
+
+  if (params.status) {
+    query = query.eq('status', params.status);
+  }
+
+  if (params.fromDate) {
+    query = query.gte('created_at', params.fromDate.toISOString());
+  }
+
+  if (params.toDate) {
+    query = query.lte('created_at', params.toDate.toISOString());
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Error searching email logs:', error);
+    throw error;
+  }
+
+  return data;
+}
+
+export async function getLatestThreadEmail(threadId: string) {
+  const { data, error } = await supabase
+    .from('email_logs')
+    .select('*')
+    .eq('thread_id', threadId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) {
+    console.error('Error getting latest thread email:', error);
+    throw error;
+  }
+
+  return data;
+}

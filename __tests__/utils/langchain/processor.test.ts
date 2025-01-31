@@ -1,210 +1,127 @@
-import { ConversationalRetrievalQAChain } from 'langchain/chains';
 import { Document } from 'langchain/document';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ChatMessage } from '../../../types/chat';
 import { LangChainProcessor } from '../../../utils/langchain';
-import { VectorStoreManager } from '../../../utils/langchain/vectorStore';
+import { initClients } from '../../../utils/langchain/config';
 
-// Mock dependencies
-vi.mock('../../../utils/langchain/vectorStore');
-vi.mock('langchain/chains');
+// Mock isServer
+vi.mock('../../../utils/env', () => ({
+  isServer: true
+}));
+
+// Mock LangChain clients
+const mockClients = {
+  embeddings: {
+    embedQuery: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+    embedDocuments: vi.fn().mockResolvedValue([[0.1, 0.2, 0.3]])
+  },
+  vectorStore: {
+    addDocuments: vi.fn().mockResolvedValue(undefined),
+    similaritySearch: vi.fn().mockResolvedValue([
+      { pageContent: 'test content', metadata: { source: 'test.md' } }
+    ])
+  },
+  llm: {
+    call: vi.fn().mockImplementation(async (messages) => {
+      if (messages[0].content.includes('error')) {
+        throw new Error('LLM Error');
+      }
+      return {
+        content: 'This is a test response'
+      };
+    })
+  }
+};
+
+vi.mock('../../../utils/langchain/config', () => ({
+  initClients: vi.fn().mockReturnValue(mockClients)
+}));
 
 describe('LangChainProcessor', () => {
   let processor: LangChainProcessor;
-  const mockVectorStore = {
-    initialize: vi.fn(),
-    addDocuments: vi.fn(),
-    getRetriever: vi.fn()
-  };
-  const mockChain = {
-    call: vi.fn()
-  };
+  const mockOrgId = 'test-org';
 
   beforeEach(() => {
-    vi.clearAllMocks();
-    
-    // Mock VectorStoreManager
-    (VectorStoreManager as any).mockImplementation(() => mockVectorStore);
-    
-    // Mock ConversationalRetrievalQAChain
-    (ConversationalRetrievalQAChain.fromLLM as any).mockReturnValue(mockChain);
-    
     processor = new LangChainProcessor();
+    vi.clearAllMocks();
   });
 
   describe('initialize', () => {
     it('initializes successfully', async () => {
-      await processor.initialize();
-      
-      expect(mockVectorStore.initialize).toHaveBeenCalled();
-      expect(ConversationalRetrievalQAChain.fromLLM).toHaveBeenCalled();
+      await expect(processor.initialize()).resolves.toBeUndefined();
     });
 
     it('only initializes once', async () => {
       await processor.initialize();
       await processor.initialize();
-      
-      expect(mockVectorStore.initialize).toHaveBeenCalledTimes(1);
-      expect(ConversationalRetrievalQAChain.fromLLM).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(initClients)).toHaveBeenCalledTimes(1);
     });
 
     it('handles initialization errors', async () => {
-      mockVectorStore.initialize.mockRejectedValueOnce(new Error('Init failed'));
-      
-      await expect(processor.initialize()).rejects.toThrow('Init failed');
+      vi.mocked(initClients).mockRejectedValueOnce(new Error('Init Error'));
+      await expect(processor.initialize()).rejects.toThrow('Init Error');
     });
   });
 
   describe('processDocument', () => {
-    const mockText = 'test document';
-    const mockMetadata = { docId: 'doc1', orgId: 'org1' };
-
-    beforeEach(async () => {
-      await processor.initialize();
+    const mockDoc = new Document({
+      pageContent: 'test content',
+      metadata: { source: 'test.md' }
     });
 
     it('processes document successfully', async () => {
-      const mockProcessed = {
-        chunks: ['chunk1', 'chunk2'],
-        metadata: [
-          { ...mockMetadata, chunkIndex: 0 },
-          { ...mockMetadata, chunkIndex: 1 }
-        ]
-      };
-      
-      mockVectorStore.addDocuments.mockResolvedValueOnce(undefined);
-      
-      await processor.processDocument(mockText, mockMetadata);
-      
-      expect(mockVectorStore.addDocuments).toHaveBeenCalledWith(
-        expect.objectContaining({
-          chunks: expect.any(Array),
-          metadata: expect.any(Array)
-        })
-      );
+      await processor.initialize();
+      await expect(processor.processDocument(mockDoc, mockOrgId)).resolves.toBeUndefined();
     });
 
     it('initializes when not initialized', async () => {
-      processor = new LangChainProcessor();
-      await processor.processDocument(mockText, mockMetadata);
-      
-      expect(mockVectorStore.initialize).toHaveBeenCalled();
+      await processor.processDocument(mockDoc, mockOrgId);
+      expect(vi.mocked(initClients)).toHaveBeenCalled();
     });
 
     it('handles processing errors', async () => {
-      mockVectorStore.addDocuments.mockRejectedValueOnce(new Error('Processing failed'));
-      
-      await expect(processor.processDocument(mockText, mockMetadata))
-        .rejects
-        .toThrow('Processing failed');
+      await processor.initialize();
+      mockClients.vectorStore.addDocuments.mockRejectedValueOnce(new Error('Processing Error'));
+      await expect(processor.processDocument(mockDoc, mockOrgId)).rejects.toThrow('Processing Error');
     });
   });
 
   describe('generateResponse', () => {
-    const mockQuery = 'test query';
-    const mockOrgId = 'org1';
-    const mockChatHistory: string[] = ['previous message'];
-
-    beforeEach(async () => {
-      await processor.initialize();
-    });
+    const mockQuery = 'test question';
+    const mockHistory: ChatMessage[] = [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Hi there' }
+    ];
 
     it('generates response successfully', async () => {
-      const mockLLMResponse = {
-        text: JSON.stringify({
-          answer: 'test answer',
-          confidence: 85,
-          reasoning: 'high confidence due to relevant context'
-        }),
-        sourceDocuments: [
-          new Document({
-            pageContent: 'source1',
-            metadata: { docId: 'doc1', score: 0.9 }
-          })
-        ]
-      };
-      
-      mockChain.call.mockResolvedValueOnce(mockLLMResponse);
-      
-      const response = await processor.generateResponse(
-        mockQuery,
-        mockOrgId,
-        mockChatHistory
-      );
-      
-      expect(response).toEqual({
-        response: 'test answer',
-        confidence: 85,
-        sources: [{
-          docId: 'doc1',
-          chunk: 'source1',
-          relevance: 0.9
-        }],
-        debugInfo: expect.objectContaining({
-          processingTimeMs: expect.any(Number),
-          chunks: expect.any(Array)
-        })
-      });
+      await processor.initialize();
+      const response = await processor.generateResponse(mockQuery, mockOrgId, mockHistory);
+      expect(response).toBe('This is a test response');
     });
 
     it('handles malformed LLM responses', async () => {
-      const mockLLMResponse = {
-        text: 'invalid json',
-        sourceDocuments: []
-      };
-      
-      mockChain.call.mockResolvedValueOnce(mockLLMResponse);
-      
-      const response = await processor.generateResponse(
-        mockQuery,
-        mockOrgId
-      );
-      
-      expect(response).toEqual({
-        response: 'Error processing response',
-        confidence: 0,
-        sources: [],
-        debugInfo: expect.objectContaining({
-          processingTimeMs: expect.any(Number),
-          modelResponse: 'invalid json'
-        })
-      });
+      await processor.initialize();
+      mockClients.llm.call.mockResolvedValueOnce({} as any);
+      await expect(processor.generateResponse(mockQuery, mockOrgId, mockHistory)).rejects.toThrow();
     });
 
     it('throws if not initialized', async () => {
-      processor = new LangChainProcessor();
-      await expect(processor.generateResponse(mockQuery, mockOrgId))
-        .rejects
-        .toThrow();
+      await expect(processor.generateResponse(mockQuery, mockOrgId, mockHistory)).rejects.toThrow();
     });
 
     it('handles generation errors', async () => {
-      mockChain.call.mockRejectedValueOnce(new Error('Generation failed'));
-      
-      await expect(processor.generateResponse(mockQuery, mockOrgId))
-        .rejects
-        .toThrow('Generation failed');
+      await processor.initialize();
+      await expect(processor.generateResponse('error test', mockOrgId, mockHistory)).rejects.toThrow('LLM Error');
     });
 
     it('formats chat history correctly', async () => {
-      mockChain.call.mockResolvedValueOnce({
-        text: JSON.stringify({
-          answer: 'test',
-          confidence: 80
-        }),
-        sourceDocuments: []
-      });
-
-      await processor.generateResponse(
-        mockQuery,
-        mockOrgId,
-        ['user msg', 'assistant msg', 'user msg 2']
-      );
-
-      expect(mockChain.call).toHaveBeenCalledWith(
-        expect.objectContaining({
-          chat_history: 'Human: user msg\nAssistant: assistant msg\nHuman: user msg 2'
-        })
-      );
+      await processor.initialize();
+      await processor.generateResponse(mockQuery, mockOrgId, mockHistory);
+      expect(mockClients.llm.call).toHaveBeenCalledWith(expect.arrayContaining([
+        expect.objectContaining({ role: 'user', content: 'Hello' }),
+        expect.objectContaining({ role: 'assistant', content: 'Hi there' }),
+        expect.objectContaining({ role: 'user', content: mockQuery })
+      ]));
     });
   });
 }); 

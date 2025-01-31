@@ -1,5 +1,5 @@
+import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { useSupabaseClient } from '@supabase/auth-helpers-react';
 import type { Variants } from 'framer-motion';
 import { motion } from 'framer-motion';
 import { debounce } from 'lodash';
@@ -253,7 +253,7 @@ async function searchOrganizations(supabase: any, query: string): Promise<Organi
 type UserType = 'customer' | 'agent' | 'admin';
 
 export default function SignUp() {
-  const supabase = useSupabaseClient();
+  const supabase = createClientComponentClient<Database>();
   const router = useRouter();
   const { type } = router.query;
   

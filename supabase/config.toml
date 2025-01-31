@@ -14,24 +14,32 @@ max_rows = 1000
 enabled = false
 
 [db]
-port = 54322
-shadow_port = 54320
+port = 54332
+shadow_port = 54330
 major_version = 15
 
 [studio]
 enabled = true
-port = 54323
+port = 54333
 api_url = "http://127.0.0.1"
+
+[analytics]
+enabled = true
+port = 54337
+vector_port = 54338
+gcp_project_id = ""
+gcp_project_number = ""
+gcp_jwt_path = ""
 
 [auth]
 enabled = true
-site_url = "http://localhost:3000"
+site_url = "http://localhost:3020"
 additional_redirect_urls = [
     "https://ucbtpddvvbsrqroqhvev.supabase.co/auth/v1/callback",
-    "http://localhost:3000/api/email-gmail/oauth-callback",
-    "http://localhost:3000/api/integrations/gmail/callback",
-    "http://localhost:3000",
-    "http://localhost:3000/auth/callback",
+    "http://localhost:3020/api/email-gmail/oauth-callback",
+    "http://localhost:3020/api/integrations/gmail/callback",
+    "http://localhost:3020",
+    "http://localhost:3020/auth/callback",
     "http://127.0.0.1:54321/auth/v1/callback"
 ]
 jwt_expiry = 3600
@@ -48,5 +56,5 @@ enable_confirmations = false
 enabled = true
 client_id = "env(NEXT_PUBLIC_GOOGLE_AUTH_CLIENT_ID)"
 secret = "env(GOOGLE_AUTH_CLIENT_SECRET)"
-redirect_uri = "http://localhost:3000/auth/callback"
+redirect_uri = "http://localhost:3020/auth/callback"
 skip_nonce_check = false

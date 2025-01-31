@@ -1,6 +1,6 @@
 import { Database } from '@/types/supabase';
 import { logger } from '@/utils/logger';
-import { createServerSupabaseClient } from '@supabase/auth-helpers-nextjs';
+import { createPagesServerClient } from '@supabase/auth-helpers-nextjs';
 import { NextApiRequest, NextApiResponse } from 'next';
 
 // Access the shared progress map
@@ -19,7 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     // Get user from session
-    const supabase = createServerSupabaseClient<Database>({ req, res });
+    const supabase = createPagesServerClient<Database>({ req, res });
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
     if (sessionError || !session) {
@@ -34,48 +34,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Extract user ID from import ID format: {userId}-{timestamp}
-    const [importUserId] = importId.split('-');
+    const importUserId = importId.slice(0, importId.lastIndexOf('-'));
 
-    // Get user's organization
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('org_id')
-      .eq('id', userId)
-      .single();
-
-    if (profileError || !profile) {
-      throw new Error('Failed to get user profile');
-    }
-
-    // Check if user belongs to same organization as import
-    const { data: importProfile, error: importProfileError } = await supabase
-      .from('profiles')
-      .select('org_id')
-      .eq('id', importUserId)
-      .single();
-
-    if (importProfileError || !importProfile) {
-      throw new Error('Failed to get import profile');
-    }
-
-    // Allow access if user is in same organization
-    if (profile.org_id !== importProfile.org_id) {
+    // Verify user owns this import
+    if (importUserId !== userId) {
       logger.error('Unauthorized access to import progress', { importId, userId });
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    // Get import progress
-    const { data: progress, error: progressError } = await supabase
+    // Get progress from memory
+    const progress = global.importProgress.get(importId);
+    
+    if (typeof progress === 'undefined') {
+      return res.status(404).json({ error: 'Import not found' });
+    }
+
+    // Get additional status from database
+    const { data: importStatus } = await supabase
       .from('gmail_imports')
-      .select('*')
+      .select('status, processed_count, failed_count, error_message')
       .eq('id', importId)
       .single();
 
-    if (progressError) {
-      throw progressError;
-    }
-
-    return res.status(200).json(progress);
+    // Return progress with detailed status
+    return res.status(200).json({ 
+      progress,
+      status: progress === -1 ? 'failed' : progress === 100 ? 'completed' : 'processing',
+      details: importStatus ? {
+        processed_count: importStatus.processed_count || 0,
+        failed_count: importStatus.failed_count || 0,
+        error_message: importStatus.error_message,
+        database_status: importStatus.status
+      } : null
+    });
   } catch (error) {
     logger.error('Error getting import progress', { error });
     return res.status(500).json({ error: 'Internal server error' });

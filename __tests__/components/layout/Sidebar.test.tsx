@@ -65,14 +65,12 @@ describe('Sidebar', () => {
 
   it('shows admin links when user is admin', () => {
     render(<Sidebar />);
-    expect(screen.getByText('Organization Settings')).toBeInTheDocument();
     expect(screen.getByText('Knowledge Base')).toBeInTheDocument();
   });
 
   it('hides admin links when user is not admin', () => {
     (useUserRole as jest.Mock).mockReturnValue({ role: 'customer' });
     render(<Sidebar />);
-    expect(screen.queryByText('Organization Settings')).not.toBeInTheDocument();
     expect(screen.queryByText('Knowledge Base')).not.toBeInTheDocument();
   });
 

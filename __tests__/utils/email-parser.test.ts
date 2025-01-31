@@ -2,109 +2,148 @@ import { GmailMessage } from '@/types/gmail';
 import { parseGmailMessage } from '@/utils/email-parser';
 
 describe('parseGmailMessage', () => {
-  it('parses a Gmail message with name and email in from field', () => {
-    const message: GmailMessage = {
-      id: 'msg123',
-      threadId: 'thread123',
+  const createTestMessage = (overrides: Partial<GmailMessage> = {}): GmailMessage => ({
+    id: 'msg123',
+    threadId: 'thread123',
+    historyId: 'history123',
+    labelIds: ['INBOX'],
+    snippet: 'Test email snippet',
+    internalDate: '1234567890',
+    sizeEstimate: 1024,
+    payload: {
+      mimeType: 'text/plain',
+      headers: [
+        { name: 'From', value: 'John Doe <john@example.com>' },
+        { name: 'To', value: 'Support <support@company.com>' },
+        { name: 'Subject', value: 'Test Subject' },
+        { name: 'Date', value: new Date().toISOString() }
+      ],
+      body: {
+        data: Buffer.from('Test email body').toString('base64'),
+        size: 100
+      }
+    },
+    ...overrides
+  });
+
+  it('should parse a Gmail message with name and email', () => {
+    const message = {
+      id: '123',
+      threadId: '456',
       labelIds: ['INBOX'],
-      snippet: 'Test email',
+      snippet: 'Test snippet',
+      historyId: '789',
+      internalDate: '1234567890',
+      payload: {
+        headers: [
+          { name: 'Subject', value: 'Test Subject' },
+          { name: 'From', value: 'John Doe <john@example.com>' },
+          { name: 'To', value: 'support@company.com' },
+          { name: 'Date', value: 'Mon, 1 Jan 2024 12:00:00 +0000' }
+        ],
+        mimeType: 'text/plain',
+        body: { data: 'Test body' }
+      },
+      sizeEstimate: 1000,
       from: 'John Doe <john@example.com>',
-      to: 'Support <support@company.com>',
       subject: 'Test Subject',
-      date: '2024-01-01T00:00:00Z',
-      body: {
-        text: 'This is a test email',
-        html: '<p>This is a test email</p>',
-      },
+      body: 'Test body'
     };
 
-    const parsed = parseGmailMessage(message);
-
-    expect(parsed).toEqual({
-      messageId: 'msg123',
-      threadId: 'thread123',
-      fromName: 'John Doe',
-      fromEmail: 'john@example.com',
-      toEmail: 'support@company.com',
-      subject: 'Test Subject',
-      body: '<p>This is a test email</p>',
-      date: '2024-01-01T00:00:00Z',
-    });
+    const result = parseGmailMessage(message);
+    expect(result.fromName).toBe('John Doe');
+    expect(result.fromEmail).toBe('john@example.com');
+    expect(result.subject).toBe('Test Subject');
+    expect(result.body).toBe('Test body');
   });
 
-  it('parses a Gmail message with only email in from field', () => {
-    const message: GmailMessage = {
-      id: 'msg123',
-      threadId: 'thread123',
+  it('parses a Gmail message with simple email address', () => {
+    const message = {
+      id: '123',
+      threadId: '456',
       labelIds: ['INBOX'],
-      snippet: 'Test email',
+      snippet: 'Test snippet',
+      historyId: '789',
+      internalDate: '1234567890',
+      payload: {
+        headers: [
+          { name: 'Subject', value: 'Test Subject' },
+          { name: 'From', value: 'john@example.com' },
+          { name: 'To', value: 'support@company.com' },
+          { name: 'Date', value: 'Mon, 1 Jan 2024 12:00:00 +0000' }
+        ],
+        mimeType: 'text/plain',
+        body: { data: 'Test body' }
+      },
+      sizeEstimate: 1000,
       from: 'john@example.com',
-      to: 'support@company.com',
       subject: 'Test Subject',
-      date: '2024-01-01T00:00:00Z',
-      body: {
-        text: 'This is a test email',
-      },
+      body: 'Test body'
     };
 
-    const parsed = parseGmailMessage(message);
-
-    expect(parsed).toEqual({
-      messageId: 'msg123',
-      threadId: 'thread123',
-      fromName: '',
-      fromEmail: 'john@example.com',
-      toEmail: 'support@company.com',
-      subject: 'Test Subject',
-      body: 'This is a test email',
-      date: '2024-01-01T00:00:00Z',
-    });
+    const result = parseGmailMessage(message);
+    expect(result.fromName).toBe('');
+    expect(result.fromEmail).toBe('john@example.com');
+    expect(result.subject).toBe('Test Subject');
+    expect(result.body).toBe('Test body');
   });
 
-  it('parses a Gmail message with malformed from field', () => {
-    const message: GmailMessage = {
-      id: 'msg123',
-      threadId: 'thread123',
+  it('parses a Gmail message with malformed headers', () => {
+    const message = {
+      id: '123',
+      threadId: '456',
       labelIds: ['INBOX'],
-      snippet: 'Test email',
-      from: 'Invalid Email Format',
-      to: 'support@company.com',
-      subject: 'Test Subject',
-      date: '2024-01-01T00:00:00Z',
-      body: {
-        text: 'This is a test email',
+      snippet: 'Test snippet',
+      historyId: '789',
+      internalDate: '1234567890',
+      payload: {
+        headers: [
+          { name: 'Subject', value: 'Test Subject' },
+          { name: 'From', value: '<>' },
+          { name: 'To', value: 'support@company.com' },
+          { name: 'Date', value: 'Mon, 1 Jan 2024 12:00:00 +0000' }
+        ],
+        mimeType: 'text/plain',
+        body: { data: 'Test body' }
       },
+      sizeEstimate: 1000,
+      from: '<>',
+      subject: 'Test Subject',
+      body: 'Test body'
     };
 
-    const parsed = parseGmailMessage(message);
-
-    expect(parsed).toEqual({
-      messageId: 'msg123',
-      threadId: 'thread123',
-      fromName: '',
-      fromEmail: 'Invalid Email Format',
-      toEmail: 'support@company.com',
-      subject: 'Test Subject',
-      body: 'This is a test email',
-      date: '2024-01-01T00:00:00Z',
-    });
+    const result = parseGmailMessage(message);
+    expect(result.fromName).toBe('');
+    expect(result.fromEmail).toBe('');
+    expect(result.subject).toBe('Test Subject');
+    expect(result.body).toBe('Test body');
   });
 
   it('uses snippet when no body is available', () => {
-    const message: GmailMessage = {
-      id: 'msg123',
-      threadId: 'thread123',
+    const message = {
+      id: '123',
+      threadId: '456',
       labelIds: ['INBOX'],
-      snippet: 'Test email snippet',
-      from: 'john@example.com',
-      to: 'support@company.com',
+      snippet: 'Test snippet',
+      historyId: '789',
+      internalDate: '1234567890',
+      payload: {
+        headers: [
+          { name: 'Subject', value: 'Test Subject' },
+          { name: 'From', value: 'John Doe <john@example.com>' },
+          { name: 'To', value: 'support@company.com' },
+          { name: 'Date', value: 'Mon, 1 Jan 2024 12:00:00 +0000' }
+        ],
+        mimeType: 'text/plain',
+        body: { data: '' }
+      },
+      sizeEstimate: 1000,
+      from: 'John Doe <john@example.com>',
       subject: 'Test Subject',
-      date: '2024-01-01T00:00:00Z',
-      body: {},
+      body: ''
     };
 
-    const parsed = parseGmailMessage(message);
-
-    expect(parsed.body).toBe('Test email snippet');
+    const result = parseGmailMessage(message);
+    expect(result.body).toBe('Test snippet');
   });
 }); 

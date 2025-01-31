@@ -4,7 +4,7 @@ import '@testing-library/jest-dom';
 global.fetch = jest.fn();
 
 // Mock environment variables
-process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://localhost:54321';
+process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://127.0.0.1:54321';
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID = 'test-client-id';
 process.env.GMAIL_CLIENT_SECRET = 'test-client-secret';

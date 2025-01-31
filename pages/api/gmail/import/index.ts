@@ -31,9 +31,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const count = parseInt(req.query.count as string || '10', 10);
     const userId = session.user.id;
 
+    // Get user's organization
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('org_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profile) {
+      throw new Error('Failed to get user profile');
+    }
+
     // Generate a unique import ID
     const importId = `${userId}-${Date.now()}`;
     global.importProgress.set(importId, 0);
+
+    // Create import record in database
+    const { error: importError } = await supabase
+      .from('gmail_imports')
+      .insert({
+        id: importId,
+        user_id: userId,
+        org_id: profile.org_id,
+        status: 'pending',
+        progress: 0,
+        total_messages: count,
+        started_at: new Date().toISOString()
+      });
+
+    if (importError) {
+      logger.error('Failed to create import record', { error: importError });
+      throw importError;
+    }
 
     // Start the import process in the background
     processEmailsInBackground(importId, count, userId, supabase);
@@ -52,6 +81,15 @@ async function processEmailsInBackground(
   supabase: ReturnType<typeof createPagesServerClient<Database>>
 ) {
   try {
+    // Update import status to in_progress
+    await supabase
+      .from('gmail_imports')
+      .update({
+        status: 'in_progress',
+        started_at: new Date().toISOString()
+      })
+      .eq('id', importId);
+
     // Get Gmail client and tokens
     const { data: orgMember, error: orgError } = await supabase
       .from('organization_members')
@@ -64,11 +102,31 @@ async function processEmailsInBackground(
       `)
       .eq('user_id', userId)
       .eq('role', 'admin')
+      .limit(1)
       .single();
 
-    if (orgError || !orgMember) {
-      logger.error('Error fetching organization', { error: orgError });
+    if (orgError) {
+      const errorMessage = orgError.code === 'PGRST116' 
+        ? 'No admin organization member found'
+        : `Error fetching organization: ${orgError.message}`;
+      
+      logger.error(errorMessage, { 
+        error: orgError,
+        userId,
+        importId,
+        code: orgError.code
+      });
+      
       global.importProgress.set(importId, -1);
+      await updateImportStatus(supabase, importId, 'failed', errorMessage);
+      return;
+    }
+
+    if (!orgMember?.organizations) {
+      const errorMessage = 'Organization data not found';
+      logger.error(errorMessage, { userId, importId });
+      global.importProgress.set(importId, -1);
+      await updateImportStatus(supabase, importId, 'failed', errorMessage);
       return;
     }
 
@@ -85,6 +143,7 @@ async function processEmailsInBackground(
         hasRefreshToken: !!orgData.gmail_refresh_token
       });
       global.importProgress.set(importId, -1);
+      await updateImportStatus(supabase, importId, 'failed', 'Gmail tokens not found');
       return;
     }
 
@@ -103,8 +162,12 @@ async function processEmailsInBackground(
     if (totalMessages === 0) {
       logger.info('No messages to import');
       global.importProgress.set(importId, 100);
+      await updateImportStatus(supabase, importId, 'completed', null, 0);
       return;
     }
+
+    let processedCount = 0;
+    let failedCount = 0;
 
     for (let i = 0; i < totalMessages; i++) {
       const message = messages[i];
@@ -112,6 +175,12 @@ async function processEmailsInBackground(
       try {
         // Parse the email
         const parsedEmail = await parseGmailMessage(message);
+        
+        if (!parsedEmail) {
+          logger.warn('Failed to parse email', { messageId: message.id });
+          failedCount++;
+          continue;
+        }
         
         // First create the ticket email chat record
         const { data: chatRecord, error: insertError } = await supabase
@@ -130,6 +199,7 @@ async function processEmailsInBackground(
 
         if (insertError || !chatRecord) {
           logger.error('Error creating ticket email chat record', { error: insertError });
+          failedCount++;
           continue;
         }
 
@@ -148,6 +218,7 @@ async function processEmailsInBackground(
 
         if (!response.ok) {
           logger.warn('Failed to classify email', { messageId: message.id });
+          failedCount++;
           continue;
         }
 
@@ -165,9 +236,14 @@ async function processEmailsInBackground(
           })
           .eq('id', chatRecord.id);
 
+        processedCount++;
+
         // Update progress
         const progress = Math.round(((i + 1) / totalMessages) * 100);
         global.importProgress.set(importId, progress);
+        
+        // Update database progress
+        await updateImportProgress(supabase, importId, progress, processedCount, failedCount);
         
         // Add small delay to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -177,15 +253,87 @@ async function processEmailsInBackground(
           messageId: message.id,
           importId 
         });
-        // Continue with next message
+        failedCount++;
         continue;
       }
     }
 
     // Mark as complete
     global.importProgress.set(importId, 100);
+    await updateImportStatus(
+      supabase, 
+      importId, 
+      'completed', 
+      null,
+      processedCount,
+      failedCount
+    );
   } catch (error) {
     logger.error('Error in background email processing', { error, importId });
-    global.importProgress.set(importId, -1); // Mark as failed
+    global.importProgress.set(importId, -1);
+    await updateImportStatus(
+      supabase,
+      importId,
+      'failed',
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+}
+
+async function updateImportProgress(
+  supabase: ReturnType<typeof createPagesServerClient<Database>>,
+  importId: string,
+  progress: number,
+  processedCount: number,
+  failedCount: number
+) {
+  const { error } = await supabase
+    .from('gmail_imports')
+    .update({
+      progress,
+      processed_messages: processedCount,
+      failed_messages: failedCount,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', importId);
+
+  if (error) {
+    logger.error('Failed to update import progress', { error, importId });
+  }
+}
+
+async function updateImportStatus(
+  supabase: ReturnType<typeof createPagesServerClient<Database>>,
+  importId: string,
+  status: 'pending' | 'in_progress' | 'completed' | 'failed',
+  error?: string | null,
+  processedCount?: number,
+  failedCount?: number
+) {
+  const update: any = {
+    status,
+    error,
+    updated_at: new Date().toISOString()
+  };
+
+  if (status === 'completed' || status === 'failed') {
+    update.completed_at = new Date().toISOString();
+  }
+
+  if (typeof processedCount === 'number') {
+    update.processed_messages = processedCount;
+  }
+
+  if (typeof failedCount === 'number') {
+    update.failed_messages = failedCount;
+  }
+
+  const { error: updateError } = await supabase
+    .from('gmail_imports')
+    .update(update)
+    .eq('id', importId);
+
+  if (updateError) {
+    logger.error('Failed to update import status', { error: updateError, importId });
   }
 } 

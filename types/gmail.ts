@@ -22,32 +22,52 @@ export interface EmailLog {
   ai_draft_response: string | null;
   created_at: string;
   updated_at: string;
+  type: 'inbound' | 'outbound';
+  status: 'success' | 'error';
+  error?: unknown;
 }
 
 export interface GmailTokens {
   access_token: string;
   refresh_token: string;
-  scope?: string;
-  token_type?: string;
-  expiry_date?: number;
+  scope: string;
+  token_type: string;
+  expiry_date: number;
 }
 
 export interface GmailProfile {
   emailAddress: string;
-  messagesTotal?: number;
-  threadsTotal?: number;
-  historyId?: string;
+  messagesTotal: number;
+  threadsTotal: number;
+  historyId: string;
 }
 
-export interface GmailMessagePart extends gmail_v1.Schema$MessagePart {
-  mimeType?: string;
+export interface GmailMessagePart {
+  partId?: string;
+  mimeType: string;
+  filename?: string;
+  headers: Array<{
+    name: string;
+    value: string;
+  }>;
   body?: {
+    attachmentId?: string;
+    size?: number;
     data?: string;
   };
   parts?: GmailMessagePart[];
 }
 
-export type GmailMessage = gmail_v1.Schema$Message;
+export interface GmailMessage extends Omit<gmail_v1.Schema$Message, 'payload'> {
+  id: string;
+  threadId: string;
+  historyId: string;
+  labelIds: string[];
+  snippet: string;
+  internalDate: string;
+  payload: GmailMessagePart;
+  sizeEstimate: number;
+}
 
 export interface ParsedEmail {
   id: string;
@@ -62,33 +82,34 @@ export interface ParsedEmail {
   bodyText: string;
   bodyHtml: string;
   attachments: Array<{
+    id: string;
     filename: string;
     mimeType: string;
     size: number;
-    attachmentId: string;
+    data?: Buffer;
   }>;
 }
 
 export interface EmailLogParams {
-  ticketId: string;
   messageId: string;
   threadId: string;
-  fromAddress: string;
-  fromName?: string | null;
-  toAddress: string | string[];
-  subject?: string | null;
-  rawContent?: string;
   orgId: string;
+  type: 'inbound' | 'outbound';
+  status: 'success' | 'error';
+  error?: string;
+  metadata?: Record<string, any>;
 }
 
 export interface EmailSearchParams {
-  ticketId?: string;
+  orgId?: string;
   threadId?: string;
   messageId?: string;
-  orgId?: string;
-  direction?: EmailDirection;
+  type?: 'inbound' | 'outbound';
+  status?: 'success' | 'error';
   fromDate?: Date;
   toDate?: Date;
+  ticketId?: string;
+  direction?: 'inbound' | 'outbound';
 }
 
 export interface GmailMessageMetadata {
@@ -113,4 +134,18 @@ export const GMAIL_SCOPES: GmailScope[] = [
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.compose',
   'https://www.googleapis.com/auth/gmail.send'
-]; 
+];
+
+export interface SendGmailReplyParams {
+  orgId: string;
+  threadId: string;
+  inReplyTo: string;
+  to: string[];
+  subject: string;
+  htmlBody: string;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType: string;
+  }>;
+} 

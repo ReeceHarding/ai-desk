@@ -12,14 +12,14 @@ import { useSupabaseClient, useUser } from '@supabase/auth-helpers-react';
 import { formatDistanceToNow } from 'date-fns';
 import debounce from 'lodash/debounce';
 import {
-  AlertCircle,
-  CheckCircle,
-  Clock,
-  EyeOff,
-  Inbox,
-  Lock,
-  Menu,
-  Plus
+    AlertCircle,
+    CheckCircle,
+    Clock,
+    EyeOff,
+    Inbox,
+    Lock,
+    Menu,
+    Plus
 } from 'lucide-react';
 import { useRouter } from 'next/router';
 import { useCallback, useEffect, useState } from 'react';

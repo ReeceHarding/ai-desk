@@ -1,7 +1,6 @@
 import type { Database } from '@/types/supabase';
 import { createClient } from '@supabase/supabase-js';
-import { classifyInboundEmail, decideAutoSend, generateRagResponse } from './ai-responder';
-import { sendGmailReply } from './gmail';
+import { classifyInboundEmail, generateRagResponse } from './ai-responder';
 import { logger } from './logger';
 
 const supabase = createClient<Database>(
@@ -21,8 +20,7 @@ interface ProcessEmailResult {
  * Process an inbound email with AI:
  * 1. Classify if it needs a response
  * 2. If yes, generate RAG response
- * 3. If confidence high enough, auto-send
- * 4. Otherwise, save as draft
+ * 3. Save as draft (never auto-send)
  */
 export async function processInboundEmailWithAI(
   chatId: string,
@@ -30,88 +28,51 @@ export async function processInboundEmailWithAI(
   orgId: string
 ): Promise<ProcessEmailResult> {
   try {
-    // Step 1: Classify the email
+    logger.info('Starting AI email processing', {
+      chatId,
+      orgId,
+      emailLength: emailBody.length
+    });
+
     const { classification, confidence } = await classifyInboundEmail(emailBody);
+    logger.info('Email classified', {
+      chatId,
+      classification,
+      confidence,
+      timestamp: new Date().toISOString()
+    });
 
-    // Update classification in database
-    await supabase
-      .from('ticket_email_chats')
-      .update({
-        ai_classification: classification,
-        ai_confidence: confidence,
-      })
-      .eq('id', chatId);
-
-    // If we shouldn't respond, return early
-    if (classification !== 'should_respond') {
-      return { classification, confidence, autoResponded: false };
-    }
-
-    // Step 2: Generate RAG response
     const { response: ragResponse, confidence: ragConfidence, references } = await generateRagResponse(
       emailBody,
       orgId,
       5
     );
+    logger.info('RAG response generated', {
+      chatId,
+      responseLength: ragResponse.length,
+      confidence: ragConfidence,
+      referencesCount: references.length,
+      timestamp: new Date().toISOString()
+    });
 
-    // Step 3: Decide if we should auto-send
-    const { autoSend } = decideAutoSend(ragConfidence);
-
-    // Get the chat record for sending
-    const { data: chatRecord } = await supabase
+    // Get the chat record for saving draft
+    const { data: chatRecord, error: chatError } = await supabase
       .from('ticket_email_chats')
       .select('*')
       .eq('id', chatId)
       .single();
 
-    if (!chatRecord) {
+    if (chatError || !chatRecord) {
+      logger.error('Chat record not found', {
+        chatId,
+        error: chatError,
+        timestamp: new Date().toISOString()
+      });
       throw new Error('Chat record not found');
     }
 
-    // Step 4: Auto-send or save as draft
-    if (autoSend) {
-      try {
-        // Send the email
-        await sendGmailReply({
-          threadId: chatRecord.thread_id,
-          inReplyTo: chatRecord.message_id,
-          to: Array.isArray(chatRecord.from_address) 
-            ? chatRecord.from_address 
-            : [chatRecord.from_address],
-          subject: `Re: ${chatRecord.subject || 'Support Request'}`,
-          htmlBody: ragResponse,
-        });
-
-        // Update the record
-        await supabase
-          .from('ticket_email_chats')
-          .update({
-            ai_auto_responded: true,
-            ai_draft_response: ragResponse,
-            metadata: {
-              ...chatRecord.metadata,
-              rag_references: references,
-            },
-          })
-          .eq('id', chatId);
-
-        logger.info('Auto-sent AI response', { chatId, confidence: ragConfidence });
-
-        return {
-          classification,
-          confidence,
-          autoResponded: true,
-          draftResponse: ragResponse,
-          references,
-        };
-      } catch (sendError) {
-        logger.error('Failed to auto-send email', { error: sendError });
-        // Fall through to saving as draft
-      }
-    }
-
-    // Save as draft
-    await supabase
+    // Save as draft (never auto-send)
+    const { error: draftError } = await supabase
       .from('ticket_email_chats')
       .update({
         ai_auto_responded: false,
@@ -119,11 +80,36 @@ export async function processInboundEmailWithAI(
         metadata: {
           ...chatRecord.metadata,
           rag_references: references,
+          draft_created_at: new Date().toISOString(),
+          draft_metrics: {
+            classification_confidence: confidence,
+            rag_confidence: ragConfidence,
+            references_used: references.length,
+            response_length: ragResponse.length,
+            processing_time: Date.now() - new Date(chatRecord.created_at).getTime()
+          }
         },
       })
       .eq('id', chatId);
 
-    logger.info('Saved AI response as draft', { chatId, confidence: ragConfidence });
+    if (draftError) {
+      logger.error('Failed to save draft', {
+        chatId,
+        error: draftError,
+        timestamp: new Date().toISOString()
+      });
+      throw draftError;
+    }
+
+    logger.info('AI draft saved successfully', {
+      chatId,
+      classification,
+      confidence,
+      ragConfidence,
+      referencesCount: references.length,
+      responseLength: ragResponse.length,
+      timestamp: new Date().toISOString()
+    });
 
     return {
       classification,
@@ -133,7 +119,11 @@ export async function processInboundEmailWithAI(
       references,
     };
   } catch (error) {
-    logger.error('Error processing email with AI', { error, chatId });
+    logger.error('AI processing failed', {
+      chatId,
+      error,
+      timestamp: new Date().toISOString()
+    });
     throw error;
   }
 }
@@ -143,39 +133,72 @@ export async function processInboundEmailWithAI(
  */
 export async function sendDraftResponse(chatId: string): Promise<void> {
   try {
+    logger.info('Starting draft response sending', {
+      chatId,
+      timestamp: new Date().toISOString()
+    });
+
     // Get the chat record
-    const { data: chatRecord } = await supabase
+    const { data: chatRecord, error: chatError } = await supabase
       .from('ticket_email_chats')
       .select('*')
       .eq('id', chatId)
       .single();
 
-    if (!chatRecord || !chatRecord.ai_draft_response) {
+    if (chatError || !chatRecord) {
+      logger.error('Chat record not found for sending', {
+        chatId,
+        error: chatError,
+        timestamp: new Date().toISOString()
+      });
+      throw new Error('Chat record not found');
+    }
+
+    if (!chatRecord.ai_draft_response) {
+      logger.error('No draft response found', {
+        chatId,
+        timestamp: new Date().toISOString()
+      });
       throw new Error('No draft response found');
     }
 
-    // Send the email
-    await sendGmailReply({
-      threadId: chatRecord.thread_id,
-      inReplyTo: chatRecord.message_id,
-      to: Array.isArray(chatRecord.from_address) 
-        ? chatRecord.from_address 
-        : [chatRecord.from_address],
-      subject: `Re: ${chatRecord.subject || 'Support Request'}`,
-      htmlBody: chatRecord.ai_draft_response,
-    });
-
-    // Update the record
-    await supabase
+    // Update the record to mark as sent
+    const { error: updateError } = await supabase
       .from('ticket_email_chats')
       .update({
         ai_auto_responded: true,
+        metadata: {
+          ...chatRecord.metadata,
+          draft_sent_at: new Date().toISOString(),
+          draft_metrics: {
+            ...(chatRecord.metadata?.draft_metrics || {}),
+            time_to_send: Date.now() - new Date(chatRecord.metadata?.draft_created_at || chatRecord.created_at).getTime()
+          }
+        }
       })
       .eq('id', chatId);
 
-    logger.info('Sent draft AI response', { chatId });
+    if (updateError) {
+      logger.error('Failed to update draft status', {
+        chatId,
+        error: updateError,
+        timestamp: new Date().toISOString()
+      });
+      throw updateError;
+    }
+
+    logger.info('Draft response sent successfully', {
+      chatId,
+      responseLength: chatRecord.ai_draft_response.length,
+      timeSinceDraft: Date.now() - new Date(chatRecord.metadata?.draft_created_at || chatRecord.created_at).getTime(),
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
-    logger.error('Error sending draft response', { error, chatId });
+    logger.error('Failed to send draft', {
+      chatId,
+      error,
+      timestamp: new Date().toISOString()
+    });
     throw error;
   }
 } 

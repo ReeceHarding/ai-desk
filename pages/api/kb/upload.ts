@@ -118,7 +118,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .insert({
           doc_id: doc.id,
           chunk_index: chunkIndex,
-          chunk_content: chunkText,
+          content: chunkText,
           embedding,
           token_length: Math.ceil(chunkText.split(/\s+/).length * 1.3),
           metadata: {

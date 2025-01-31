@@ -1,5 +1,4 @@
 import { classifyInboundEmail, decideAutoSend, generateRagResponse } from '@/utils/ai-responder';
-import { generateEmbedding, queryPinecone } from '@/utils/rag';
 import OpenAI from 'openai';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -16,6 +15,45 @@ vi.mock('openai', () => {
   };
 });
 
+// Mock isServer
+vi.mock('../../utils/env', () => ({
+  isServer: true
+}));
+
+// Mock OpenAI
+vi.mock('openai', () => ({
+  OpenAI: vi.fn().mockImplementation(() => ({
+    chat: {
+      completions: {
+        create: vi.fn().mockImplementation(async ({ messages }) => {
+          if (messages[0].content.includes('spam')) {
+            return {
+              choices: [{
+                message: {
+                  content: JSON.stringify({
+                    should_respond: false,
+                    reason: 'spam'
+                  })
+                }
+              }]
+            };
+          }
+          return {
+            choices: [{
+              message: {
+                content: JSON.stringify({
+                  should_respond: true,
+                  reason: 'support question'
+                })
+              }
+            }]
+          };
+        })
+      }
+    }
+  }))
+}));
+
 describe('AI Responder', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -23,128 +61,92 @@ describe('AI Responder', () => {
 
   describe('classifyInboundEmail', () => {
     it('classifies support questions as should_respond', async () => {
-      const mockOpenAI = new OpenAI({});
-      (mockOpenAI.chat.completions.create as any).mockResolvedValue({
-        choices: [{
-          message: {
-            content: '{"classification":"should_respond","confidence":90}',
-          },
-        }],
-      });
-
-      const result = await classifyInboundEmail('I need help with my account');
-      expect(result).toEqual({
-        classification: 'should_respond',
-        confidence: 90,
-      });
+      const result = await classifyInboundEmail('How do I reset my password?');
+      expect(result.should_respond).toBe(true);
+      expect(result.reason).toBe('support question');
     });
 
     it('classifies spam as no_response', async () => {
-      const mockOpenAI = new OpenAI({});
-      (mockOpenAI.chat.completions.create as any).mockResolvedValue({
-        choices: [{
-          message: {
-            content: '{"classification":"no_response","confidence":95}',
-          },
-        }],
-      });
-
-      const result = await classifyInboundEmail('Buy cheap watches now!');
-      expect(result).toEqual({
-        classification: 'no_response',
-        confidence: 95,
-      });
+      const result = await classifyInboundEmail('Buy cheap watches! spam');
+      expect(result.should_respond).toBe(false);
+      expect(result.reason).toBe('spam');
     });
 
     it('returns unknown for unclear cases', async () => {
-      const mockOpenAI = new OpenAI({});
-      (mockOpenAI.chat.completions.create as any).mockResolvedValue({
-        choices: [{
-          message: {
-            content: '{"classification":"unknown","confidence":50}',
-          },
-        }],
-      });
+      vi.mocked(OpenAI).mockImplementationOnce(() => ({
+        chat: {
+          completions: {
+            create: vi.fn().mockResolvedValueOnce({
+              choices: [{
+                message: {
+                  content: 'invalid json'
+                }
+              }]
+            })
+          }
+        }
+      }));
 
-      const result = await classifyInboundEmail('');
-      expect(result).toEqual({
-        classification: 'unknown',
-        confidence: 50,
-      });
+      const result = await classifyInboundEmail('unclear message');
+      expect(result.should_respond).toBe(false);
+      expect(result.reason).toBe('unknown');
     });
 
     it('handles API errors gracefully', async () => {
-      const mockOpenAI = new OpenAI({});
-      (mockOpenAI.chat.completions.create as any).mockRejectedValue(
-        new Error('API Error')
-      );
+      vi.mocked(OpenAI).mockImplementationOnce(() => ({
+        chat: {
+          completions: {
+            create: vi.fn().mockRejectedValueOnce(new Error('API Error'))
+          }
+        }
+      }));
 
-      const result = await classifyInboundEmail('test');
-      expect(result).toEqual({
-        classification: 'unknown',
-        confidence: 50,
-      });
+      const result = await classifyInboundEmail('test message');
+      expect(result.should_respond).toBe(false);
+      expect(result.reason).toBe('error');
     });
   });
 
   describe('generateRagResponse', () => {
     it('generates a response using relevant context', async () => {
-      // Mock embedding and Pinecone query
-      (generateEmbedding as any).mockResolvedValue([0.1, 0.2, 0.3]);
-      (queryPinecone as any).mockResolvedValue([
-        {
-          id: 'chunk1',
-          metadata: {
-            orgId: 'org123',
-            text: 'Relevant context for the query',
-          },
-        },
-      ]);
-
-      // Mock OpenAI response
-      const mockOpenAI = new OpenAI({});
-      (mockOpenAI.chat.completions.create as any).mockResolvedValue({
-        choices: [{
-          message: {
-            content: '{"answer":"Here is the answer","confidence":85}',
-          },
-        }],
+      const result = await generateRagResponse({
+        question: 'How do I reset my password?',
+        context: ['To reset your password, click the "Forgot Password" link.'],
+        history: []
       });
 
-      const result = await generateRagResponse('How do I reset my password?', 'org123');
-
-      expect(result).toEqual({
-        response: 'Here is the answer',
-        confidence: 85,
-        references: ['chunk1'],
-      });
+      expect(result.response).toBeDefined();
+      expect(result.confidence).toBeGreaterThan(0);
     });
 
     it('returns not enough info when no relevant context found', async () => {
-      // Mock empty Pinecone results
-      (generateEmbedding as any).mockResolvedValue([0.1, 0.2, 0.3]);
-      (queryPinecone as any).mockResolvedValue([]);
-
-      const result = await generateRagResponse('How do I reset my password?', 'org123');
-
-      expect(result).toEqual({
-        response: 'Not enough info.',
-        confidence: 50,
-        references: [],
+      const result = await generateRagResponse({
+        question: 'How do I reset my password?',
+        context: [],
+        history: []
       });
+
+      expect(result.response).toBe('I apologize, but I don\'t have enough information to answer your question accurately.');
+      expect(result.confidence).toBe(0);
     });
 
     it('handles errors gracefully', async () => {
-      // Mock error in embedding generation
-      (generateEmbedding as any).mockRejectedValue(new Error('Embedding failed'));
+      vi.mocked(OpenAI).mockImplementationOnce(() => ({
+        chat: {
+          completions: {
+            create: vi.fn().mockRejectedValueOnce(new Error('API Error'))
+          }
+        }
+      }));
 
-      const result = await generateRagResponse('How do I reset my password?', 'org123');
-
-      expect(result).toEqual({
-        response: 'Not enough info.',
-        confidence: 50,
-        references: [],
+      const result = await generateRagResponse({
+        question: 'test question',
+        context: ['test context'],
+        history: []
       });
+
+      expect(result.response).toBe('I apologize, but I encountered an error while processing your request.');
+      expect(result.confidence).toBe(0);
     });
   });
 

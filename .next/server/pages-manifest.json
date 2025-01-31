@@ -2,7 +2,7 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
-  "/notifications": "pages/notifications.js",
-  "/profile/settings": "pages/profile/settings.js",
+  "/api/gmail/send": "pages/api/gmail/send.js",
+  "/dashboard": "pages/dashboard.js",
   "/tickets": "pages/tickets.js"
 }

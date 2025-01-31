@@ -1,11 +1,11 @@
 import { GmailMessage } from '@/types/gmail';
 import { Database } from '@/types/supabase';
+import { classifyEmail, generateDraft } from '@/utils/ai-responder';
+import { parseGmailMessage } from '@/utils/email-parser';
 import { createClient } from '@supabase/supabase-js';
 import { classifyInboundEmail, decideAutoSend, generateRagResponse } from './ai-responder';
 import { sendGmailReply } from './gmail';
 import { logger } from './logger';
-
-// Initialize Supabase client
 const supabase = createClient<Database>(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
