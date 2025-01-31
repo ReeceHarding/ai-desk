@@ -3,16 +3,22 @@ import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
+import { cn } from "@/lib/utils"
 import { Database } from "@/types/supabase"
 import { useSupabaseClient, useUser } from "@supabase/auth-helpers-react"
 import { formatDistanceToNow } from "date-fns"
 import { OAuth2Client } from "google-auth-library"
-import { Mail, Paperclip, X } from "lucide-react"
+import { AlertCircle, CheckCircle, Clock, EyeOff, Inbox, Lock, Mail, Paperclip, RefreshCw, X } from "lucide-react"
 import md5 from "md5"
 import { useEffect, useRef, useState } from "react"
 import { useInView } from "react-intersection-observer"
 import { AIDraftPanel } from './ai-draft-panel'
 import { EmailComposer } from './email-composer'
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "./ui/alert-dialog"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu"
+
+type TicketStatus = 'open' | 'pending' | 'on_hold' | 'solved' | 'closed' | 'overdue';
+type TicketPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 interface Message {
   id: string;
@@ -55,6 +61,44 @@ export interface EmailThreadPanelProps {
   } | null;
 }
 
+const statusColors: Record<TicketStatus, string> = {
+  open: 'bg-blue-500/10 text-blue-500',
+  pending: 'bg-yellow-500/10 text-yellow-500',
+  on_hold: 'bg-orange-500/10 text-orange-500',
+  solved: 'bg-green-500/10 text-green-500',
+  closed: 'bg-slate-500/10 text-slate-500',
+  overdue: 'bg-red-500/10 text-red-500',
+};
+
+const priorityColors: Record<TicketPriority, string> = {
+  low: 'bg-blue-500/10 text-blue-500',
+  medium: 'bg-yellow-500/10 text-yellow-500',
+  high: 'bg-orange-500/10 text-orange-500',
+  urgent: 'bg-red-500/10 text-red-500',
+};
+
+const statusDescriptions: Record<TicketStatus, string> = {
+  open: 'We are working on it',
+  pending: 'We are waiting on something else',
+  on_hold: 'The ticket is temporarily on hold',
+  solved: 'Customer or agent marked as solved',
+  closed: 'Fully closed - read-only',
+  overdue: 'Past due date',
+};
+
+const StatusIcon = ({ status }: { status: TicketStatus }) => {
+  const icons = {
+    open: Inbox,
+    pending: Clock,
+    on_hold: EyeOff,
+    solved: CheckCircle,
+    closed: Lock,
+    overdue: AlertCircle,
+  };
+  const Icon = icons[status] || AlertCircle;
+  return <Icon className="h-4 w-4" />;
+};
+
 export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -70,6 +114,9 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
   const [currentDraft, setCurrentDraft] = useState<Database['public']['Tables']['ticket_email_chats']['Row'] | null>(null)
   const [generatingRag, setGeneratingRag] = useState(false)
   const { toast } = useToast()
+  const [ticketDetails, setTicketDetails] = useState<Database['public']['Tables']['tickets']['Row'] | null>(null);
+  const [statusToChange, setStatusToChange] = useState<TicketStatus | null>(null);
+  const [showStatusDialog, setShowStatusDialog] = useState(false);
 
   const fetchMessages = async (pageNum: number) => {
     if (!ticket?.id || isLoading) {
@@ -292,6 +339,24 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
     fetchLatestDraft();
   }, [ticket?.id]);
 
+  useEffect(() => {
+    if (ticket?.id && isOpen) {
+      const fetchTicketDetails = async () => {
+        const { data } = await supabase
+          .from('tickets')
+          .select('*')
+          .eq('id', ticket.id)
+          .single();
+        
+        if (data) {
+          setTicketDetails(data);
+        }
+      };
+      
+      fetchTicketDetails();
+    }
+  }, [ticket?.id, isOpen]);
+
   const handleSendMessage = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (!replyText.trim() || sending || !ticket) {
@@ -346,7 +411,7 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         fromAddress: Array.isArray(latestMessage?.to_address) 
           ? latestMessage.to_address[0] 
           : ticket.support_email || "support@yourdomain.com",
-        toAddresses: [latestMessage?.from_address || ticket.customer_email],
+        toAddresses: [latestMessage?.from_address || ticket.customer_email || "unknown@example.com"],
         subject,
         htmlBody: replyText,
         attachments: [],
@@ -649,6 +714,90 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
     handleSendMessage(new MouseEvent('click') as any);
   };
 
+  const handleRefresh = async () => {
+    if (!ticket?.id) return;
+    setIsLoading(true);
+    try {
+      await fetchMessages(0);
+      toast({
+        title: "Refreshed",
+        description: "Email thread has been updated.",
+      });
+    } catch (error) {
+      console.error('Error refreshing messages:', error);
+      toast({
+        title: "Refresh Failed",
+        description: "Failed to refresh email thread. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleStatusChange = async (status: TicketStatus) => {
+    if (!ticket?.id) return;
+    
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .update({ status })
+        .eq('id', ticket.id);
+
+      if (error) throw error;
+
+      setTicketDetails(prev => prev ? { ...prev, status } : null);
+      
+      toast({
+        title: 'Status updated',
+        description: `Ticket status changed to ${status}`,
+      });
+    } catch (error) {
+      console.error('Error updating status:', error);
+      toast({
+        title: 'Error updating status',
+        description: error instanceof Error ? error.message : 'Failed to update status',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handlePriorityChange = async (priority: TicketPriority) => {
+    if (!ticket?.id) return;
+    
+    try {
+      const { error } = await supabase
+        .from('tickets')
+        .update({ priority })
+        .eq('id', ticket.id);
+
+      if (error) throw error;
+
+      setTicketDetails(prev => prev ? { ...prev, priority } : null);
+      
+      toast({
+        title: 'Priority updated',
+        description: `Ticket priority changed to ${priority}`,
+      });
+    } catch (error) {
+      console.error('Error updating priority:', error);
+      toast({
+        title: 'Error updating priority',
+        description: error instanceof Error ? error.message : 'Failed to update priority',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleStatusSelect = (status: TicketStatus) => {
+    if (status === 'solved' || status === 'closed') {
+      setStatusToChange(status);
+      setShowStatusDialog(true);
+    } else {
+      handleStatusChange(status);
+    }
+  };
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent className="w-full sm:max-w-xl overflow-y-auto bg-white text-slate-900 border-l border-slate-200">
@@ -656,15 +805,130 @@ export function EmailThreadPanel({ isOpen, onClose, ticket }: EmailThreadPanelPr
         <SheetDescription className="sr-only">Email conversation thread for ticket</SheetDescription>
         <div className="flex flex-col h-full">
           {/* Header */}
-          <div className="flex items-center justify-between pb-4 border-b border-slate-200">
-            <div className="flex items-center gap-2">
-              <Mail className="h-5 w-5 text-slate-600" />
-              <h2 className="text-lg font-semibold text-slate-900">Email Thread</h2>
+          <div className="space-y-4 pb-4 border-b border-slate-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Mail className="h-5 w-5 text-slate-600" />
+                <h2 className="text-lg font-semibold text-slate-900">Email Thread</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRefresh}
+                  disabled={isLoading}
+                  className="gap-2 text-slate-600 hover:text-slate-900"
+                >
+                  <RefreshCw className={cn("h-4 w-4", isLoading && "animate-spin")} />
+                  <span className="hidden sm:inline">Refresh</span>
+                </Button>
+                <Button variant="ghost" size="icon" onClick={onClose} className="text-slate-600 hover:text-slate-900">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose} className="text-slate-600 hover:text-slate-900">
-              <X className="h-4 w-4" />
-            </Button>
+
+            {ticketDetails && (
+              <div className="flex flex-col gap-2">
+                {/* Quick Status Controls */}
+                <div className="space-y-2">
+                  <h3 className="text-sm font-medium text-slate-600">Quick Status Update</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => handleStatusSelect('open')}
+                      className={cn("justify-start hover:bg-slate-100 transition-colors", ticketDetails.status === 'open' ? statusColors.open : '')}
+                    >
+                      <Inbox className="h-4 w-4 mr-2" />
+                      Open
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleStatusSelect('pending')}
+                      className={cn("justify-start hover:bg-slate-100 transition-colors", ticketDetails.status === 'pending' ? statusColors.pending : '')}
+                    >
+                      <Clock className="h-4 w-4 mr-2" />
+                      Pending
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleStatusSelect('solved')}
+                      className={cn("justify-start hover:bg-slate-100 transition-colors", ticketDetails.status === 'solved' ? statusColors.solved : '')}
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Solved
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleStatusSelect('closed')}
+                      className={cn("justify-start hover:bg-slate-100 transition-colors", ticketDetails.status === 'closed' ? statusColors.closed : '')}
+                    >
+                      <Lock className="h-4 w-4 mr-2" />
+                      Closed
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Priority Control */}
+                <div>
+                  <h3 className="text-sm font-medium text-slate-600 mb-2">Priority</h3>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={`w-full justify-start hover:bg-slate-100 transition-colors ${priorityColors[ticketDetails.priority]}`}
+                      >
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="ml-2 uppercase">{ticketDetails.priority}</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      {Object.keys(priorityColors).map((priority) => (
+                        <DropdownMenuItem
+                          key={priority}
+                          onClick={() => handlePriorityChange(priority as TicketPriority)}
+                          className={`${priorityColors[priority as TicketPriority]} hover:bg-slate-100`}
+                        >
+                          <AlertCircle className="h-4 w-4" />
+                          <span className="ml-2 uppercase">{priority}</span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Status Change Dialog */}
+          <AlertDialog open={showStatusDialog} onOpenChange={setShowStatusDialog}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  {statusToChange === 'solved' ? 'Mark Ticket as Solved?' : 'Close Ticket?'}
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  {statusToChange === 'solved' 
+                    ? 'This will mark the ticket as solved. The customer can still reopen it if they need further assistance.'
+                    : 'This will close the ticket permanently. No further comments can be added after closing.'}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    if (statusToChange) {
+                      handleStatusChange(statusToChange);
+                    }
+                    setShowStatusDialog(false);
+                  }}
+                  className={statusToChange === 'solved' ? 'bg-green-600 hover:bg-green-500' : 'bg-red-600 hover:bg-red-500'}
+                >
+                  {statusToChange === 'solved' ? 'Mark as Solved' : 'Close Ticket'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto py-4 space-y-4">
