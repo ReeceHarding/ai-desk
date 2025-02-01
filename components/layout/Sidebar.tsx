@@ -3,11 +3,9 @@ import { useUserRole } from '@/hooks/useUserRole';
 import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import {
-    BarChart,
     Bell,
     BookOpen,
     Bot,
-    Inbox,
     LayoutDashboard,
     LogOut,
     Mail,
@@ -151,11 +149,26 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             
             {isAgent && (
               <>
-                <NavLink href="/agent/inbox" icon={Inbox}>Inbox</NavLink>
-                <NavLink href="/agent/analytics" icon={BarChart}>Analytics</NavLink>
+                <NavLink href="/ai-drafts" icon={Bot} badge={draftCount}>
+                  <div className="flex flex-col w-full">
+                    <div className="flex items-center justify-between w-full">
+                      <span>AI Drafts</span>
+                    </div>
+                    {latestDraft && (
+                      <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-md">
+                        <div className="text-xs text-slate-700 dark:text-slate-300 truncate">
+                          <div className="font-medium truncate">{latestDraft.subject || '(No Subject)'}</div>
+                          <div className="truncate text-slate-500 dark:text-slate-400">
+                            From: {latestDraft.from_name || latestDraft.from_address}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </NavLink>
               </>
             )}
-
+            
             {isCustomer && (
               <NavLink href="/customer/tickets/new" icon={Plus}>Create Ticket</NavLink>
             )}
@@ -179,26 +192,6 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 )}
               </div>
             </NavLink>
-
-            {isAgent && (
-              <NavLink href="/ai-drafts" icon={Bot} badge={draftCount}>
-                <div className="flex flex-col w-full">
-                  <div className="flex items-center justify-between w-full">
-                    <span>AI Drafts</span>
-                  </div>
-                  {latestDraft && (
-                    <div className="mt-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-md">
-                      <div className="text-xs text-slate-700 dark:text-slate-300 truncate">
-                        <div className="font-medium truncate">{latestDraft.subject || '(No Subject)'}</div>
-                        <div className="truncate text-slate-500 dark:text-slate-400">
-                          From: {latestDraft.from_name || latestDraft.from_address}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </NavLink>
-            )}
             
             {isAdmin && (
               <>

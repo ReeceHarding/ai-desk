@@ -2,8 +2,6 @@ import { ConnectionStatus } from '@/components/gmail/ConnectionStatus';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import { Database } from '@/types/supabase';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
@@ -162,35 +160,6 @@ export default function ProfileSettings() {
     }
   };
 
-  const handleRoleChange = async (newRole: UserRole) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ role: newRole })
-        .eq('id', user?.id);
-
-      if (error) throw error;
-
-      await fetchProfile();
-      
-      toast({
-        title: "Role Updated",
-        description: `Your role has been updated to ${newRole}`,
-        variant: "default",
-      });
-
-      // Force a page reload to update all components using the role
-      window.location.reload();
-    } catch (error) {
-      console.error('Error updating role:', error);
-      toast({
-        title: "Update Failed",
-        description: "Failed to update role. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
   if (isLoading) {
     return (
       <AppLayout>
@@ -224,45 +193,16 @@ export default function ProfileSettings() {
         
         <Card className="mb-6">
           <CardHeader>
-            <CardTitle>Role Settings</CardTitle>
+            <CardTitle>Gmail Integration</CardTitle>
             <CardDescription>
-              Manage your user role
+              Connect your Gmail account to enable email support features
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              <div className="flex items-center space-x-4">
-                <Label htmlFor="role">Role</Label>
-                <Select
-                  value={profile?.role || 'customer'}
-                  onValueChange={(value: UserRole) => handleRoleChange(value)}
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="customer">Customer</SelectItem>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="super_admin">Super Admin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Personal Gmail Integration</CardTitle>
-            <CardDescription>
-              Connect your personal Gmail account to handle email communications
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {user?.id && (
-                <ConnectionStatus profileId={user.id} />
-              )}
+              <ConnectionStatus
+                profileId={profile.id}
+              />
               <div className="flex items-center justify-end space-x-2">
                 {profile?.gmail_refresh_token ? (
                   <>
