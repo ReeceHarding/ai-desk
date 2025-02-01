@@ -19,15 +19,10 @@ self.__BUILD_MANIFEST = {
       "static/chunks/main.js",
       "static/chunks/pages/_error.js"
     ],
-    "/ai-drafts": [
+    "/organizations/[id]/kb": [
       "static/chunks/webpack.js",
       "static/chunks/main.js",
-      "static/chunks/pages/ai-drafts.js"
-    ],
-    "/profile/settings": [
-      "static/chunks/webpack.js",
-      "static/chunks/main.js",
-      "static/chunks/pages/profile/settings.js"
+      "static/chunks/pages/organizations/[id]/kb.js"
     ],
     "/tickets": [
       "static/chunks/webpack.js",

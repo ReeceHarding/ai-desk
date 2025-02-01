@@ -242,7 +242,7 @@ const generateRagResponseWithTrace = traceable(
       const embedding = await generateEmbedding(emailText);
 
       // Step 2: Query Pinecone for top K org-specific chunks
-      const matches = await queryPinecone(embedding, topK, orgId, 0.7);
+      const matches = await queryPinecone(embedding, topK, orgId);
 
       if (debug) {
         debugInfo.chunks = matches.map(match => ({

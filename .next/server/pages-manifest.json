@@ -2,7 +2,9 @@
   "/_app": "pages/_app.js",
   "/_error": "pages/_error.js",
   "/_document": "pages/_document.js",
+  "/organizations/[id]/kb": "pages/organizations/[id]/kb.js",
+  "/api/kb/upload": "pages/api/kb/upload.js",
   "/profile/settings": "pages/profile/settings.js",
   "/tickets": "pages/tickets.js",
-  "/ai-drafts": "pages/ai-drafts.js"
+  "/api/rag/generate": "pages/api/rag/generate.js"
 }

@@ -166,9 +166,13 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                     )}
                   </div>
                 </NavLink>
+
+                <NavLink href={`/organizations/${orgId}/kb`} icon={BookOpen}>
+                  Knowledge Base
+                </NavLink>
               </>
             )}
-            
+
             {isCustomer && (
               <NavLink href="/customer/tickets/new" icon={Plus}>Create Ticket</NavLink>
             )}
@@ -192,14 +196,6 @@ export default function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 )}
               </div>
             </NavLink>
-            
-            {isAdmin && (
-              <>
-                <NavLink href={`/organizations/${orgId}/kb`} icon={BookOpen}>
-                  Knowledge Base
-                </NavLink>
-              </>
-            )}
             
             <NavLink href="/profile" icon={User}>Profile</NavLink>
             <NavLink href="/profile/settings" icon={Mail}>Connect Gmail</NavLink>

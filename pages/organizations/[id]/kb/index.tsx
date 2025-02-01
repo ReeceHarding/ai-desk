@@ -1,29 +1,28 @@
+import { KnowledgeBaseUpload } from '@/components/kb/KnowledgeBaseUpload';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/components/ui/use-toast';
-import { AlertCircle, CheckCircle2, File, Upload } from 'lucide-react';
+import { Database } from '@/types/supabase';
+import { logger } from '@/utils/logger';
+import { useSupabaseClient } from '@supabase/auth-helpers-react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Calendar, FileText, FileTextIcon, Link as LinkIcon, Loader2, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/router';
-import { useCallback, useEffect, useState } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useEffect, useState } from 'react';
 
-interface UploadState {
-  file: File | null;
-  progress: number;
-  status: 'idle' | 'uploading' | 'success' | 'error';
-  error?: string;
-}
+type KnowledgeDoc = Database['public']['Tables']['knowledge_docs']['Row'];
 
-export default function KnowledgeBaseUpload() {
+const MotionDiv = motion.div;
+
+export default function KnowledgeBasePage() {
   const router = useRouter();
-  const { toast } = useToast();
   const orgId = router.query.id as string;
-  const [uploadState, setUploadState] = useState<UploadState>({
-    file: null,
-    progress: 0,
-    status: 'idle',
-  });
+  const supabase = useSupabaseClient<Database>();
+  const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hoveredDocId, setHoveredDocId] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     if (router.isReady && (!orgId || orgId === 'null')) {
@@ -34,181 +33,185 @@ export default function KnowledgeBaseUpload() {
       });
       router.push('/profile/settings');
     }
-  }, [orgId, router.isReady, toast]);
+  }, [orgId, router.isReady, router]);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    const file = acceptedFiles[0];
-    if (file) {
-      if (!['application/pdf', 'text/plain'].includes(file.type)) {
-        toast({
-          title: 'Unsupported file type',
-          description: 'Please upload a PDF or text file.',
-          variant: 'destructive',
-        });
-        return;
-      }
-      setUploadState(prev => ({ ...prev, file, status: 'idle' }));
+  useEffect(() => {
+    if (orgId) {
+      fetchDocs();
     }
-  }, []);
+  }, [orgId]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'application/pdf': ['.pdf'],
-      'text/plain': ['.txt'],
-    },
-    multiple: false,
-  });
-
-  // If no orgId, don't render the upload interface
-  if (!orgId || orgId === 'null') {
-    return null;
-  }
-
-  const handleUpload = async () => {
-    if (!uploadState.file || !orgId) return;
-
-    setUploadState(prev => ({ ...prev, status: 'uploading', progress: 0 }));
-
-    const formData = new FormData();
-    formData.append('file', uploadState.file);
-    formData.append('orgId', orgId);
-
+  const fetchDocs = async () => {
     try {
-      // Simulate progress updates
-      const progressInterval = setInterval(() => {
-        setUploadState(prev => ({
-          ...prev,
-          progress: Math.min(prev.progress + 10, 90),
-        }));
-      }, 500);
+      const { data, error } = await supabase
+        .from('knowledge_docs')
+        .select('*')
+        .eq('org_id', orgId)
+        .order('created_at', { ascending: false });
 
-      const response = await fetch('/api/kb/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      clearInterval(progressInterval);
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Upload failed');
+      if (error) {
+        throw error;
       }
 
-      const result = await response.json();
-      
-      setUploadState(prev => ({
-        ...prev,
-        status: 'success',
-        progress: 100,
-      }));
-
+      setDocs(data || []);
+    } catch (error) {
+      logger.error('Failed to fetch knowledge docs', { error });
       toast({
-        title: 'Upload successful',
-        description: `Processed ${result.chunksProcessed} chunks from your document.`,
+        title: 'Error',
+        description: 'Failed to load knowledge base documents.',
+        variant: 'destructive',
       });
-    } catch (error: any) {
-      setUploadState(prev => ({
-        ...prev,
-        status: 'error',
-        error: error.message,
-        progress: 0,
-      }));
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
+  const handleDelete = async (docId: string) => {
+    try {
+      const { error } = await supabase
+        .from('knowledge_docs')
+        .delete()
+        .eq('id', docId);
+
+      if (error) {
+        throw error;
+      }
+
+      setDocs(docs.filter(doc => doc.id !== docId));
       toast({
-        title: 'Upload failed',
-        description: error.message,
+        title: 'Success',
+        description: 'Document deleted successfully.',
+      });
+    } catch (error) {
+      logger.error('Failed to delete knowledge doc', { error, docId });
+      toast({
+        title: 'Error',
+        description: 'Failed to delete document.',
         variant: 'destructive',
       });
     }
   };
 
+  const handleUploadComplete = () => {
+    fetchDocs();
+  };
+
+  if (!orgId || orgId === 'null') {
+    return null;
+  }
+
   return (
     <AppLayout>
-      <div className="container mx-auto py-8">
-        <h1 className="text-3xl font-bold mb-8">Knowledge Base Upload</h1>
-        
-        <Card className="p-6">
-          <div
-            {...getRootProps()}
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
-              ${isDragActive ? 'border-primary bg-primary/5' : 'border-gray-300 hover:border-primary'}
-              ${uploadState.status === 'success' ? 'border-green-500 bg-green-50' : ''}
-              ${uploadState.status === 'error' ? 'border-red-500 bg-red-50' : ''}`}
-          >
-            <input {...getInputProps()} />
-            
+      <div className="container mx-auto py-8 px-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">
+              Knowledge Base
+            </h1>
+            <p className="text-slate-500 mt-2">
+              Upload and manage your organization's knowledge base documents
+            </p>
+          </div>
+          <KnowledgeBaseUpload orgId={orgId} onUploadComplete={handleUploadComplete} />
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center items-center h-64">
             <div className="flex flex-col items-center gap-4">
-              {uploadState.status === 'success' ? (
-                <CheckCircle2 className="w-12 h-12 text-green-500" />
-              ) : uploadState.status === 'error' ? (
-                <AlertCircle className="w-12 h-12 text-red-500" />
-              ) : uploadState.file ? (
-                <File className="w-12 h-12 text-primary" />
-              ) : (
-                <Upload className="w-12 h-12 text-gray-400" />
-              )}
-              
-              <div className="space-y-2">
-                {uploadState.file ? (
-                  <>
-                    <p className="text-sm font-medium">{uploadState.file.name}</p>
-                    <p className="text-xs text-gray-500">
-                      {(uploadState.file.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-medium">
-                      {isDragActive
-                        ? 'Drop your file here'
-                        : 'Drag and drop your file here'}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      or click to select a file
-                    </p>
-                  </>
-                )}
-              </div>
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-slate-500">Loading documents...</p>
             </div>
           </div>
+        ) : docs.length === 0 ? (
+          <Card className="p-8 text-center">
+            <FileText className="w-12 h-12 mx-auto mb-4 text-slate-400" />
+            <h3 className="text-lg font-medium mb-2">No documents yet</h3>
+            <p className="text-slate-500 mb-4">
+              Upload PDF or text files to start building your knowledge base.
+            </p>
+          </Card>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <AnimatePresence>
+              {docs.map(doc => (
+                <MotionDiv
+                  key={doc.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -20 }}
+                  className="relative group"
+                  onMouseEnter={() => setHoveredDocId(doc.id)}
+                  onMouseLeave={() => setHoveredDocId(null)}
+                >
+                  <Card className="p-6 h-full transition-all duration-200 hover:shadow-lg hover:border-blue-200">
+                    <div className="flex flex-col h-full">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-blue-50 rounded-lg">
+                            <FileTextIcon className="w-5 h-5 text-blue-500" />
+                          </div>
+                          <h3 className="font-medium line-clamp-2">{doc.title}</h3>
+                        </div>
+                      </div>
 
-          {uploadState.status === 'uploading' && (
-            <div className="mt-4 space-y-2">
-              <Progress value={uploadState.progress} />
-              <p className="text-sm text-center text-gray-500">
-                Processing document...
-              </p>
-            </div>
-          )}
+                      {doc.description && (
+                        <p className="mt-3 text-sm text-slate-500 line-clamp-2">
+                          {doc.description}
+                        </p>
+                      )}
 
-          {uploadState.file && uploadState.status !== 'success' && (
-            <div className="mt-6 flex justify-end">
-              <Button
-                onClick={handleUpload}
-                disabled={uploadState.status === 'uploading'}
-              >
-                {uploadState.status === 'uploading' ? 'Uploading...' : 'Upload'}
-              </Button>
-            </div>
-          )}
+                      <div className="mt-4 pt-4 border-t border-slate-100">
+                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                          <Calendar className="w-4 h-4" />
+                          <span>
+                            Added {new Date(doc.created_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                        {doc.source_url && (
+                          <div className="flex items-center gap-2 text-xs text-slate-500 mt-2">
+                            <LinkIcon className="w-4 h-4" />
+                            <a
+                              href={doc.source_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="truncate hover:text-blue-500 transition-colors"
+                            >
+                              {doc.source_url}
+                            </a>
+                          </div>
+                        )}
+                      </div>
 
-          {uploadState.status === 'success' && (
-            <div className="mt-4">
-              <p className="text-sm text-center text-green-600">
-                Document uploaded and processed successfully!
-              </p>
-            </div>
-          )}
-
-          {uploadState.status === 'error' && (
-            <div className="mt-4">
-              <p className="text-sm text-center text-red-600">
-                {uploadState.error || 'An error occurred during upload'}
-              </p>
-            </div>
-          )}
-        </Card>
+                      {/* Delete button - only visible on hover */}
+                      <AnimatePresence>
+                        {hoveredDocId === doc.id && (
+                          <MotionDiv
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute top-2 right-2"
+                          >
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDelete(doc.id);
+                              }}
+                              className="h-8 w-8 bg-white/90 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-full shadow-sm"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </MotionDiv>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </Card>
+                </MotionDiv>
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
     </AppLayout>
   );

@@ -1,6 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AlertCircle, CheckCircle, Clock, Users } from "lucide-react"
 import {
     Table,
     TableBody,
@@ -8,7 +7,8 @@ import {
     TableHead,
     TableHeader,
     TableRow,
-} from "../ui/table"
+} from "@/components/ui/table"
+import { AlertCircle, CheckCircle, Clock, Users } from "lucide-react"
 
 interface AgentPerformanceData {
   agent_id: string

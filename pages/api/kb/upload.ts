@@ -27,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // Parse form data with proper configuration
     const form = formidable({
-      multiples: false,
+      multiples: false, // We handle one file at a time
       maxFileSize: 50 * 1024 * 1024, // 50MB max
       filter: (part): boolean => {
         return part.name === 'file' && !!(
@@ -51,6 +51,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Missing organization ID' });
     }
 
+    logger.info('Processing upload with organization ID', { orgId });
+
     // Get file
     const fileField = files.file;
     if (!fileField) {
@@ -65,7 +67,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const filepath = uploadedFile.filepath;
     const mimetype = uploadedFile.mimetype || 'application/octet-stream';
 
-    logger.info('KB Upload started', { orgId, filename: uploadedFile.originalFilename, mimetype });
+    logger.info('Processing uploaded file', { 
+      orgId, 
+      filename: uploadedFile.originalFilename,
+      mimetype,
+      size: uploadedFile.size 
+    });
 
     // Create knowledge_docs record
     const docTitle = uploadedFile.originalFilename || `Doc ${Date.now()}`;
@@ -77,6 +84,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         metadata: {
           original_filename: uploadedFile.originalFilename,
           mimetype,
+          size: uploadedFile.size,
         },
       })
       .select()
@@ -87,85 +95,111 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: 'Failed to save document record' });
     }
 
-    // Extract text from file
-    let textContent = '';
-    if (mimetype === 'application/pdf') {
-      const dataBuffer = fs.readFileSync(filepath);
-      const pdfData = await pdf(dataBuffer);
-      textContent = pdfData.text;
-    } else if (mimetype.startsWith('text/')) {
-      textContent = fs.readFileSync(filepath, 'utf8');
-    } else {
-      logger.warn('Unsupported file type', { mimetype });
-      return res.status(400).json({ error: 'Unsupported file type' });
+    // Verify the document was created with correct orgId
+    if (doc.org_id !== orgId) {
+      logger.error('Document created with incorrect orgId', { 
+        expectedOrgId: orgId,
+        actualOrgId: doc.org_id,
+        docId: doc.id
+      });
+      await supabase.from('knowledge_docs').delete().eq('id', doc.id);
+      return res.status(500).json({ error: 'Failed to save document with correct organization' });
     }
 
-    // Split into chunks
-    const chunks = splitIntoChunks(textContent, 1000, 200);
-    logger.info('Split document into chunks', { totalChunks: chunks.length, docId: doc.id });
-
-    // Process each chunk
-    const pineconeRecords = [];
-    let chunkIndex = 0;
-
-    for (const chunkText of chunks) {
-      // Generate embedding
-      const embedding = await generateEmbedding(chunkText);
-
-      // Insert into knowledge_doc_chunks
-      const { error: chunkError } = await supabase
-        .from('knowledge_doc_chunks')
-        .insert({
-          doc_id: doc.id,
-          chunk_index: chunkIndex,
-          content: chunkText,
-          embedding,
-          token_length: Math.ceil(chunkText.split(/\s+/).length * 1.3),
-          metadata: {
-            orgId,
-            docId: doc.id,
-            chunkIndex,
-          },
-        });
-
-      if (chunkError) {
-        logger.error('Failed to insert chunk', { chunkError, chunkIndex });
-        continue;
+    // Extract text from file
+    let textContent = '';
+    try {
+      if (mimetype === 'application/pdf') {
+        const dataBuffer = fs.readFileSync(filepath);
+        const pdfData = await pdf(dataBuffer);
+        textContent = pdfData.text;
+      } else if (mimetype.startsWith('text/')) {
+        textContent = fs.readFileSync(filepath, 'utf8');
+      } else {
+        throw new Error('Unsupported file type');
       }
+    } catch (error) {
+      logger.error('Failed to extract text from file', { error, docId: doc.id });
+      await supabase.from('knowledge_docs').delete().eq('id', doc.id);
+      return res.status(400).json({ error: 'Failed to process file content' });
+    }
 
-      // Prepare for Pinecone
-      const truncatedText = chunkText.slice(0, 8000); // Pinecone has metadata size limits
-      pineconeRecords.push({
-        id: `${doc.id}_${chunkIndex}`,
-        values: embedding,
-        metadata: {
-          orgId,
-          docId: doc.id,
-          chunkIndex,
-          text: truncatedText,
-          tokenLength: Math.ceil(chunkText.split(/\s+/).length * 1.3),
-        },
-      });
+    // Split content into chunks and generate embeddings
+    const chunks = splitIntoChunks(textContent, 1000, 200);
+    logger.info('Split document into chunks', { docId: doc.id, chunkCount: chunks.length });
 
-      chunkIndex++;
+    const pineconeRecords = await Promise.all(
+      chunks.map(async (chunk, index) => {
+        try {
+          const embedding = await generateEmbedding(chunk);
+          const metadata = {
+            text: chunk,
+            docId: doc.id,
+            chunkIndex: index,
+            orgId: orgId
+          };
+          
+          logger.info('Creating Pinecone record', {
+            docId: doc.id,
+            chunkIndex: index,
+            metadata,
+            orgIdFromMetadata: metadata.orgId
+          });
+          
+          return {
+            id: `${doc.id}_${index}`,
+            values: embedding,
+            metadata
+          };
+        } catch (error) {
+          logger.error('Failed to generate embedding for chunk', { 
+            error, 
+            docId: doc.id, 
+            chunkIndex: index 
+          });
+          return null;
+        }
+      })
+    );
+
+    // Filter out failed embeddings
+    const validRecords = pineconeRecords.filter((record): record is NonNullable<typeof record> => record !== null);
+
+    if (validRecords.length === 0) {
+      logger.error('No valid embeddings generated', { docId: doc.id });
+      await supabase.from('knowledge_docs').delete().eq('id', doc.id);
+      return res.status(500).json({ error: 'Failed to process document content' });
     }
 
     // Upsert to Pinecone
-    if (pineconeRecords.length > 0) {
-      await upsertToPinecone(pineconeRecords);
-      logger.info('Upserted chunks to Pinecone', { count: pineconeRecords.length });
+    try {
+      await upsertToPinecone(validRecords);
+      logger.info('Upserted chunks to Pinecone', { 
+        docId: doc.id,
+        totalChunks: validRecords.length,
+        failedChunks: chunks.length - validRecords.length
+      });
+    } catch (error) {
+      logger.error('Failed to upsert to Pinecone', { error, docId: doc.id });
+      await supabase.from('knowledge_docs').delete().eq('id', doc.id);
+      return res.status(500).json({ error: 'Failed to store document embeddings' });
     }
 
     // Cleanup
-    fs.unlinkSync(filepath);
+    try {
+      fs.unlinkSync(filepath);
+    } catch (error) {
+      logger.warn('Failed to cleanup temporary file', { error, filepath });
+    }
 
     return res.status(200).json({
       success: true,
       docId: doc.id,
-      totalChunks: chunkIndex,
+      totalChunks: validRecords.length,
+      failedChunks: chunks.length - validRecords.length,
     });
   } catch (error) {
-    logger.error('KB Upload error', { error });
+    logger.error('Unexpected error in upload handler', { error });
     return res.status(500).json({ error: 'Internal server error' });
   }
 } 

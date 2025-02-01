@@ -105,7 +105,7 @@ export async function queryPinecone(
   embedding: number[],
   topK: number = 5,
   orgId?: string,
-  minScore: number = 0.7
+  minScore: number = 0.5
 ): Promise<PineconeMatch[]> {
   if (!isServer) {
     throw new Error('queryPinecone can only be called on the server side');
@@ -116,16 +116,60 @@ export async function queryPinecone(
   }
 
   try {
+    // First try without filter to verify embeddings exist
+    const testResponse = await pineconeIndex.query({
+      vector: embedding,
+      topK: 1,
+      includeMetadata: true
+    });
+    
+    logger.info('Test query without filter', {
+      hasMatches: (testResponse.matches || []).length > 0,
+      firstMatchScore: testResponse.matches?.[0]?.score,
+      firstMatchMetadata: testResponse.matches?.[0]?.metadata
+    });
+
+    logger.info('Querying Pinecone', { 
+      topK,
+      orgId,
+      minScore,
+      filterApplied: !!orgId
+    });
+
     const queryResponse = await pineconeIndex.query({
       vector: embedding,
       topK,
       includeMetadata: true,
-      filter: orgId ? { orgId } : undefined
+      filter: orgId ? {
+        $or: [
+          { orgId: { $eq: orgId } },  // camelCase
+          { org_id: { $eq: orgId } }  // snake_case
+        ]
+      } : undefined
+    });
+
+    // Log raw matches before filtering
+    const rawMatches = queryResponse.matches || [];
+    logger.info('Raw Pinecone matches', {
+      totalMatches: rawMatches.length,
+      matchScores: rawMatches.map((m: PineconeMatch) => m.score),
+      matchMetadata: rawMatches.map((m: PineconeMatch) => ({
+        id: m.id,
+        orgId: m.metadata?.orgId,
+        hasText: !!m.metadata?.text
+      }))
     });
 
     // Filter out matches below the threshold after getting results
-    const matches = queryResponse.matches || [];
-    return matches.filter((match: PineconeMatch) => (match.score || 0) >= minScore);
+    const matches = rawMatches.filter((match: PineconeMatch) => (match.score || 0) >= minScore);
+    
+    logger.info('Filtered Pinecone matches', {
+      totalMatches: matches.length,
+      matchScores: matches.map((m: PineconeMatch) => m.score),
+      threshold: minScore
+    });
+
+    return matches;
   } catch (error) {
     logger.error('Failed to query Pinecone', { error });
     return [];
