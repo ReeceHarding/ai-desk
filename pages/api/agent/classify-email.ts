@@ -22,14 +22,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { emailText, fromAddress, subject } = req.body;
+    const { emailText, fromAddress, subject, orgId } = req.body;
 
-    if (!emailText) {
-      logger.warn('Missing email text in classification request', { fromAddress, subject });
-      return res.status(400).json({ error: 'Missing email text' });
+    if (!emailText || !orgId) {
+      logger.warn('Missing required fields in classification request', { fromAddress, subject, orgId });
+      return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const systemPrompt = `You are an expert email classifier for a helpdesk system. Your task is to determine if an incoming email is promotional/marketing/automated or requires a human response. You must analyze each email with sophisticated criteria while maintaining strict output format compliance.
+    // Verify user has access to this organization
+    const { data: orgMember, error: orgError } = await supabase
+      .from('organization_members')
+      .select('role')
+      .eq('organization_id', orgId)
+      .eq('user_id', session.user.id)
+      .single();
+
+    if (orgError || !orgMember) {
+      logger.error('User not authorized for this organization', { 
+        userId: session.user.id, 
+        orgId,
+        error: orgError 
+      });
+      return res.status(403).json({ error: 'Not authorized for this organization' });
+    }
+
+    // Get organization-specific classification rules
+    const { data: org } = await supabase
+      .from('organizations')
+      .select('name, metadata')
+      .eq('id', orgId)
+      .single();
+
+    // Include org-specific rules in the system prompt
+    const orgSpecificRules = org?.metadata?.classification_rules || [];
+    const orgName = org?.name || 'Unknown Organization';
+
+    const systemPrompt = `You are an expert email classifier for ${orgName}'s helpdesk system. Your task is to determine if an incoming email is promotional/marketing/automated or requires a human response. You must analyze each email with sophisticated criteria while maintaining strict output format compliance.
 
 DETAILED CLASSIFICATION RULES:
 
@@ -48,6 +76,7 @@ DETAILED CLASSIFICATION RULES:
    - Contains unsubscribe links or marketing footers
    - Is from known marketing domains or bulk email services
    - Uses HTML-heavy formatting typical of marketing emails
+   ${orgSpecificRules.length > 0 ? '\nORGANIZATION-SPECIFIC RULES:\n' + orgSpecificRules.join('\n') : ''}
 
 2. Mark as NEEDS_RESPONSE (isPromotional: false) if the email:
    - Contains direct questions requiring human judgment
@@ -77,8 +106,9 @@ From: ${fromAddress}
 Subject: ${subject}
 Content: ${emailText}`;
 
-    // Log the classification request
+    // Log the classification request with org context
     logger.info('Starting email classification', {
+      orgId,
       fromAddress,
       subject,
       contentLength: emailText.length,
@@ -107,6 +137,7 @@ Content: ${emailText}`;
       
       // Log the classification result
       logger.info('Email classification complete', {
+        orgId,
         fromAddress,
         subject,
         classification: {

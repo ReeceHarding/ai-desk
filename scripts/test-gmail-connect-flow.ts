@@ -137,13 +137,26 @@ async function simulateGmailConnect() {
               }
             });
 
-            if (authError || !auth.user) {
-              console.error('Failed to create auth user:', authError);
-              continue;
+            if (authError) {
+              if (authError.message.includes('User already registered')) {
+                // Try to find the user again
+                const { data: existingUsers } = await supabase.auth.admin.listUsers();
+                const foundUser = existingUsers.users.find(u => u.email === parsedEmail.from);
+                if (foundUser) {
+                  userId = foundUser.id;
+                  console.log('✓ Found existing auth user:', userId);
+                } else {
+                  console.error('Failed to create or find auth user:', authError);
+                  continue;
+                }
+              } else {
+                console.error('Failed to create auth user:', authError);
+                continue;
+              }
+            } else if (auth.user) {
+              userId = auth.user.id;
+              console.log('✓ Created new auth user:', userId);
             }
-
-            userId = auth.user.id;
-            console.log('✓ Created new auth user:', userId);
           }
 
           if (!userId) {
@@ -151,32 +164,44 @@ async function simulateGmailConnect() {
             continue;
           }
 
-          // Create profile
-          const { data: newCustomer, error: profileError } = await supabase
+          // Check if profile exists
+          const { data: existingProfile } = await supabase
             .from('profiles')
-            .insert({
-              id: userId,
-              email: parsedEmail.from,
-              display_name: displayName,
-              role: 'customer',
-              org_id: org.id,
-              metadata: {
-                source: 'gmail_import',
-                created_at: new Date().toISOString()
-              },
-              extra_json_1: {},
-              avatar_url: `https://placehold.co/400x400/png?text=${displayName[0].toUpperCase()}`
-            })
-            .select()
+            .select('id')
+            .eq('id', userId)
             .single();
 
-          if (profileError || !newCustomer) {
-            console.error('Failed to create customer profile:', profileError);
-            continue;
-          }
+          if (existingProfile) {
+            customerId = existingProfile.id;
+            console.log('✓ Found existing profile:', customerId);
+          } else {
+            // Create profile
+            const { data: newCustomer, error: profileError } = await supabase
+              .from('profiles')
+              .insert({
+                id: userId,
+                email: parsedEmail.from,
+                display_name: parsedEmail.from.split('@')[0],
+                role: 'customer',
+                org_id: org.id,
+                metadata: {
+                  source: 'gmail_import',
+                  created_at: new Date().toISOString()
+                },
+                extra_json_1: {},
+                avatar_url: `https://placehold.co/400x400/png?text=${parsedEmail.from[0].toUpperCase()}`
+              })
+              .select()
+              .single();
 
-          customerId = newCustomer.id;
-          console.log('✓ Created new customer profile:', customerId);
+            if (profileError) {
+              console.error('Failed to create customer profile:', profileError);
+              continue;
+            }
+
+            customerId = newCustomer.id;
+            console.log('✓ Created new customer profile:', customerId);
+          }
         }
       }
 

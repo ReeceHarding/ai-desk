@@ -6,11 +6,20 @@ import { logger } from "../logger";
 // Initialize LangSmith tracing
 if (process.env.LANGCHAIN_TRACING_V2 === 'true') {
   logger.info('Initializing LangSmith tracing');
-  const client = new Client();
+  const client = new Client({
+    apiUrl: process.env.LANGCHAIN_ENDPOINT,
+    apiKey: process.env.LANGCHAIN_API_KEY,
+  });
 
-  // Set up project tags
+  // Set up project tags and metadata
   const projectName = process.env.LANGCHAIN_PROJECT || 'zendesk-clone';
-  client.createProject({ name: projectName }).catch(error => {
+  client.createProject({ 
+    projectName,
+    metadata: {
+      environment: process.env.NODE_ENV || 'development',
+      version: process.env.npm_package_version || '0.0.0'
+    }
+  }).catch(error => {
     // Project might already exist, which is fine
     logger.warn('Error creating LangSmith project', { error });
   });
@@ -47,15 +56,17 @@ export function initClients() {
     throw new Error('PINECONE_API_KEY is required');
   }
 
-  // Initialize OpenAI model with tracing tags
+  // Initialize OpenAI model with enhanced tracing tags
   const model = new ChatOpenAI({
     modelName: openAIConfig.modelName,
     temperature: openAIConfig.temperature,
     maxTokens: openAIConfig.maxTokens,
-    tags: ['gpt4-turbo', 'production'],
+    tags: ['gpt4-turbo', 'production', 'support-agent'],
     metadata: {
       useCase: 'support-agent',
-      component: 'rag-qa'
+      component: 'rag-qa',
+      environment: process.env.NODE_ENV || 'development',
+      version: process.env.npm_package_version || '0.0.0'
     }
   });
 

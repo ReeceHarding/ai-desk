@@ -1,6 +1,7 @@
 import { GMAIL_SCOPES } from '@/types/gmail';
 import { Database } from '@/types/supabase';
 import { importInitialEmails, setupGmailWatch } from '@/utils/gmail';
+import { logger } from '@/utils/logger';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
 import { NextApiRequest, NextApiResponse } from 'next';
@@ -15,7 +16,11 @@ interface GoogleOAuthError extends Error {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  console.log('\n=== Gmail Callback Started ===');
+  logger.info('Gmail callback handler started', {
+    method: req.method,
+    langsmithTracing: process.env.LANGCHAIN_TRACING_V2,
+    langsmithProject: process.env.LANGCHAIN_PROJECT
+  });
   
   // Add request ID for tracing
   const requestId = Math.random().toString(36).substring(7);
@@ -174,6 +179,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         log('Organization update successful');
+        logger.info('Gmail connection completed successfully', {
+          orgId: id,
+          historyId: requestId,
+          langsmithTracing: process.env.LANGCHAIN_TRACING_V2,
+          langsmithProject: process.env.LANGCHAIN_PROJECT
+        });
         return res.redirect(`/organizations/${id}/settings?success=true`);
       } else if (type === 'profile') {
         log('Updating profile:', id);
@@ -272,17 +283,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             expiry_date: Date.now() + (expires_in * 1000)
           });
           
-          const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-          const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
+          const successful = results.filter(r => r.success).length;
+          const failed = results.filter(r => !r.success).length;
           
-          log('Successfully imported initial emails', {
+          logger.info('Initial email import completed', {
             total: results.length,
             successful,
-            failed
+            failed,
+            orgId: id,
+            langsmithTracing: process.env.LANGCHAIN_TRACING_V2,
+            langsmithProject: process.env.LANGCHAIN_PROJECT
           });
-        } catch (importError) {
-          log('Error importing initial emails:', importError);
-          // Continue with redirect even if import fails
+
+          if (failed > 0) {
+            logger.warn('Some emails failed to import', {
+              failedEmails: results.filter(r => !r.success).map(r => ({
+                messageId: r.messageId,
+                error: r.error
+              }))
+            });
+          }
+        } catch (error) {
+          logger.error('Error importing initial emails', {
+            error,
+            orgId: id
+          });
         }
 
         // Redirect back to profile settings

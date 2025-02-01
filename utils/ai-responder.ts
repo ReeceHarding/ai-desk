@@ -1,3 +1,5 @@
+import { Client } from "langsmith";
+import { traceable } from "langsmith/traceable";
 import OpenAI from 'openai';
 import { applyCorrections, factCheck } from './factChecker';
 import { logger } from './logger';
@@ -25,24 +27,48 @@ if (isServer) {
   });
 }
 
+// Initialize LangSmith client
+let langsmith: Client | null = null;
+if (isServer && process.env.LANGCHAIN_TRACING_V2 === 'true') {
+  try {
+    langsmith = new Client({
+      apiUrl: process.env.LANGCHAIN_ENDPOINT,
+      apiKey: process.env.LANGCHAIN_API_KEY,
+    });
+    logger.info('LangSmith client initialized successfully', {
+      project: process.env.LANGCHAIN_PROJECT,
+      endpoint: process.env.LANGCHAIN_ENDPOINT
+    });
+  } catch (error) {
+    logger.error('Failed to initialize LangSmith client', { error });
+  }
+}
+
 /**
  * Classify an inbound email text into "should_respond", "no_response", or "unknown".
  * Returns an object { classification, confidence }, with confidence in 0-100.
  */
-export async function classifyInboundEmail(emailText: string): Promise<{
-  classification: 'should_respond' | 'no_response' | 'unknown';
-  confidence: number;  // 0-100
-}> {
-  if (!isServer) {
-    throw new Error('classifyInboundEmail can only be called on the server side');
-  }
-  
-  if (!openai) {
-    throw new Error('OpenAI client not initialized');
-  }
+// Wrap classification with tracing
+const classifyInboundEmailWithTrace = traceable(
+  async (emailText: string): Promise<{
+    classification: 'should_respond' | 'no_response' | 'unknown';
+    confidence: number;  // 0-100
+  }> => {
+    if (!isServer) {
+      throw new Error('classifyInboundEmail can only be called on the server side');
+    }
+    
+    if (!openai) {
+      throw new Error('OpenAI client not initialized');
+    }
 
-  try {
-    const systemPrompt = `You are an expert email classifier for a helpdesk system. Your task is to determine if an incoming email is promotional/marketing/automated or requires a human response.
+    logger.info('Starting email classification with LangSmith tracing', {
+      project: process.env.LANGCHAIN_PROJECT,
+      tracing: process.env.LANGCHAIN_TRACING_V2
+    });
+
+    try {
+      const systemPrompt = `You are an expert email classifier for a helpdesk system. Your task is to determine if an incoming email is promotional/marketing/automated or requires a human response.
 
 DETAILED CLASSIFICATION RULES:
 
@@ -96,44 +122,57 @@ You must respond in this exact JSON format with only these two fields:
     "reason": "Brief explanation of classification decision"
 }`;
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Please classify this email:\n${emailText}` },
-      ],
-      temperature: 0.1,
-      max_tokens: 150,
-    });
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Please classify this email:\n${emailText}` },
+        ],
+        temperature: 0.1,
+        max_tokens: 150,
+      });
 
-    const rawContent = completion.choices[0]?.message?.content?.trim() || '';
-    let isPromotional = false;
-    let reason = '';
+      const rawContent = completion.choices[0]?.message?.content?.trim() || '';
+      let isPromotional = false;
+      let reason = '';
 
-    try {
-      const jsonStart = rawContent.indexOf('{');
-      const jsonEnd = rawContent.lastIndexOf('}');
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        const jsonString = rawContent.slice(jsonStart, jsonEnd + 1);
-        const parsed = JSON.parse(jsonString);
-        isPromotional = parsed.isPromotional;
-        reason = parsed.reason;
+      try {
+        const jsonStart = rawContent.indexOf('{');
+        const jsonEnd = rawContent.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          const jsonString = rawContent.slice(jsonStart, jsonEnd + 1);
+          const parsed = JSON.parse(jsonString);
+          isPromotional = parsed.isPromotional;
+          reason = parsed.reason;
+        }
+      } catch (err) {
+        logger.warn('Failed to parse classification JSON', { content: rawContent, error: err });
+        return { classification: 'unknown', confidence: 0 };
       }
-    } catch (err) {
-      logger.warn('Failed to parse classification JSON', { content: rawContent, error: err });
+
+      // Return the classification with high confidence since we're using a strict rule set
+      return {
+        classification: isPromotional ? 'no_response' : 'should_respond',
+        confidence: 90
+      };
+    } catch (error) {
+      logger.error('Classification error', { error });
       return { classification: 'unknown', confidence: 0 };
     }
-
-    // Return the classification with high confidence since we're using a strict rule set
-    return {
-      classification: isPromotional ? 'no_response' : 'should_respond',
-      confidence: 90
-    };
-  } catch (error) {
-    logger.error('Classification error', { error });
-    return { classification: 'unknown', confidence: 0 };
+  },
+  {
+    name: "classify_inbound_email",
+    tags: ["production", "support-agent", "classification"],
+    metadata: {
+      useCase: "email-classification",
+      component: "classifier",
+      environment: process.env.NODE_ENV || 'development'
+    }
   }
-}
+);
+
+// Export the traced version
+export const classifyInboundEmail = classifyInboundEmailWithTrace;
 
 export interface RagDebugInfo {
   chunks?: Array<{
@@ -167,78 +206,79 @@ export interface RagResponse {
   debugInfo?: RagDebugInfo;
 }
 
-/**
- * Generate a RAG-based response for an inbound email using Pinecone & GPT-3.5.
- * 
- * 1. We embed the email text.
- * 2. Query Pinecone for top K relevant chunks.
- * 3. Provide the chunk contexts + user email text to GPT to get a final answer + confidence.
- * 4. Return { response, confidence, references }.
- */
-export async function generateRagResponse(
-  emailText: string,
-  orgId: string,
-  topK: number = 5,
-  debug: boolean = false,
-  senderInfo?: { 
-    fromName?: string;
-    agentName?: string;
-  }
-): Promise<RagResponse> {
-  if (!isServer) {
-    throw new Error('generateRagResponse can only be called on the server side');
-  }
-  
-  if (!openai) {
-    throw new Error('OpenAI client not initialized');
-  }
-
-  const startTime = Date.now();
-  const debugInfo: RagDebugInfo = {};
-
-  try {
-    // Step 1: Embed the email text
-    const embedding = await generateEmbedding(emailText);
-
-    // Step 2: Query Pinecone for top K org-specific chunks
-    const matches = await queryPinecone(embedding, topK, orgId, 0.7);
-
-    if (debug) {
-      debugInfo.chunks = matches.map(match => ({
-        docId: match.id?.split('_')[0] || '',
-        text: match.metadata?.text || '',
-        similarity: match.score || 0
-      }));
+// Wrap response generation with tracing
+const generateRagResponseWithTrace = traceable(
+  async (
+    emailText: string,
+    orgId: string,
+    topK: number = 5,
+    debug: boolean = false,
+    senderInfo?: { 
+      fromName?: string;
+      agentName?: string;
+    }
+  ): Promise<RagResponse> => {
+    if (!isServer) {
+      throw new Error('generateRagResponse can only be called on the server side');
+    }
+    
+    if (!openai) {
+      throw new Error('OpenAI client not initialized');
     }
 
-    // If no matches found, return early with "Not enough info"
-    if (matches.length === 0) {
-      // logger.info('No relevant chunks found for query', { emailText, orgId });
-      return { 
-        response: 'Not enough info.', 
-        confidence: 0,
-        references: [],
-        debugInfo: debug ? {
-          ...debugInfo,
-          processingTimeMs: Date.now() - startTime
-        } : undefined
-      };
-    }
-
-    // Step 3: Prepare a context string from chunks
-    let contextString = '';
-    const references: string[] = [];
-    matches.forEach((match, index) => {
-      contextString += `\n[Chunk ${index + 1}]:\n${match.metadata?.text || ''}\n`;
-      references.push(match.id || '');
+    logger.info('Starting RAG response generation with LangSmith tracing', {
+      project: process.env.LANGCHAIN_PROJECT,
+      tracing: process.env.LANGCHAIN_TRACING_V2,
+      orgId,
+      topK,
+      debug
     });
 
-    // Extract customer name from email if available
-    const customerName = senderInfo?.fromName?.split(' ')[0] || 'there';
-    const agentFirstName = senderInfo?.agentName?.split(' ')[0] || 'Support Agent';
+    const startTime = Date.now();
+    const debugInfo: RagDebugInfo = {};
 
-    // Construct GPT system prompt with stronger factual accuracy guidelines
-    const systemPrompt = `
+    try {
+      // Step 1: Embed the email text
+      const embedding = await generateEmbedding(emailText);
+
+      // Step 2: Query Pinecone for top K org-specific chunks
+      const matches = await queryPinecone(embedding, topK, orgId, 0.7);
+
+      if (debug) {
+        debugInfo.chunks = matches.map(match => ({
+          docId: match.id?.split('_')[0] || '',
+          text: match.metadata?.text || '',
+          similarity: match.score || 0
+        }));
+      }
+
+      // If no matches found, return early with "Not enough info"
+      if (matches.length === 0) {
+        return { 
+          response: 'Not enough info.', 
+          confidence: 0,
+          references: [],
+          debugInfo: debug ? {
+            ...debugInfo,
+            processingTimeMs: Date.now() - startTime
+          } : undefined
+        };
+      }
+
+      // Step 3: Prepare a context string from chunks
+      let contextString = '';
+      const references: string[] = [];
+      matches.forEach((match, index) => {
+        contextString += `\n[Chunk ${index + 1}]:\n${match.metadata?.text || ''}\n`;
+        references.push(match.id || '');
+      });
+
+      // Extract customer name from email if available
+      const customerName = senderInfo?.fromName?.split(' ')[0] || 'there';
+      const agentFirstName = senderInfo?.agentName?.split(' ')[0] || 'Support Agent';
+
+      // Construct GPT system prompt with stronger factual accuracy guidelines
+      const systemPrompt = `
 You are a knowledgeable support agent crafting email responses. Use ONLY the following context to answer the customer's question:
 ${contextString}
 
@@ -287,124 +327,137 @@ Return a JSON object: {
 
 If you cannot answer based on the context, respond with "Not enough info." and low confidence.`;
 
-    if (debug) {
-      debugInfo.prompt = {
-        system: systemPrompt,
-        user: emailText,
-        temperature: 0.2,
-        maxTokens: 500
-      };
-    }
-
-    // Step 4: Generate initial response
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: emailText },
-      ],
-      temperature: 0.2,
-      max_tokens: 500,
-    });
-
-    const rawContent = completion.choices[0]?.message?.content?.trim() || '';
-    let finalAnswer = 'Not enough info.';
-    let confidence = 0;
-
-    if (debug) {
-      debugInfo.modelResponse = rawContent;
-    }
-
-    try {
-      // Parse the initial response
-      const jsonStart = rawContent.indexOf('{');
-      const jsonEnd = rawContent.lastIndexOf('}');
-      if (jsonStart !== -1 && jsonEnd !== -1) {
-        const jsonString = rawContent.slice(jsonStart, jsonEnd + 1);
-        const parsed = JSON.parse(jsonString);
-        if (parsed.answer) {
-          // Process the answer to ensure proper HTML formatting
-          finalAnswer = parsed.answer
-            .replace(/\n{2,}/g, '</p><p>') // Convert multiple newlines to paragraph breaks
-            .replace(/\n/g, '<br/>') // Convert single newlines to line breaks
-            .replace(/\s{2,}/g, ' &nbsp;'.repeat(2)) // Preserve multiple spaces
-            .trim();
-          
-          // Ensure the response is wrapped in paragraphs
-          if (!finalAnswer.startsWith('<p>')) {
-            finalAnswer = `<p>${finalAnswer}</p>`;
-          }
-        }
-        if (typeof parsed.confidence === 'number') {
-          confidence = Math.max(0, Math.min(100, parsed.confidence));
-        }
-      } else {
-        finalAnswer = `<p>${rawContent}</p>`;
-        confidence = 30;
-      }
-
-      // Step 5: Fact check the response
-      const factCheckResult = await factCheck(finalAnswer, embedding, orgId, topK);
-      
-      // If fact check failed or corrections needed
-      if (!factCheckResult.isFactual || factCheckResult.corrections.length > 0) {
-        // Apply corrections to create a verified response
-        const correctedAnswer = applyCorrections(finalAnswer, factCheckResult.corrections);
-        finalAnswer = correctedAnswer;
-        confidence = Math.min(confidence, factCheckResult.confidence);
-
-        // If the response is too mangled after corrections, fall back to a simpler response
-        if (finalAnswer.includes('information available upon request') || 
-            finalAnswer.split('\n\n').length < 3) {
-          finalAnswer = `Hi ${customerName},\n\nThank you for your interest in Las Canas Beach Retreat. For detailed information about our amenities and services, please contact us directly.\n\nBest regards,\n${agentFirstName}`;
-          confidence = 30;
-        }
-      }
-
       if (debug) {
-        debugInfo.factCheck = {
-          isFactual: factCheckResult.isFactual,
-          corrections: factCheckResult.corrections,
-          confidence: factCheckResult.confidence
+        debugInfo.prompt = {
+          system: systemPrompt,
+          user: emailText,
+          temperature: 0.2,
+          maxTokens: 500
         };
       }
 
-    } catch (err) {
-      // logger.warn('Failed to parse or fact-check response', { content: rawContent, error: err });
-      finalAnswer = 'Not enough info.';
-      confidence = 0;
-    }
+      // Step 4: Generate initial response
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: emailText },
+        ],
+        temperature: 0.2,
+        max_tokens: 500,
+      });
 
-    if (debug) {
-      debugInfo.processingTimeMs = Date.now() - startTime;
-    }
+      const rawContent = completion.choices[0]?.message?.content?.trim() || '';
+      let finalAnswer = 'Not enough info.';
+      let confidence = 0;
 
-    // logger.info('Generated RAG response', { 
-    //   finalAnswer, 
-    //   confidence, 
-    //   references,
-    //   factChecked: true
-    // });
-    
-    return { 
-      response: finalAnswer, 
-      confidence, 
-      references, 
-      debugInfo: debug ? debugInfo : undefined 
-    };
-  } catch (error) {
-    logger.error('RAG generation error', { error });
-    return { 
-      response: 'Not enough info.', 
-      confidence: 0,
-      references: [],
-      debugInfo: debug ? {
-        ...debugInfo,
-        processingTimeMs: Date.now() - startTime
-      } : undefined
-    };
+      if (debug) {
+        debugInfo.modelResponse = rawContent;
+      }
+
+      try {
+        // Parse the initial response
+        const jsonStart = rawContent.indexOf('{');
+        const jsonEnd = rawContent.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          const jsonString = rawContent.slice(jsonStart, jsonEnd + 1);
+          const parsed = JSON.parse(jsonString);
+          if (parsed.answer) {
+            // Process the answer to ensure proper HTML formatting
+            finalAnswer = parsed.answer
+              .replace(/\n{2,}/g, '</p><p>') // Convert multiple newlines to paragraph breaks
+              .replace(/\n/g, '<br/>') // Convert single newlines to line breaks
+              .replace(/\s{2,}/g, ' &nbsp;'.repeat(2)) // Preserve multiple spaces
+              .trim();
+            
+            // Ensure the response is wrapped in paragraphs
+            if (!finalAnswer.startsWith('<p>')) {
+              finalAnswer = `<p>${finalAnswer}</p>`;
+            }
+          }
+          if (typeof parsed.confidence === 'number') {
+            confidence = Math.max(0, Math.min(100, parsed.confidence));
+          }
+        } else {
+          finalAnswer = `<p>${rawContent}</p>`;
+          confidence = 30;
+        }
+
+        // Step 5: Fact check the response
+        const factCheckResult = await factCheck(finalAnswer, embedding, orgId, topK);
+        
+        // If fact check failed or corrections needed
+        if (!factCheckResult.isFactual || factCheckResult.corrections.length > 0) {
+          // Apply corrections to create a verified response
+          const correctedAnswer = applyCorrections(finalAnswer, factCheckResult.corrections);
+          finalAnswer = correctedAnswer;
+          confidence = Math.min(confidence, factCheckResult.confidence);
+
+          // If the response is too mangled after corrections, fall back to a simpler response
+          if (finalAnswer.includes('information available upon request') || 
+              finalAnswer.split('\n\n').length < 3) {
+            finalAnswer = `Hi ${customerName},\n\nThank you for your interest in Las Canas Beach Retreat. For detailed information about our amenities and services, please contact us directly.\n\nBest regards,\n${agentFirstName}`;
+            confidence = 30;
+          }
+        }
+
+        if (debug) {
+          debugInfo.factCheck = {
+            isFactual: factCheckResult.isFactual,
+            corrections: factCheckResult.corrections,
+            confidence: factCheckResult.confidence
+          };
+        }
+
+      } catch (err) {
+        // logger.warn('Failed to parse or fact-check response', { content: rawContent, error: err });
+        finalAnswer = 'Not enough info.';
+        confidence = 0;
+      }
+
+      if (debug) {
+        debugInfo.processingTimeMs = Date.now() - startTime;
+      }
+
+      // logger.info('Generated RAG response', { 
+      //   finalAnswer, 
+      //   confidence, 
+      //   references,
+      //   factChecked: true
+      // });
+      
+      return { 
+        response: finalAnswer, 
+        confidence, 
+        references, 
+        debugInfo: debug ? debugInfo : undefined 
+      };
+    } catch (error) {
+      logger.error('Error generating RAG response', { error, emailText, orgId });
+      return { 
+        response: 'An error occurred while generating the response.', 
+        confidence: 0,
+        references: [],
+        debugInfo: debug ? {
+          ...debugInfo,
+          processingTimeMs: Date.now() - startTime
+        } : undefined
+      };
+    }
+  },
+  {
+    name: "generate_rag_response",
+    tags: ["production", "support-agent", "rag"],
+    metadata: {
+      useCase: "email-response",
+      component: "rag-qa",
+      environment: process.env.NODE_ENV || 'development'
+    }
   }
-}
+);
+
+// Export the traced version
+export const generateRagResponse = generateRagResponseWithTrace;
 
 /**
  * Decide if we auto-send or just store a draft, given a confidence threshold.
@@ -415,4 +468,20 @@ export function decideAutoSend(
   threshold: number = 75  // Lowered from 85 to be less aggressive
 ): { autoSend: boolean } {
   return { autoSend: confidence >= threshold };
+}
+
+export interface EmailClassification {
+  isPromotional: boolean;
+  needsDraft: boolean;
+}
+
+export async function classifyEmail(email: { subject: string; body: string }): Promise<EmailClassification> {
+  return {
+    isPromotional: false,
+    needsDraft: true,
+  };
+}
+
+export async function generateDraft(email: { subject: string; body: string }): Promise<string> {
+  return 'AI generated response';
 } 

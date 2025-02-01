@@ -1,7 +1,8 @@
 import { GmailTokens } from '@/types/gmail';
 import { Database } from '@/types/supabase';
-import { parseGmailMessage, pollGmailInbox } from '@/utils/gmail';
+import { parseGmailMessage } from '@/utils/gmail';
 import { logger } from '@/utils/logger';
+import { pollGmailInbox } from '@/utils/server/gmail';
 import { createPagesServerClient } from '@supabase/auth-helpers-nextjs';
 import { NextApiRequest, NextApiResponse } from 'next';
 
@@ -156,7 +157,7 @@ async function processEmailsInBackground(
     };
 
     // Get messages
-    const messages = await pollGmailInbox(gmailTokens);
+    const messages = await pollGmailInbox(gmailTokens, count);
     const totalMessages = count === -1 ? messages.length : Math.min(count, messages.length);
 
     if (totalMessages === 0) {
@@ -181,17 +182,57 @@ async function processEmailsInBackground(
           failedCount++;
           continue;
         }
+
+        // Create ticket first
+        const { data: ticket, error: ticketError } = await supabase
+          .from('tickets')
+          .insert({
+            subject: parsedEmail.subject || '(No Subject)',
+            description: parsedEmail.bodyText || parsedEmail.bodyHtml || '',
+            status: 'open',
+            priority: 'medium',
+            customer_id: userId,
+            org_id: orgData.id,
+            type: 'email',
+            source: 'gmail',
+            metadata: {
+              email_message_id: message.id,
+              email_thread_id: message.threadId,
+              email_from: parsedEmail.from,
+              email_to: parsedEmail.to.join(', '),
+              email_cc: parsedEmail.cc?.join(', ') || '',
+              email_bcc: parsedEmail.bcc?.join(', ') || ''
+            }
+          })
+          .select()
+          .single();
+
+        if (ticketError || !ticket) {
+          logger.error('Error creating ticket', { error: ticketError });
+          failedCount++;
+          continue;
+        }
         
-        // First create the ticket email chat record
+        // Create email chat entry
         const { data: chatRecord, error: insertError } = await supabase
           .from('ticket_email_chats')
           .insert({
-            subject: parsedEmail.subject,
+            ticket_id: ticket.id,
+            message_id: message.id,
+            thread_id: message.threadId,
             from_address: parsedEmail.from,
             from_name: parsedEmail.from.split('@')[0], // Simple name extraction
-            thread_id: message.threadId,
-            message_id: message.id,
+            to_address: parsedEmail.to,
+            cc_address: parsedEmail.cc || [],
+            bcc_address: parsedEmail.bcc || [],
+            subject: parsedEmail.subject,
+            body: parsedEmail.bodyText || parsedEmail.bodyHtml || '',
+            gmail_date: new Date(parsedEmail.date.replace(/\s\(.*\)$/, '')).toISOString(),
             org_id: orgData.id,
+            ai_classification: 'unknown',
+            ai_confidence: 0,
+            ai_auto_responded: false,
+            ai_draft_response: null,
             metadata: {}
           })
           .select()
@@ -213,6 +254,7 @@ async function processEmailsInBackground(
             emailText: parsedEmail.bodyText || '',
             fromAddress: parsedEmail.from,
             subject: parsedEmail.subject,
+            orgId: orgData.id
           }),
         });
 
@@ -248,26 +290,19 @@ async function processEmailsInBackground(
         // Add small delay to prevent rate limiting
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
-        logger.error('Error processing email', { 
-          error,
-          messageId: message.id,
-          importId 
-        });
+        logger.error('Error processing email', { error, messageId: message.id });
         failedCount++;
-        continue;
+        
+        // Update progress even for failed items
+        const progress = Math.round(((i + 1) / totalMessages) * 100);
+        global.importProgress.set(importId, progress);
+        await updateImportProgress(supabase, importId, progress, processedCount, failedCount);
       }
     }
 
-    // Mark as complete
+    // Mark import as completed
+    await updateImportStatus(supabase, importId, 'completed', null, processedCount, failedCount);
     global.importProgress.set(importId, 100);
-    await updateImportStatus(
-      supabase, 
-      importId, 
-      'completed', 
-      null,
-      processedCount,
-      failedCount
-    );
   } catch (error) {
     logger.error('Error in background email processing', { error, importId });
     global.importProgress.set(importId, -1);

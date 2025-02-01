@@ -1,5 +1,7 @@
 import { Database } from '@/types/supabase';
 import { createClient } from '@supabase/supabase-js';
+import { Client } from "langsmith";
+import { traceable } from "langsmith/traceable";
 import OpenAI from 'openai';
 import { getGmailClient } from '../gmail';
 import { logger } from '../logger';
@@ -13,21 +15,40 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-async function classifyEmailAsPromotional(
-  emailText: string,
-  fromAddress: string = '',
-  subject: string = '',
-  messageId: string = ''
-): Promise<{isPromotional: boolean; reason: string} | null> {
+// Initialize LangSmith client
+let langsmith: Client | null = null;
+if (process.env.LANGCHAIN_TRACING_V2 === 'true') {
   try {
-    // Log classification start with minimal info
-    logger.info('Classifying email', {
-      from: fromAddress,
-      subject,
-      preview: emailText.substring(0, 100)
+    langsmith = new Client({
+      apiUrl: process.env.LANGCHAIN_ENDPOINT,
+      apiKey: process.env.LANGCHAIN_API_KEY,
     });
+    logger.info('LangSmith client initialized successfully', {
+      project: process.env.LANGCHAIN_PROJECT,
+      endpoint: process.env.LANGCHAIN_ENDPOINT
+    });
+  } catch (error) {
+    logger.error('Failed to initialize LangSmith client', { error });
+  }
+}
 
-    const systemPrompt = `You are an expert email classifier for a helpdesk system. Your task is to determine if an incoming email is promotional/marketing/automated or requires a human response. You must analyze each email with sophisticated criteria while maintaining strict output format compliance.
+// Wrap the classification function with tracing
+const classifyEmailAsPromotionalWithTrace = traceable(
+  async (
+    emailText: string,
+    fromAddress: string = '',
+    subject: string = '',
+    messageId: string = ''
+  ): Promise<{isPromotional: boolean; reason: string} | null> => {
+    try {
+      // Log classification start with minimal info
+      logger.info('Classifying email', {
+        from: fromAddress,
+        subject,
+        preview: emailText.substring(0, 100)
+      });
+
+      const systemPrompt = `You are an expert email classifier for a helpdesk system. Your task is to determine if an incoming email is promotional/marketing/automated or requires a human response. You must analyze each email with sophisticated criteria while maintaining strict output format compliance.
 
 DETAILED CLASSIFICATION RULES:
 
@@ -93,64 +114,77 @@ Input: "🎉 Don't miss out! 50% off all products this weekend only! Click here 
     "reason": "Marketing email with promotional offers and sale announcement"
 }`;
 
-    const userPrompt = `Please classify this email:
+      const userPrompt = `Please classify this email:
 From: ${fromAddress}
 Subject: ${subject}
 Content: ${emailText}`;
 
-    // Log the complete input being sent to GPT
-    logger.info('\n=== GPT Classification Input ===', {
-      timestamp: new Date().toISOString(),
-      systemPrompt,
-      userPrompt,
-      emailDetails: {
-        fromAddress,
-        subject,
-        contentLength: emailText.length,
-        contentPreview: emailText.substring(0, 200) + (emailText.length > 200 ? '...' : '')
-      }
-    });
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ],
-      temperature: 0.1,
-      max_tokens: 150,
-      response_format: { type: 'json_object' }
-    });
-
-    const response = completion.choices[0]?.message?.content;
-    if (!response) {
-      logger.error('GPT classification failed', {
-        error: 'No response from GPT'
+      // Log the complete input being sent to GPT
+      logger.info('\n=== GPT Classification Input ===', {
+        timestamp: new Date().toISOString(),
+        systemPrompt,
+        userPrompt,
+        emailDetails: {
+          fromAddress,
+          subject,
+          contentLength: emailText.length,
+          contentPreview: emailText.substring(0, 200) + (emailText.length > 200 ? '...' : '')
+        }
       });
-      throw new Error('No response from GPT');
+
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.1,
+        max_tokens: 150,
+        response_format: { type: 'json_object' }
+      });
+
+      const response = completion.choices[0]?.message?.content;
+      if (!response) {
+        logger.error('GPT classification failed', {
+          error: 'No response from GPT'
+        });
+        throw new Error('No response from GPT');
+      }
+
+      const classification = JSON.parse(response);
+      
+      // Log the final classification concisely
+      logger.info('Classification result', {
+        id: messageId || 'unknown',
+        isPromotional: classification.isPromotional,
+        reason: classification.reason
+      });
+
+      return {
+        isPromotional: classification.isPromotional,
+        reason: classification.reason
+      };
+    } catch (error) {
+      logger.error('Classification error', {
+        error: error instanceof Error ? error.message : String(error),
+        id: messageId || 'unknown'
+      });
+      return null;
     }
-
-    const classification = JSON.parse(response);
-    
-    // Log the final classification concisely
-    logger.info('Classification result', {
-      id: messageId || 'unknown',
-      isPromotional: classification.isPromotional,
-      reason: classification.reason
-    });
-
-    return {
-      isPromotional: classification.isPromotional,
-      reason: classification.reason
-    };
-  } catch (error) {
-    logger.error('Classification error', {
-      error: error instanceof Error ? error.message : String(error),
-      id: messageId || 'unknown'
-    });
-    return null;
+  },
+  {
+    name: "classify_email_promotional",
+    tags: ["production", "gmail", "classification"],
+    metadata: {
+      useCase: "email-classification",
+      component: "promotion-agent",
+      environment: process.env.NODE_ENV || 'development'
+    }
   }
-}
+);
+
+// Export the traced version
+const classifyEmailAsPromotional = classifyEmailAsPromotionalWithTrace;
 
 async function getThreadMessages(threadId: string, orgId: string): Promise<{
   messages: {
@@ -286,9 +320,9 @@ export async function processPotentialPromotionalEmail(
       const aiDraft = await generateAIDraft(emailBody);
       
       const { error: updateError } = await supabase
-        .from('processed_messages')
+        .from('ticket_email_chats')
         .update({ 
-          ai_draft: aiDraft,
+          ai_draft_response: aiDraft,
           metadata: {
             ...chatRecord.metadata,
             requires_human_response: true
@@ -297,7 +331,9 @@ export async function processPotentialPromotionalEmail(
         .eq('id', ticketEmailChatId);
 
       if (updateError) {
-        logger.error('Failed to store AI draft');
+        logger.error('Failed to store AI draft', { error: updateError });
+      } else {
+        logger.info('Successfully stored AI draft', { ticketEmailChatId });
       }
     }
   } catch (error) {

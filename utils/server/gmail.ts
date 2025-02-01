@@ -276,7 +276,7 @@ function convertMessagePart(part: gmail_v1.Schema$MessagePart): GmailMessagePart
 /**
  * Poll Gmail inbox for new messages
  */
-export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[]> {
+export async function pollGmailInbox(tokens: GmailTokens, count: number = 50): Promise<GmailMessage[]> {
   try {
     const oauth2Client = new google.auth.OAuth2(
       process.env.NEXT_PUBLIC_GMAIL_CLIENT_ID,
@@ -290,10 +290,21 @@ export async function pollGmailInbox(tokens: GmailTokens): Promise<GmailMessage[
     const response = await gmail.users.messages.list({
       userId: 'me',
       q: 'is:unread',
-      maxResults: 50
+      maxResults: count === -1 ? 50 : count // Gmail API max is 500, but we'll use 50 for safety
     });
 
-    return (response.data.messages || []).map(msg => ({
+    const messages = response.data.messages || [];
+    const messageDetails = await Promise.all(
+      messages.slice(0, count === -1 ? messages.length : count).map(async (msg) => {
+        const details = await gmail.users.messages.get({
+          userId: 'me',
+          id: msg.id!
+        });
+        return details.data;
+      })
+    );
+
+    return messageDetails.map(msg => ({
       id: msg.id || '',
       threadId: msg.threadId || '',
       labelIds: msg.labelIds || [],
@@ -663,7 +674,7 @@ export async function importInitialEmails(userId: string) {
       expiry_date: Date.now() + 3600000 // 1 hour from now
     };
 
-    const messages = await pollGmailInbox(tokens);
+    const messages = await pollGmailInbox(tokens, 50);
     
     for (const message of messages) {
       try {
@@ -713,7 +724,7 @@ export async function pollAndCreateTickets(userId: string): Promise<any[]> {
     };
 
     try {
-      const messages = await pollGmailInbox(tokens);
+      const messages = await pollGmailInbox(tokens, 50);
       const results = [];
 
       for (const message of messages) {
